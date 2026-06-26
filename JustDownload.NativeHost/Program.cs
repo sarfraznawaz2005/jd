@@ -1,5 +1,6 @@
 using JustDownload.Core;
 using JustDownload.Core.Abstractions;
+using JustDownload.Core.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
 
 // Native Messaging Host entry point (stub).
@@ -8,6 +9,9 @@ using Microsoft.Extensions.DependencyInjection;
 using ServiceProvider provider = new ServiceCollection()
     .AddJustDownloadCore()
     .BuildServiceProvider();
+
+// Capture and surface unhandled exceptions — no silent failures (§1).
+provider.GetRequiredService<IGlobalErrorHandler>().Install();
 
 IAppInfoProvider appInfo = provider.GetRequiredService<IAppInfoProvider>();
 Console.WriteLine($"{appInfo.Name} Native Messaging Host");

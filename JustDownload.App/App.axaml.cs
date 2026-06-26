@@ -3,6 +3,7 @@ using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
 using JustDownload.App.Views;
 using JustDownload.Core;
+using JustDownload.Core.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace JustDownload.App;
@@ -23,6 +24,9 @@ public partial class App : Application
 
     public override void OnFrameworkInitializationCompleted()
     {
+        // Capture and surface unhandled exceptions process-wide — no silent failures (§1).
+        Services.GetRequiredService<IGlobalErrorHandler>().Install();
+
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
             desktop.MainWindow = new MainWindow();

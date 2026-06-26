@@ -16,7 +16,15 @@
       container builder — so the headless engine declares registrations without depending on a
       concrete provider. MIT-licensed, ships with .NET, negligible to the light-&-fast budget (§4).
     -->
-    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="8.0.1" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="8.0.2" />
+    <!--
+      Logging + global error handling (TASK-016). The concrete Microsoft.Extensions.Logging is
+      needed here (not just its Abstractions) because Core owns the composition root (TASK-017) and
+      must build the LoggerFactory, set the configurable minimum level, and wrap every logger with
+      the secret-redaction decorator. MIT-licensed, part of the .NET BCL, no native payload — within
+      the light-&-fast budget (§4).
+    -->
+    <PackageReference Include="Microsoft.Extensions.Logging" Version="8.0.1" />
   </ItemGroup>
 
 </Project>

@@ -11,7 +11,10 @@
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
     <!-- Underscores in test method names (Method_State_Expected) are the xUnit idiom. -->
-    <NoWarn>$(NoWarn);CA1707</NoWarn>
+    <!-- CA1848 (LoggerMessage source-gen delegates) is a hot-path perf rule; tests log ad-hoc
+         to exercise the redaction/level pipeline, so the high-performance delegates add noise
+         without value here. -->
+    <NoWarn>$(NoWarn);CA1707;CA1848</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>

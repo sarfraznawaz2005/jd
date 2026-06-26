@@ -1,6 +1,10 @@
 using JustDownload.Core.Abstractions;
+using JustDownload.Core.Diagnostics;
+using JustDownload.Core.Logging;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace JustDownload.Core;
 
@@ -14,16 +18,68 @@ public static class ServiceCollectionExtensions
 {
     /// <summary>
     /// Registers the JustDownload.Core services behind their interfaces. Uses <c>TryAdd</c> so a
-    /// caller (notably a test) can pre-register a substitute and have it win.
+    /// caller (notably a test) can pre-register a substitute and have it win. This also wires the
+    /// logging pipeline (TASK-016): a configurable minimum level and a secret-redacting logger
+    /// factory, plus the global error handler.
     /// </summary>
     /// <param name="services">The service collection to populate.</param>
+    /// <param name="configureLogging">
+    /// Optional hook to set the log level (and future logging options). When <see langword="null"/>,
+    /// the defaults from <see cref="LoggingOptions"/> apply.
+    /// </param>
     /// <returns>The same <paramref name="services"/> instance, for chaining.</returns>
-    public static IServiceCollection AddJustDownloadCore(this IServiceCollection services)
+    public static IServiceCollection AddJustDownloadCore(
+        this IServiceCollection services,
+        Action<LoggingOptions>? configureLogging = null)
     {
         ArgumentNullException.ThrowIfNull(services);
 
         services.TryAddSingleton<IClock, SystemClock>();
         services.TryAddSingleton<IAppInfoProvider, AppInfoProvider>();
+
+        services.AddJustDownloadLogging(configureLogging);
+
+        return services;
+    }
+
+    /// <summary>
+    /// Registers the engine's logging + global error handling (TASK-016): the secret redactor, a
+    /// redacting <see cref="ILoggerFactory"/> decorator so every logger masks secrets, the
+    /// configurable minimum level, and <see cref="IGlobalErrorHandler"/>. Idempotent and safe to
+    /// call alongside a host's own <c>AddLogging</c> (which can add sinks like console/debug).
+    /// </summary>
+    /// <param name="services">The service collection to populate.</param>
+    /// <param name="configureLogging">Optional logging configuration hook.</param>
+    /// <returns>The same <paramref name="services"/> instance, for chaining.</returns>
+    public static IServiceCollection AddJustDownloadLogging(
+        this IServiceCollection services,
+        Action<LoggingOptions>? configureLogging = null)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+
+        var options = new LoggingOptions();
+        configureLogging?.Invoke(options);
+
+        services.TryAddSingleton<ISecretRedactor, SecretRedactor>();
+
+        // Build the standard logging infrastructure (filter options, provider plumbing) and apply
+        // the configurable minimum level.
+        services.AddLogging(builder => builder.SetMinimumLevel(options.MinimumLevel));
+
+        // Decorate ILoggerFactory so every logger redacts secrets before reaching any provider.
+        // Registered last so it wins resolution; Logger<T> (the ILogger<> implementation) then
+        // pulls this factory. The inner LoggerFactory is reconstructed from the same DI-registered
+        // providers and filter options the default factory would have used.
+        services.AddSingleton<ILoggerFactory>(sp =>
+        {
+            var inner = new LoggerFactory(
+                sp.GetServices<ILoggerProvider>(),
+                sp.GetRequiredService<IOptionsMonitor<LoggerFilterOptions>>());
+
+            return new RedactingLoggerFactory(inner, sp.GetRequiredService<ISecretRedactor>());
+        });
+
+        services.TryAddSingleton<IGlobalErrorHandler, GlobalErrorHandler>();
 
         return services;
     }
