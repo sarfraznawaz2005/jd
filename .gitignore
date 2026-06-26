@@ -1,0 +1,45 @@
+# ---- .NET build output ----
+bin/
+obj/
+out/
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+*.user
+*.suo
+*.userosscache
+*.dbmdl
+
+# ---- IDE / editor ----
+.vs/
+.vscode/
+.idea/
+*.swp
+
+# ---- Test / coverage ----
+[Tt]est[Rr]esult*/
+coverage/
+*.coverage
+*.trx
+
+# ---- SQLite transient files (never commit WAL/SHM; app DB itself is gitignored too) ----
+*.db
+*.db-shm
+*.db-wal
+*.sqlite-shm
+*.sqlite-wal
+
+# ---- Vendored binaries (ffmpeg etc. are fetched/bundled, not committed) ----
+vendor/
+ffmpeg*
+ffprobe*
+
+# ---- Runtime / downloaded artifacts & test leftovers ----
+downloads/
+*.tmp
+*.partial
+
+# ---- OS noise ----
+Thumbs.db
+.DS_Store
