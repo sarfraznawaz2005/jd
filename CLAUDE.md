@@ -172,8 +172,11 @@ JustDownload ships under **MIT**, so every dependency must be **MIT-compatible**
 ## 7. UI/UX bar
 
 The product promises a **superb, extremely professional, modern-minimal** UI (PRD §2.4). Hold that bar:
-- Avalonia 11 + **FluentTheme**, design-token system (4px grid, one accent color); **light + dark**,
-  follows the OS theme by default.
+- **Visual reference:** interactive HTML mockups live in **`mockups/`** (open `mockups/index.html`).
+  They define the intended look & feel — sidebar/list/detail layout, the segment visualization, dialogs,
+  and the extension. **Build the Avalonia UI to match them**; if you deviate, say why.
+- Avalonia 11 + **FluentTheme**, design-token system (4px grid, one accent color); **light + dark**.
+  **Default theme is light**; dark is available and the app may optionally follow the OS theme.
 - **Accessible:** full keyboard navigation, focus order, WCAG 2.1 AA contrast.
 - **DPI/resolution-proof:** vector icons, layout valid 800×600 → 4K at 100%–300% scaling; virtualize long
   lists for slow hardware.
