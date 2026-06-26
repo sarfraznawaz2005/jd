@@ -30,6 +30,10 @@ coverage/
 *.sqlite-shm
 *.sqlite-wal
 
+# ---- aitasks runtime backup artifacts (the task DB itself IS tracked) ----
+.aitasks/*.bak
+.aitasks/last_backup
+
 # ---- Vendored binaries (ffmpeg etc. are fetched/bundled, not committed) ----
 vendor/
 ffmpeg*
