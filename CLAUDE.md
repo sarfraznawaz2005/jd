@@ -188,8 +188,8 @@ The product promises a **superb, extremely professional, modern-minimal** UI (PR
   **Conventional Commit** for it (e.g. `feat(engine): dynamic segmentation work-stealing`). One task ≈ one
   commit; don't let finished work pile up uncommitted. (Standing instruction — no need to ask each time.)
 - **Pushing requires an explicit ask** — commit locally by default; push only when asked.
-- This directory is **not a git repo yet.** The first scaffold task must `git init` with a proper .NET
-  `.gitignore` before the commit-per-task rule applies; until then, note that commits are pending.
+- The repo is initialized (branch `master`) with a .NET `.gitignore` and an initial commit
+  (`docs: initial project scaffolding`). The commit-per-task rule (§8) is in effect from here on.
 - Never commit secrets, vendored binaries (gitignore `vendor/` / the ffmpeg binary), `bin/` `obj/` build
   output, the SQLite DB, downloaded test files, or any process/test leftovers.
 - Keep the working tree honest — verify `git status` is clean of stray test output (temp downloads, mp4s,
