@@ -4,6 +4,7 @@ using JustDownload.Core.Data.Migrations;
 using JustDownload.Core.Data.Repositories;
 using JustDownload.Core.Diagnostics;
 using JustDownload.Core.Logging;
+using JustDownload.Core.Settings;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
@@ -42,6 +43,11 @@ public static class ServiceCollectionExtensions
 
         services.AddJustDownloadLogging(configureLogging);
         services.AddJustDownloadData();
+
+        // Typed settings store over the settings repository (TASK-021): sane defaults, change
+        // notifications, and persistence across restarts. Singleton so the cached snapshot and the
+        // Changed event are shared by every consumer.
+        services.TryAddSingleton<ISettingsService, SettingsService>();
 
         return services;
     }

@@ -11,6 +11,11 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- The test project verifies internal seams (e.g. the settings storage-key contract) directly. -->
+    <InternalsVisibleTo Include="JustDownload.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <!--
       DI seams only (architecture §6). Core references the Abstractions package — not the
       container builder — so the headless engine declares registrations without depending on a
