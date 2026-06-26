@@ -1,6 +1,7 @@
 using JustDownload.Core.Abstractions;
 using JustDownload.Core.Data;
 using JustDownload.Core.Data.Migrations;
+using JustDownload.Core.Data.Repositories;
 using JustDownload.Core.Diagnostics;
 using JustDownload.Core.Logging;
 using Microsoft.Extensions.DependencyInjection;
@@ -108,6 +109,15 @@ public static class ServiceCollectionExtensions
         // version exceeds the database's current user_version, idempotently.
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IMigration, InitialSchemaMigration>());
         services.TryAddSingleton<IMigrationRunner, MigrationRunner>();
+
+        // Repositories (TASK-020) — the centralized data-access seam. Stateless over the shared
+        // connection factory, so a singleton lifetime is correct and cheap. All SQL for downloads,
+        // segments, settings, and the site blacklist lives behind these interfaces (architecture §6
+        // "centralize DB access"; no raw SQL elsewhere).
+        services.TryAddSingleton<IDownloadRepository, DownloadRepository>();
+        services.TryAddSingleton<ISegmentRepository, SegmentRepository>();
+        services.TryAddSingleton<ISettingsRepository, SettingsRepository>();
+        services.TryAddSingleton<IBlacklistRepository, BlacklistRepository>();
 
         return services;
     }
