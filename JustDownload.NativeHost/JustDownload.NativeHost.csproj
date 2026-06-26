@@ -11,6 +11,11 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- Container builder for the host's provider, built from Core's composition root (§6). -->
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="8.0.1" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\JustDownload.Core\JustDownload.Core.csproj" />
   </ItemGroup>
 

@@ -10,4 +10,13 @@
     <AssemblyName>JustDownload.Core</AssemblyName>
   </PropertyGroup>
 
+  <ItemGroup>
+    <!--
+      DI seams only (architecture §6). Core references the Abstractions package — not the
+      container builder — so the headless engine declares registrations without depending on a
+      concrete provider. MIT-licensed, ships with .NET, negligible to the light-&-fast budget (§4).
+    -->
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="8.0.1" />
+  </ItemGroup>
+
 </Project>
