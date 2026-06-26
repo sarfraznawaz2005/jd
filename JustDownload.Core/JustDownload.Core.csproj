@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    JustDownload.Core — the headless, fully testable download engine.
+    LOCKED DECISION D5 / architecture §6: this project MUST NOT reference Avalonia
+    or any UI framework. It is consumed by App, NativeHost, and a future CLI front-end.
+  -->
+  <PropertyGroup>
+    <RootNamespace>JustDownload.Core</RootNamespace>
+    <AssemblyName>JustDownload.Core</AssemblyName>
+  </PropertyGroup>
+
+</Project>

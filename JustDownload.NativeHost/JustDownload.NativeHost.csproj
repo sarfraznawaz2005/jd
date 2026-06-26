@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    JustDownload.NativeHost — the Native Messaging Host stub (D8) that bridges the
+    MV3 browser extension and the app. Console executable; drives Core, never UI.
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>JustDownload.NativeHost</RootNamespace>
+    <AssemblyName>JustDownload.NativeHost</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\JustDownload.Core\JustDownload.Core.csproj" />
+  </ItemGroup>
+
+</Project>
