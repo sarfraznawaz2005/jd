@@ -1,4 +1,5 @@
 using JustDownload.Core.Abstractions;
+using JustDownload.Core.Data;
 using JustDownload.Core.Diagnostics;
 using JustDownload.Core.Logging;
 using Microsoft.Extensions.DependencyInjection;
@@ -38,6 +39,7 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<IAppInfoProvider, AppInfoProvider>();
 
         services.AddJustDownloadLogging(configureLogging);
+        services.AddJustDownloadData();
 
         return services;
     }
@@ -80,6 +82,25 @@ public static class ServiceCollectionExtensions
         });
 
         services.TryAddSingleton<IGlobalErrorHandler, GlobalErrorHandler>();
+
+        return services;
+    }
+
+    /// <summary>
+    /// Registers the SQLite data layer (TASK-018, LOCKED DECISION D6): per-OS database path
+    /// resolution and a connection factory that opens connections with WAL journaling and a busy
+    /// timeout for safe concurrent read/write. Uses <c>TryAdd</c> so a test can substitute a
+    /// temp-path provider or options before this runs.
+    /// </summary>
+    /// <param name="services">The service collection to populate.</param>
+    /// <returns>The same <paramref name="services"/> instance, for chaining.</returns>
+    public static IServiceCollection AddJustDownloadData(this IServiceCollection services)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+
+        services.TryAddSingleton(new DatabaseOptions());
+        services.TryAddSingleton<IDatabasePathProvider, DatabasePathProvider>();
+        services.TryAddSingleton<IDbConnectionFactory, SqliteConnectionFactory>();
 
         return services;
     }

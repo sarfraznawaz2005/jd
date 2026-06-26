@@ -25,6 +25,13 @@
       the light-&-fast budget (§4).
     -->
     <PackageReference Include="Microsoft.Extensions.Logging" Version="8.0.1" />
+    <!--
+      SQLite persistence/resume (LOCKED DECISION D6, TASK-018). Microsoft.Data.Sqlite is MIT and
+      bundles the public-domain SQLite engine via SQLitePCLRaw (Apache-2.0/MIT) — all within the
+      §4 allow-list. It is the lightweight ADO.NET provider (no EF Core), keeping the engine close
+      to the light-&-fast budget. Pinned to the net8 LTS line.
+    -->
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.10" />
   </ItemGroup>
 
 </Project>
