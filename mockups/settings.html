@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>JustDownload — Settings</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+<style>
+  .settings{ display:grid; grid-template-columns:220px 1fr; height:100vh; }
+  .snav{ background:var(--sidebar); border-right:1px solid var(--border); padding:16px 8px; }
+  .snav .nav-item .ico{ color:var(--text-faint); }
+  .scontent{ overflow-y:auto; }
+  .shead{ height:56px; display:flex; align-items:center; gap:10px; padding:0 24px; border-bottom:1px solid var(--border); position:sticky; top:0; background:var(--bg); z-index:2;}
+  .shead b{ font-size:15px; }
+  .sgroup{ max-width:680px; padding:22px 24px; }
+  .sgroup h3{ font-size:11px; text-transform:uppercase; letter-spacing:.7px; color:var(--text-faint); margin-bottom:4px; }
+  .srow{ display:flex; align-items:center; gap:16px; padding:16px 0; border-bottom:1px solid var(--border-soft); }
+  .srow .lab{ flex:1; } .srow .lab .t{ font-weight:550; } .srow .lab .d{ font-size:11.5px; color:var(--text-faint); margin-top:2px; }
+  .srow .ctl{ flex:none; min-width:180px; display:flex; justify-content:flex-end; align-items:center; gap:10px;}
+  .pill{ font:11px var(--mono); background:var(--card-2); border:1px solid var(--border); border-radius:6px; padding:2px 8px; color:var(--text-dim);}
+</style>
+</head>
+<body>
+<div class="settings">
+  <aside class="snav">
+    <div class="nav-label">Settings</div>
+    <div class="nav-item"><span class="ico"><svg class="icon"><use href="#i-gear"/></svg></span> General</div>
+    <div class="nav-item active"><span class="ico"><svg class="icon"><use href="#i-bolt"/></svg></span> Connections</div>
+    <div class="nav-item"><span class="ico"><svg class="icon"><use href="#i-globe"/></svg></span> Proxy</div>
+    <div class="nav-item"><span class="ico"><svg class="icon"><use href="#i-key"/></svg></span> Authentication</div>
+    <div class="nav-item"><span class="ico"><svg class="icon"><use href="#i-folder"/></svg></span> Categories</div>
+    <div class="nav-item"><span class="ico"><svg class="icon"><use href="#i-link"/></svg></span> Browsers</div>
+    <div class="nav-item"><span class="ico"><svg class="icon"><use href="#i-sliders"/></svg></span> Advanced</div>
+  </aside>
+
+  <div class="scontent">
+    <div class="shead">
+      <button class="btn ghost icon-only" onclick="location.href='main.html'"><svg class="icon"><use href="#i-x"/></svg></button>
+      <b>Connections</b>
+      <div style="margin-left:auto"><button class="btn ghost icon-only" onclick="toggleTheme()"><svg class="icon"><use href="#i-sun"/></svg></button></div>
+    </div>
+
+    <div class="sgroup">
+      <h3>Segmentation &amp; speed</h3>
+      <div class="srow">
+        <div class="lab"><div class="t">Default connections per download</div><div class="d">Dynamic segmentation splits each download into this many connections (1–32).</div></div>
+        <div class="ctl"><div class="slider" style="width:140px"><i style="width:25%"></i><b style="left:25%"></b></div><span class="pill">8</span></div>
+      </div>
+      <div class="srow">
+        <div class="lab"><div class="t">Maximum concurrent downloads</div><div class="d">How many downloads run at once; the rest queue.</div></div>
+        <div class="ctl"><div class="slider" style="width:140px"><i style="width:40%"></i><b style="left:40%"></b></div><span class="pill">4</span></div>
+      </div>
+      <div class="srow">
+        <div class="lab"><div class="t">Global speed limit</div><div class="d">Cap total bandwidth. Adjustable any time, even mid-download. 0 = unlimited.</div></div>
+        <div class="ctl"><span class="pill">Unlimited</span><span class="toggle"></span></div>
+      </div>
+      <div class="srow">
+        <div class="lab"><div class="t">Work-stealing re-segmentation</div><div class="d">Idle connections re-split the largest remaining range to saturate bandwidth.</div></div>
+        <div class="ctl"><span class="toggle on"></span></div>
+      </div>
+
+      <h3 style="margin-top:26px">Resume &amp; reliability</h3>
+      <div class="srow">
+        <div class="lab"><div class="t">Resume crashed downloads on startup</div><div class="d">Recover in-progress downloads after a crash or power loss; verifies file integrity.</div></div>
+        <div class="ctl"><span class="toggle on"></span></div>
+      </div>
+      <div class="srow">
+        <div class="lab"><div class="t">Verify completed files (SHA-256)</div><div class="d">Checksum each finished file to guarantee a byte-correct download.</div></div>
+        <div class="ctl"><span class="toggle on"></span></div>
+      </div>
+      <div class="srow">
+        <div class="lab"><div class="t">Auto-renew expired links</div><div class="d">When a signed URL expires, fetch a fresh one via the source page (extension) and resume.</div></div>
+        <div class="ctl"><span class="toggle on"></span></div>
+      </div>
+
+      <h3 style="margin-top:26px">Protocols</h3>
+      <div class="srow">
+        <div class="lab"><div class="t">Enabled protocols</div><div class="d">HTTP, HTTPS and FTP/FTPS.</div></div>
+        <div class="ctl"><span class="pill">HTTP · HTTPS · FTP</span></div>
+      </div>
+      <div class="srow" style="border:none">
+        <div class="lab"><div class="t">FTP transfer mode</div><div class="d">Passive mode is recommended behind NAT/firewalls.</div></div>
+        <div class="ctl"><select class="input" style="width:160px"><option>Passive (recommended)</option><option>Active</option></select></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="mockctl">
+  <span class="tag">Mockup</span>
+  <button class="btn ghost" onclick="toggleTheme()"><svg class="icon icon-sm"><use href="#i-sun"/></svg> Theme</button>
+  <button class="btn ghost" onclick="location.href='index.html'">All screens</button>
+</div>
+
+<script src="app.js"></script>
+<script>injectSprite();</script>
+</body>
+</html>

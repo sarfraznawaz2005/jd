@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>JustDownload — Download Detail</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+<style>
+  body{ display:grid; place-items:center; min-height:100vh; padding:24px; background:
+    radial-gradient(1200px 600px at 50% -10%, rgba(94,106,210,.10), transparent), var(--bg); }
+  .win{ width:620px; background:var(--card); border:1px solid var(--border); border-radius:14px; box-shadow:var(--shadow); overflow:hidden; }
+  .winbar{ height:42px; display:flex; align-items:center; gap:8px; padding:0 14px; border-bottom:1px solid var(--border); background:var(--header);}
+  .traffic{ display:flex; gap:7px; }
+  .traffic i{ width:12px;height:12px;border-radius:50%; display:block;}
+  .traffic .r{background:#ff5f57;} .traffic .y{background:#febc2e;} .traffic .g{background:#28c840;}
+  .winbar .wt{ font-size:12.5px; font-weight:600; margin-left:6px; color:var(--text-dim);}
+  .winbody{ padding:18px 20px 20px; }
+  .pane{ display:none; } .pane.active{ display:block; }
+  .opt-row{ display:flex; align-items:center; gap:14px; padding:12px 0; border-bottom:1px solid var(--border-soft); }
+  .opt-row .ol{ width:150px; color:var(--text-dim); font-size:12.5px; }
+  .opt-row .oc{ flex:1; }
+</style>
+</head>
+<body>
+<div class="win">
+  <div class="winbar">
+    <div class="traffic"><i class="r"></i><i class="y"></i><i class="g"></i></div>
+    <span class="wt">Thriller (Official Video).mkv</span>
+    <div style="margin-left:auto;display:flex;gap:6px">
+      <button class="btn ghost icon-only" onclick="toggleTheme()"><svg class="icon icon-sm"><use href="#i-sun"/></svg></button>
+      <button class="btn ghost icon-only" onclick="location.href='main.html'"><svg class="icon icon-sm"><use href="#i-x"/></svg></button>
+    </div>
+  </div>
+  <div class="winbody">
+    <div class="detail-head" style="margin-bottom:16px">
+      <span class="ftype ft-video" style="width:40px;height:40px"><svg style="width:21px;height:21px"><use href="#i-video"/></svg></span>
+      <div><div class="detail-title">Thriller (Official Video).mkv</div><div class="sub" style="color:var(--text-faint)">youtube.com · video + audio → MKV · Resumable</div></div>
+    </div>
+
+    <div class="tabs">
+      <div class="tab active" onclick="tab(0,this)">Download</div>
+      <div class="tab" onclick="tab(1,this)">Options</div>
+      <div class="tab" onclick="tab(2,this)">Connections</div>
+    </div>
+
+    <!-- Download -->
+    <div class="pane active">
+      <div class="big-prog"><div class="pct">33%</div><div class="pbar"><i style="width:33%"></i></div></div>
+      <div class="statgrid" style="margin-bottom:18px">
+        <div class="stat"><span class="k">Total size</span><span class="v">52.55 MB</span></div>
+        <div class="stat"><span class="k">Downloaded</span><span class="v">17.46 MB</span></div>
+        <div class="stat"><span class="k">Bandwidth</span><span class="v accent">442 KB/s</span></div>
+        <div class="stat"><span class="k">Time left</span><span class="v">1 min 19 s</span></div>
+      </div>
+      <div class="seg-block">
+        <div class="seg-cap"><span>Video stream <b>· 9.82 MB</b></span><span>Segments: <b>8</b></span></div>
+        <div class="segbar">
+          <div class="seg"><i style="width:62%"></i></div><div class="seg"><i style="width:48%"></i></div>
+          <div class="seg"><i style="width:55%"></i></div><div class="seg"><i style="width:30%"></i></div>
+          <div class="seg"><i style="width:44%"></i></div><div class="seg"><i style="width:38%"></i></div>
+          <div class="seg"><i style="width:52%"></i></div><div class="seg"><i style="width:25%"></i></div>
+        </div>
+      </div>
+      <div class="seg-block" style="margin-top:16px">
+        <div class="seg-cap"><span>Audio stream <b>· 7.64 MB</b></span><span>Segments: <b>8</b></span></div>
+        <div class="segbar">
+          <div class="seg audio"><i style="width:70%"></i></div><div class="seg audio"><i style="width:66%"></i></div>
+          <div class="seg audio"><i style="width:58%"></i></div><div class="seg audio"><i style="width:61%"></i></div>
+          <div class="seg audio"><i style="width:49%"></i></div><div class="seg audio"><i style="width:72%"></i></div>
+          <div class="seg audio"><i style="width:55%"></i></div><div class="seg audio"><i style="width:40%"></i></div>
+        </div>
+      </div>
+      <div style="display:flex;gap:9px;margin-top:20px;justify-content:flex-end">
+        <button class="btn"><svg class="icon icon-sm"><use href="#i-pause"/></svg> Pause</button>
+        <button class="btn"><svg class="icon icon-sm"><use href="#i-x"/></svg> Cancel</button>
+      </div>
+    </div>
+
+    <!-- Options -->
+    <div class="pane">
+      <div class="opt-row"><div class="ol">File name</div><div class="oc"><input class="input" value="Thriller (Official Video).mkv"></div></div>
+      <div class="opt-row"><div class="ol">Save to</div><div class="oc" style="display:flex;gap:8px"><input class="input" value="C:\Users\you\Downloads\Video" style="flex:1"><button class="btn"><svg class="icon icon-sm"><use href="#i-folder"/></svg></button></div></div>
+      <div class="opt-row"><div class="ol">Category</div><div class="oc"><select class="input"><option>Video</option><option>Audio</option><option>Documents</option></select></div></div>
+      <div class="opt-row"><div class="ol">Output container</div><div class="oc"><select class="input"><option>MKV (always works)</option><option>MP4 (compatible)</option></select></div></div>
+      <div class="opt-row"><div class="ol">Speed limit</div><div class="oc"><div class="slider" style="margin:10px 6px"><i style="width:40%"></i><b style="left:40%"></b></div><div class="dimmed" style="font-size:11.5px;margin-top:8px">1.0 MB/s — adjustable while downloading</div></div></div>
+      <div class="opt-row" style="border:none"><div class="ol">Connections</div><div class="oc"><div class="slider" style="margin:10px 6px"><i style="width:50%"></i><b style="left:50%"></b></div><div class="dimmed" style="font-size:11.5px;margin-top:8px">8 per stream — adjustable while downloading</div></div></div>
+    </div>
+
+    <!-- Connections -->
+    <div class="pane">
+      <table class="ctable">
+        <thead><tr><th>#</th><th>Stream</th><th>Range</th><th>Downloaded</th><th>Speed</th><th>Progress</th><th>State</th></tr></thead>
+        <tbody>
+          <tr><td>1</td><td>Video</td><td class="dimmed">0 – 1.2 MB</td><td>0.76 MB</td><td>61 KB/s</td><td><div class="mini"><i style="width:62%"></i></div></td><td><span class="s-dl" style="font-size:11.5px">active</span></td></tr>
+          <tr><td>2</td><td>Video</td><td class="dimmed">1.2 – 2.4 MB</td><td>0.58 MB</td><td>55 KB/s</td><td><div class="mini"><i style="width:48%"></i></div></td><td><span class="s-dl" style="font-size:11.5px">active</span></td></tr>
+          <tr><td>3</td><td>Video</td><td class="dimmed">2.4 – 3.6 MB</td><td>0.66 MB</td><td>58 KB/s</td><td><div class="mini"><i style="width:55%"></i></div></td><td><span class="s-dl" style="font-size:11.5px">active</span></td></tr>
+          <tr><td>4</td><td>Audio</td><td class="dimmed">0 – 0.95 MB</td><td>0.67 MB</td><td>49 KB/s</td><td><div class="mini"><i style="width:70%"></i></div></td><td><span class="s-dl" style="font-size:11.5px">active</span></td></tr>
+          <tr><td>5</td><td>Audio</td><td class="dimmed">0.95 – 1.9 MB</td><td>0.63 MB</td><td>52 KB/s</td><td><div class="mini"><i style="width:66%"></i></div></td><td><span class="s-dl" style="font-size:11.5px">active</span></td></tr>
+          <tr><td>6</td><td>Video</td><td class="dimmed">3.6 – 4.8 MB</td><td>0.36 MB</td><td>44 KB/s</td><td><div class="mini"><i style="width:30%"></i></div></td><td><span class="s-queue" style="font-size:11.5px">re-splitting…</span></td></tr>
+        </tbody>
+      </table>
+      <div style="margin-top:14px;font-size:11.5px;color:var(--text-faint);display:flex;align-items:center;gap:8px">
+        <svg class="icon icon-sm" style="color:var(--accent-h)"><use href="#i-bolt"/></svg>
+        Connection #6 finished early and is re-splitting the largest remaining range (work-stealing).
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="mockctl">
+  <span class="tag">Mockup</span>
+  <button class="btn ghost" onclick="toggleTheme()"><svg class="icon icon-sm"><use href="#i-sun"/></svg> Theme</button>
+  <button class="btn ghost" onclick="location.href='index.html'">All screens</button>
+</div>
+
+<script src="app.js"></script>
+<script>
+  injectSprite();
+  function tab(i, el){
+    document.querySelectorAll('.tab').forEach((t,n)=>t.classList.toggle('active', n===i));
+    document.querySelectorAll('.pane').forEach((p,n)=>p.classList.toggle('active', n===i));
+  }
+</script>
+</body>
+</html>
