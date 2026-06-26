@@ -1,5 +1,6 @@
 using JustDownload.Core.Abstractions;
 using JustDownload.Core.Data;
+using JustDownload.Core.Data.Migrations;
 using JustDownload.Core.Diagnostics;
 using JustDownload.Core.Logging;
 using Microsoft.Extensions.DependencyInjection;
@@ -101,6 +102,12 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton(new DatabaseOptions());
         services.TryAddSingleton<IDatabasePathProvider, DatabasePathProvider>();
         services.TryAddSingleton<IDbConnectionFactory, SqliteConnectionFactory>();
+
+        // Versioned schema migrations (TASK-019). Migrations are contributed as an ordered set so
+        // later tasks append new ones without touching the runner; the runner applies any whose
+        // version exceeds the database's current user_version, idempotently.
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IMigration, InitialSchemaMigration>());
+        services.TryAddSingleton<IMigrationRunner, MigrationRunner>();
 
         return services;
     }
