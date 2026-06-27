@@ -16,16 +16,21 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     [ObservableProperty]
     private bool _sidebarCollapsed;
 
-    public MainWindowViewModel(IThemeService theme, StatusSummaryViewModel status)
+    public MainWindowViewModel(IThemeService theme, StatusSummaryViewModel status, DownloadsListViewModel downloads)
     {
         ArgumentNullException.ThrowIfNull(theme);
         ArgumentNullException.ThrowIfNull(status);
+        ArgumentNullException.ThrowIfNull(downloads);
         _theme = theme;
         Status = status;
+        Downloads = downloads;
     }
 
     /// <summary>The live status-bar summary (active count, total speed, connections).</summary>
     public StatusSummaryViewModel Status { get; }
+
+    /// <summary>The downloads list shown in the master pane (TASK-051).</summary>
+    public DownloadsListViewModel Downloads { get; }
 
     /// <summary>Cycles the application theme (Light → Dark → System).</summary>
     [RelayCommand]

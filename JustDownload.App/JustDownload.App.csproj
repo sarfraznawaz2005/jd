@@ -18,6 +18,8 @@
     <PackageReference Include="Avalonia.Desktop" Version="11.3.18" />
     <PackageReference Include="Avalonia.Themes.Fluent" Version="11.3.18" />
     <PackageReference Include="Avalonia.Fonts.Inter" Version="11.3.18" />
+    <!-- DataGrid powers the downloads list: sortable/reorderable/resizable, virtualized columns (TASK-051). -->
+    <PackageReference Include="Avalonia.Controls.DataGrid" Version="11.3.13" />
     <!-- Avalonia.Diagnostics (dev tools) is Debug-only so it never ships in Release. -->
     <PackageReference Include="Avalonia.Diagnostics" Version="11.3.18" Condition="'$(Configuration)' == 'Debug'" />
     <!-- Container builder for the App's provider, built from Core's composition root (§6). -->

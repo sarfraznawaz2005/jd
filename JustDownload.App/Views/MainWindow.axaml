@@ -1,6 +1,7 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="using:JustDownload.App.ViewModels"
+        xmlns:conv="using:JustDownload.App.Converters"
         x:Class="JustDownload.App.Views.MainWindow"
         x:DataType="vm:MainWindowViewModel"
         Title="JustDownload"
@@ -195,24 +196,137 @@
         </ScrollViewer>
       </Border>
 
-      <!-- List pane (the downloads list binds in via TASK-051; empty state for now) -->
+      <!-- List pane: the virtualized downloads grid (TASK-051), with the empty state when there are none. -->
       <Border Grid.Column="1" Name="ListPane" Background="{DynamicResource BgBrush}">
-        <StackPanel Name="EmptyState" HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="340" Spacing="6">
-          <Border Width="64" Height="64" CornerRadius="18" HorizontalAlignment="Center" Margin="0,0,0,12"
-                  Background="{DynamicResource CardBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1">
-            <PathIcon Data="{StaticResource IconDownload}" Width="28" Height="28" Foreground="{DynamicResource AccentHoverBrush}" />
-          </Border>
-          <TextBlock Text="No downloads yet" FontSize="16" FontWeight="SemiBold" HorizontalAlignment="Center"
-                     Foreground="{DynamicResource TextBrush}" />
-          <TextBlock Text="Paste a URL, drag a link here, or use the browser extension to start your first download."
-                     TextWrapping="Wrap" TextAlignment="Center" Foreground="{DynamicResource TextFaintBrush}" />
-          <Button Classes="App Accent" HorizontalAlignment="Center" Margin="0,12,0,0">
-            <StackPanel Orientation="Horizontal" Spacing="7">
-              <PathIcon Data="{StaticResource IconPlus}" Width="12" Height="12" />
-              <TextBlock Text="New URL" VerticalAlignment="Center" />
-            </StackPanel>
-          </Button>
-        </StackPanel>
+        <Panel>
+
+          <!-- Downloads list: sortable / reorderable / resizable columns, single-selection, virtualized. -->
+          <DataGrid Name="DownloadsGrid"
+                    IsVisible="{Binding Downloads.HasDownloads}"
+                    ItemsSource="{Binding Downloads.Downloads}"
+                    SelectedItem="{Binding Downloads.SelectedDownload, Mode=TwoWay}">
+            <DataGrid.ContextMenu>
+              <ContextMenu>
+                <MenuItem Header="Resume" Command="{Binding Downloads.ResumeCommand}">
+                  <MenuItem.Icon><PathIcon Data="{StaticResource IconPlay}" Width="12" Height="12" /></MenuItem.Icon>
+                </MenuItem>
+                <MenuItem Header="Pause" Command="{Binding Downloads.PauseCommand}">
+                  <MenuItem.Icon><PathIcon Data="{StaticResource IconPause}" Width="12" Height="12" /></MenuItem.Icon>
+                </MenuItem>
+                <MenuItem Header="Renew expired link…" Command="{Binding Downloads.RenewCommand}" />
+                <Separator />
+                <MenuItem Header="Open file" Command="{Binding Downloads.OpenFileCommand}">
+                  <MenuItem.Icon><PathIcon Data="{StaticResource IconFile}" Width="12" Height="12" /></MenuItem.Icon>
+                </MenuItem>
+                <MenuItem Header="Open containing folder" Command="{Binding Downloads.OpenFolderCommand}" />
+                <MenuItem Header="Copy link" Command="{Binding Downloads.CopyLinkCommand}" />
+                <Separator />
+                <MenuItem Header="Remove from list" Command="{Binding Downloads.RemoveCommand}">
+                  <MenuItem.Icon><PathIcon Data="{StaticResource IconTrash}" Width="12" Height="12" /></MenuItem.Icon>
+                </MenuItem>
+              </ContextMenu>
+            </DataGrid.ContextMenu>
+
+            <DataGrid.Columns>
+              <!-- Name (+ file-type icon and source sub-line) -->
+              <DataGridTemplateColumn Header="Name" Width="*" MinWidth="220" CanUserSort="True" SortMemberPath="FileName">
+                <DataGridTemplateColumn.CellTemplate>
+                  <DataTemplate x:DataType="vm:DownloadRowViewModel">
+                    <StackPanel Orientation="Horizontal" Spacing="11" VerticalAlignment="Center">
+                      <Border Classes="FileTile"
+                              Background="{Binding Category, Converter={x:Static conv:CategoryResourceConverter.Instance}, ConverterParameter=background}">
+                        <PathIcon Width="15" Height="15"
+                                  Data="{Binding Category, Converter={x:Static conv:CategoryResourceConverter.Instance}, ConverterParameter=geometry}"
+                                  Foreground="{Binding Category, Converter={x:Static conv:CategoryResourceConverter.Instance}, ConverterParameter=foreground}" />
+                      </Border>
+                      <StackPanel VerticalAlignment="Center" MinWidth="0">
+                        <TextBlock Classes="FileName" Text="{Binding FileName}" ToolTip.Tip="{Binding FileName}" />
+                        <TextBlock Classes="FileSub" Text="{Binding SubLine}" />
+                      </StackPanel>
+                    </StackPanel>
+                  </DataTemplate>
+                </DataGridTemplateColumn.CellTemplate>
+              </DataGridTemplateColumn>
+
+              <!-- Size -->
+              <DataGridTemplateColumn Header="Size" Width="92" CanUserSort="True" SortMemberPath="TotalBytes">
+                <DataGridTemplateColumn.CellTemplate>
+                  <DataTemplate x:DataType="vm:DownloadRowViewModel">
+                    <TextBlock Classes="Muted" Text="{Binding SizeDisplay}" />
+                  </DataTemplate>
+                </DataGridTemplateColumn.CellTemplate>
+              </DataGridTemplateColumn>
+
+              <!-- Status: coloured label + inline mini progress -->
+              <DataGridTemplateColumn Header="Status" Width="172" CanUserSort="True" SortMemberPath="ProgressSortKey">
+                <DataGridTemplateColumn.CellTemplate>
+                  <DataTemplate x:DataType="vm:DownloadRowViewModel">
+                    <StackPanel VerticalAlignment="Center" Spacing="4"
+                                Classes.s-dl="{Binding IsDownloading}"
+                                Classes.s-pause="{Binding IsPaused}"
+                                Classes.s-done="{Binding IsCompleted}"
+                                Classes.s-err="{Binding IsError}"
+                                Classes.s-queue="{Binding IsQueued}">
+                      <StackPanel Orientation="Horizontal" Spacing="6">
+                        <Ellipse Classes="StatusDot" />
+                        <TextBlock Classes="StatusLabel" Text="{Binding StatusLabel}" />
+                      </StackPanel>
+                      <ProgressBar Classes="Mini" Classes.paused="{Binding IsPaused}"
+                                   Minimum="0" Maximum="100" Value="{Binding ProgressPercent}"
+                                   IsVisible="{Binding ShowProgressBar}" />
+                    </StackPanel>
+                  </DataTemplate>
+                </DataGridTemplateColumn.CellTemplate>
+              </DataGridTemplateColumn>
+
+              <!-- Speed -->
+              <DataGridTemplateColumn Header="Speed" Width="96" CanUserSort="True" SortMemberPath="SpeedDisplay">
+                <DataGridTemplateColumn.CellTemplate>
+                  <DataTemplate x:DataType="vm:DownloadRowViewModel">
+                    <TextBlock Classes="Muted" Text="{Binding SpeedDisplay}" />
+                  </DataTemplate>
+                </DataGridTemplateColumn.CellTemplate>
+              </DataGridTemplateColumn>
+
+              <!-- ETA -->
+              <DataGridTemplateColumn Header="ETA" Width="70" CanUserSort="True" SortMemberPath="EtaDisplay">
+                <DataGridTemplateColumn.CellTemplate>
+                  <DataTemplate x:DataType="vm:DownloadRowViewModel">
+                    <TextBlock Classes="Dimmed" Text="{Binding EtaDisplay}" />
+                  </DataTemplate>
+                </DataGridTemplateColumn.CellTemplate>
+              </DataGridTemplateColumn>
+
+              <!-- Added -->
+              <DataGridTemplateColumn Header="Added" Width="96" CanUserSort="True" SortMemberPath="AddedSortKey">
+                <DataGridTemplateColumn.CellTemplate>
+                  <DataTemplate x:DataType="vm:DownloadRowViewModel">
+                    <TextBlock Classes="Dimmed" Text="{Binding AddedDisplay}" />
+                  </DataTemplate>
+                </DataGridTemplateColumn.CellTemplate>
+              </DataGridTemplateColumn>
+            </DataGrid.Columns>
+          </DataGrid>
+
+          <!-- Empty state -->
+          <StackPanel Name="EmptyState" IsVisible="{Binding !Downloads.HasDownloads}"
+                      HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="340" Spacing="6">
+            <Border Width="64" Height="64" CornerRadius="18" HorizontalAlignment="Center" Margin="0,0,0,12"
+                    Background="{DynamicResource CardBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1">
+              <PathIcon Data="{StaticResource IconDownload}" Width="28" Height="28" Foreground="{DynamicResource AccentHoverBrush}" />
+            </Border>
+            <TextBlock Text="No downloads yet" FontSize="16" FontWeight="SemiBold" HorizontalAlignment="Center"
+                       Foreground="{DynamicResource TextBrush}" />
+            <TextBlock Text="Paste a URL, drag a link here, or use the browser extension to start your first download."
+                       TextWrapping="Wrap" TextAlignment="Center" Foreground="{DynamicResource TextFaintBrush}" />
+            <Button Classes="App Accent" HorizontalAlignment="Center" Margin="0,12,0,0">
+              <StackPanel Orientation="Horizontal" Spacing="7">
+                <PathIcon Data="{StaticResource IconPlus}" Width="12" Height="12" />
+                <TextBlock Text="New URL" VerticalAlignment="Center" />
+              </StackPanel>
+            </Button>
+          </StackPanel>
+        </Panel>
       </Border>
 
       <!-- Resize handle between list and detail -->

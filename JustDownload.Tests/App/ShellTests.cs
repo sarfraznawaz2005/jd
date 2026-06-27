@@ -7,6 +7,9 @@ using FluentAssertions;
 using JustDownload.App.Services;
 using JustDownload.App.ViewModels;
 using JustDownload.App.Views;
+using JustDownload.Core.Abstractions;
+using JustDownload.Core.Categorization;
+using JustDownload.Core.Data.Repositories;
 using JustDownload.Core.Lifecycle;
 using NSubstitute;
 using Xunit;
@@ -44,8 +47,26 @@ public sealed class ShellTests
         space.Should().Be(16d);
     }
 
-    private static MainWindowViewModel BuildViewModel() =>
-        new(new ThemeService(), new StatusSummaryViewModel(Substitute.For<IDownloadManager>()));
+    private static MainWindowViewModel BuildViewModel()
+    {
+        var manager = Substitute.For<IDownloadManager>();
+        var repository = Substitute.For<IDownloadRepository>();
+        repository.GetAllAsync(Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<JustDownload.Core.Data.Models.Download>>(
+                Array.Empty<JustDownload.Core.Data.Models.Download>()));
+        var clock = Substitute.For<IClock>();
+        clock.UtcNow.Returns(new DateTimeOffset(2026, 6, 27, 12, 0, 0, TimeSpan.Zero));
+        var downloads = new DownloadsListViewModel(
+            repository,
+            manager,
+            Substitute.For<IDownloadActions>(),
+            Substitute.For<IClipboardService>(),
+            Substitute.For<IFileRevealer>(),
+            Substitute.For<IFileCategorizer>(),
+            clock);
+
+        return new MainWindowViewModel(new ThemeService(), new StatusSummaryViewModel(manager), downloads);
+    }
 
     [AvaloniaFact]
     public void MainWindow_MountsWithShellChrome()

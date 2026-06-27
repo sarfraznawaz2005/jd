@@ -12,13 +12,17 @@
     <ResourceDictionary>
       <ResourceDictionary.MergedDictionaries>
         <ResourceInclude Source="avares://JustDownload.App/Styles/Tokens.axaml" />
+        <ResourceInclude Source="avares://JustDownload.App/Styles/ListResources.axaml" />
       </ResourceDictionary.MergedDictionaries>
     </ResourceDictionary>
   </Application.Resources>
 
   <Application.Styles>
     <FluentTheme />
+    <!-- DataGrid's Fluent control theme (its visuals are then overridden by Styles/ListView.axaml). -->
+    <StyleInclude Source="avares://Avalonia.Controls.DataGrid/Themes/Fluent.xaml" />
     <StyleInclude Source="avares://JustDownload.App/Styles/Shell.axaml" />
+    <StyleInclude Source="avares://JustDownload.App/Styles/ListView.axaml" />
 
     <!-- Token-driven window surface (Inter is the default font via WithInterFont in Program). -->
     <Style Selector="Window">

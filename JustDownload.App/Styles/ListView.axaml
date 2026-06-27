@@ -1,0 +1,149 @@
+<Styles xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <!--
+    Downloads-list (DataGrid) styling (TASK-051) matching mockups/main.html: a flat, gridline-free table with
+    a sticky faint header, 46px rows, hover and an accent selection. The status cell's label colour and the
+    inline mini progress bar are driven by classes bound to the row's state flags, so light/dark colours come
+    from the design tokens via DynamicResource.
+  -->
+
+  <!-- Table surface: flat, no gridlines, transparent so the pane background shows through. -->
+  <Style Selector="DataGrid">
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="GridLinesVisibility" Value="None" />
+    <Setter Property="RowHeight" Value="46" />
+    <Setter Property="HeadersVisibility" Value="Column" />
+    <Setter Property="CanUserReorderColumns" Value="True" />
+    <Setter Property="CanUserResizeColumns" Value="True" />
+    <Setter Property="CanUserSortColumns" Value="True" />
+    <Setter Property="SelectionMode" Value="Single" />
+    <Setter Property="IsReadOnly" Value="True" />
+    <Setter Property="VerticalScrollBarVisibility" Value="Auto" />
+    <Setter Property="HorizontalScrollBarVisibility" Value="Disabled" />
+  </Style>
+
+  <!-- Column headers: short, faint, uppercase — the mockup's .list-head. -->
+  <Style Selector="DataGridColumnHeader">
+    <Setter Property="Height" Value="36" />
+    <Setter Property="Background" Value="{DynamicResource BgBrush}" />
+    <Setter Property="Foreground" Value="{DynamicResource TextFaintBrush}" />
+    <Setter Property="FontSize" Value="11" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="Padding" Value="10,0" />
+    <Setter Property="SeparatorBrush" Value="{DynamicResource BorderSoftBrush}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}" />
+    <Setter Property="BorderThickness" Value="0,0,0,1" />
+  </Style>
+
+  <!-- Rows: 46px, soft bottom divider, hover and accent selection. -->
+  <Style Selector="DataGridRow">
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="BorderBrush" Value="{DynamicResource BorderSoftBrush}" />
+    <Setter Property="BorderThickness" Value="0,0,0,1" />
+    <Setter Property="MinHeight" Value="46" />
+  </Style>
+  <Style Selector="DataGridRow:pointerover /template/ Rectangle#BackgroundRectangle">
+    <Setter Property="Fill" Value="{DynamicResource HoverBrush}" />
+    <Setter Property="Opacity" Value="1" />
+  </Style>
+  <Style Selector="DataGridRow:selected /template/ Rectangle#BackgroundRectangle">
+    <Setter Property="Fill" Value="{DynamicResource SelBrush}" />
+    <Setter Property="Opacity" Value="1" />
+  </Style>
+
+  <!-- Cells: vertically centred content, no focus rectangle. -->
+  <Style Selector="DataGridCell">
+    <Setter Property="Padding" Value="10,0" />
+    <Setter Property="FontSize" Value="{StaticResource FontSm}" />
+    <Setter Property="VerticalContentAlignment" Value="Center" />
+    <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+    <Setter Property="FocusAdorner" Value="{x:Null}" />
+  </Style>
+  <Style Selector="DataGridCell:focus /template/ Grid#FocusVisual">
+    <Setter Property="IsVisible" Value="False" />
+  </Style>
+
+  <!-- Name cell: file-type tile + name/sub two-liner. -->
+  <Style Selector="Border.FileTile">
+    <Setter Property="Width" Value="28" />
+    <Setter Property="Height" Value="28" />
+    <Setter Property="CornerRadius" Value="{StaticResource RadiusSm}" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+  </Style>
+  <Style Selector="TextBlock.FileName">
+    <Setter Property="FontWeight" Value="Medium" />
+    <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+    <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+  </Style>
+  <Style Selector="TextBlock.FileSub">
+    <Setter Property="FontSize" Value="11" />
+    <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+    <Setter Property="Foreground" Value="{DynamicResource TextFaintBrush}" />
+  </Style>
+
+  <!-- Muted / dimmed columns (size, speed, eta, added). -->
+  <Style Selector="TextBlock.Muted">
+    <Setter Property="Foreground" Value="{DynamicResource TextDimBrush}" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+  </Style>
+  <Style Selector="TextBlock.Dimmed">
+    <Setter Property="Foreground" Value="{DynamicResource TextFaintBrush}" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+  </Style>
+
+  <!-- Status cell: a coloured label with a leading dot, over an optional inline progress bar. -->
+  <Style Selector="Ellipse.StatusDot">
+    <Setter Property="Width" Value="6" />
+    <Setter Property="Height" Value="6" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+  </Style>
+  <Style Selector="TextBlock.StatusLabel">
+    <Setter Property="FontSize" Value="11.5" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+  </Style>
+
+  <!-- Status colour by state — applied to the dot (Fill) and label (Foreground) via row flags. -->
+  <Style Selector=":is(Control).s-dl Ellipse.StatusDot">
+    <Setter Property="Fill" Value="{DynamicResource AccentHoverBrush}" />
+  </Style>
+  <Style Selector=":is(Control).s-dl TextBlock.StatusLabel">
+    <Setter Property="Foreground" Value="{DynamicResource AccentHoverBrush}" />
+  </Style>
+  <Style Selector=":is(Control).s-pause Ellipse.StatusDot">
+    <Setter Property="Fill" Value="{DynamicResource AmberBrush}" />
+  </Style>
+  <Style Selector=":is(Control).s-pause TextBlock.StatusLabel">
+    <Setter Property="Foreground" Value="{DynamicResource AmberBrush}" />
+  </Style>
+  <Style Selector=":is(Control).s-done Ellipse.StatusDot">
+    <Setter Property="Fill" Value="{DynamicResource GreenBrush}" />
+  </Style>
+  <Style Selector=":is(Control).s-done TextBlock.StatusLabel">
+    <Setter Property="Foreground" Value="{DynamicResource GreenBrush}" />
+  </Style>
+  <Style Selector=":is(Control).s-err Ellipse.StatusDot">
+    <Setter Property="Fill" Value="{DynamicResource RedBrush}" />
+  </Style>
+  <Style Selector=":is(Control).s-err TextBlock.StatusLabel">
+    <Setter Property="Foreground" Value="{DynamicResource RedBrush}" />
+  </Style>
+  <Style Selector=":is(Control).s-queue Ellipse.StatusDot">
+    <Setter Property="Fill" Value="{DynamicResource TextFaintBrush}" />
+  </Style>
+  <Style Selector=":is(Control).s-queue TextBlock.StatusLabel">
+    <Setter Property="Foreground" Value="{DynamicResource TextFaintBrush}" />
+  </Style>
+
+  <!-- Inline mini progress bar (4px track), accent fill, amber while paused. -->
+  <Style Selector="ProgressBar.Mini">
+    <Setter Property="Height" Value="4" />
+    <Setter Property="MinHeight" Value="4" />
+    <Setter Property="CornerRadius" Value="3" />
+    <Setter Property="Background" Value="{DynamicResource TrackBrush}" />
+    <Setter Property="Foreground" Value="{DynamicResource AccentBrush}" />
+  </Style>
+  <Style Selector="ProgressBar.Mini.paused">
+    <Setter Property="Foreground" Value="{DynamicResource AmberBrush}" />
+  </Style>
+</Styles>

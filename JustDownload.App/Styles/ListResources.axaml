@@ -1,0 +1,34 @@
+<ResourceDictionary xmlns="https://github.com/avaloniaui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <!--
+    Downloads-list visual resources (TASK-051): the per-category file-type glyphs and their colour tints,
+    matching mockups/styles.css (.ft-video/.ft-audio/...). Tints are fixed brand colours that read on both
+    light and dark, so they live in the base dictionary (not the theme dictionaries) and resolve once.
+    Keys are produced by CategoryVisuals; the CategoryResourceConverter looks them up.
+  -->
+
+  <!-- Category glyphs (16x16 silhouettes for PathIcon). -->
+  <StreamGeometry x:Key="IconCatVideo">M4,3 L13,8 L4,13 Z</StreamGeometry>
+  <StreamGeometry x:Key="IconCatAudio">M3,6 H5.2 L8.5,3 V13 L5.2,10 H3 Z M10,5.5 A3.4,3.4 0 0 1 10,10.5 V9 A2,2 0 0 0 10,7 Z</StreamGeometry>
+  <StreamGeometry x:Key="IconCatDocument">M4,2.5 H9.5 L12,5 V13.5 H4 Z M5.5,7.5 H10.5 V8.6 H5.5 Z M5.5,9.8 H10.5 V10.9 H5.5 Z</StreamGeometry>
+  <StreamGeometry x:Key="IconCatCompressed">M3,2.8 H13 V5.6 H3 Z M3.6,5.6 H12.4 V13 H3.6 Z M7,7.2 H9 V9.4 H7 Z</StreamGeometry>
+  <StreamGeometry x:Key="IconCatProgram">M3,3 H7 V7 H3 Z M9,3 H13 V7 H9 Z M3,9 H7 V13 H3 Z M9,9 H13 V13 H9 Z</StreamGeometry>
+  <StreamGeometry x:Key="IconCatImage">M2.6,3 H13.4 V13 H2.6 Z M3.8,11.6 L6.8,7.6 L9,10.2 L10.8,8 L12.2,11.6 Z M10.7,4.6 A1.2,1.2 0 1 1 10.69,4.6 Z</StreamGeometry>
+  <StreamGeometry x:Key="IconCatOther">M4,2.5 H9 L12,5.5 V13.5 H4 Z</StreamGeometry>
+
+  <!-- Category tints (foreground glyph + tile background). -->
+  <SolidColorBrush x:Key="CatVideoFg" Color="#f2565b" />
+  <SolidColorBrush x:Key="CatVideoBg" Color="#25f2565b" />
+  <SolidColorBrush x:Key="CatAudioFg" Color="#1faf57" />
+  <SolidColorBrush x:Key="CatAudioBg" Color="#243ecf73" />
+  <SolidColorBrush x:Key="CatDocumentFg" Color="#5b67d6" />
+  <SolidColorBrush x:Key="CatDocumentBg" Color="#285e6ad2" />
+  <SolidColorBrush x:Key="CatCompressedFg" Color="#b9770a" />
+  <SolidColorBrush x:Key="CatCompressedBg" Color="#28e3a008" />
+  <SolidColorBrush x:Key="CatProgramFg" Color="#6b6b75" />
+  <SolidColorBrush x:Key="CatProgramBg" Color="#28969699" />
+  <SolidColorBrush x:Key="CatImageFg" Color="#1bb6cb" />
+  <SolidColorBrush x:Key="CatImageBg" Color="#2500b4c8" />
+  <SolidColorBrush x:Key="CatOtherFg" Color="#6b6b75" />
+  <SolidColorBrush x:Key="CatOtherBg" Color="#28969699" />
+</ResourceDictionary>

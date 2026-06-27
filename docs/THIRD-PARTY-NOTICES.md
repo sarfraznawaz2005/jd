@@ -32,6 +32,7 @@ dependency.
 | Avalonia | 11.3.18 | MIT |
 | Avalonia.Desktop | 11.3.18 | MIT |
 | Avalonia.Themes.Fluent | 11.3.18 | MIT |
+| Avalonia.Controls.DataGrid | 11.3.13 | MIT |
 | Avalonia.Fonts.Inter | 11.3.18 | MIT (bundles the **Inter** typeface, SIL Open Font License 1.1) |
 | Avalonia.Diagnostics | 11.3.18 | MIT (Debug builds only; never shipped in Release) |
 | Microsoft.Extensions.DependencyInjection | 8.0.1 | MIT |
