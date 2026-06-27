@@ -40,6 +40,12 @@
     <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
     <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}" />
   </Style>
+
+  <!-- Disabled: dimmed and non-interactive, so context-driven enablement is visible (TASK-052 AC2). -->
+  <Style Selector="Button.App:disabled">
+    <Setter Property="Opacity" Value="0.4" />
+    <Setter Property="Cursor" Value="Arrow" />
+  </Style>
   <Style Selector="Button.App:pointerover">
     <Setter Property="Background" Value="{DynamicResource HoverBrush}" />
   </Style>
@@ -71,6 +77,15 @@
   <Style Selector="Button.App.IconOnly">
     <Setter Property="Width" Value="32" />
     <Setter Property="Padding" Value="0" />
+  </Style>
+
+  <!-- Destructive (delete): ghost until hovered, then a red wash so the consequence reads clearly. -->
+  <Style Selector="Button.App.Ghost.Danger:pointerover">
+    <Setter Property="Background" Value="{DynamicResource RedBrush}" />
+    <Setter Property="Foreground" Value="{DynamicResource OnAccentBrush}" />
+  </Style>
+  <Style Selector="Button.App.Ghost.Danger:disabled">
+    <Setter Property="Foreground" Value="{DynamicResource TextFaintBrush}" />
   </Style>
 
   <!-- Sidebar nav item -->

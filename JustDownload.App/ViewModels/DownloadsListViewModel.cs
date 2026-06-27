@@ -163,7 +163,7 @@ public sealed partial class DownloadsListViewModel : ViewModelBase, IDisposable
 
     private void RefreshSelectionCommands(DownloadRowViewModel row)
     {
-        // A status change on the selected row may flip which actions apply.
+        // A status change on the selected row may flip which selection actions apply.
         if (ReferenceEquals(row, SelectedDownload))
         {
             ResumeCommand.NotifyCanExecuteChanged();
@@ -171,6 +171,9 @@ public sealed partial class DownloadsListViewModel : ViewModelBase, IDisposable
             RenewCommand.NotifyCanExecuteChanged();
             OpenFileCommand.NotifyCanExecuteChanged();
         }
+
+        // Any row's status change can flip whether "Stop all" has anything to stop.
+        StopAllCommand.NotifyCanExecuteChanged();
     }
 
     [RelayCommand(CanExecute = nameof(CanResume))]
@@ -182,6 +185,37 @@ public sealed partial class DownloadsListViewModel : ViewModelBase, IDisposable
     private void Pause() => _actions.Pause(SelectedDownload!.Id);
 
     private bool CanPause() => SelectedDownload?.CanPause == true;
+
+    /// <summary>
+    /// Stops every active download at once (the toolbar's "Stop" / Stop-all, TASK-052). Each active transfer
+    /// is paused — cancelled with its checkpoint kept — so the set can be resumed later. Global by design:
+    /// the per-download halt is <see cref="PauseCommand"/>, which the engine state machine makes equivalent
+    /// (Active → Paused), so a distinct per-download "stop" would duplicate it.
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(CanStopAll))]
+    private void StopAll()
+    {
+        foreach (DownloadRowViewModel row in Downloads)
+        {
+            if (row.IsDownloading)
+            {
+                _actions.Pause(row.Id);
+            }
+        }
+    }
+
+    private bool CanStopAll()
+    {
+        foreach (DownloadRowViewModel row in Downloads)
+        {
+            if (row.IsDownloading)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
 
     [RelayCommand(CanExecute = nameof(HasSelection))]
     private async Task RemoveAsync()

@@ -1,3 +1,5 @@
+using System.Diagnostics;
+using System.Reflection;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using JustDownload.App.Services;
@@ -32,6 +34,34 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <summary>The downloads list shown in the master pane (TASK-051).</summary>
     public DownloadsListViewModel Downloads { get; }
 
+    /// <summary>The application version, shown in the About flyout.</summary>
+    public string AppVersion { get; } = ResolveVersion();
+
+    private static string ResolveVersion()
+    {
+        Assembly assembly = typeof(MainWindowViewModel).Assembly;
+        string? informational = assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
+        if (!string.IsNullOrWhiteSpace(informational))
+        {
+            // Strip any source-control metadata suffix (e.g. "1.0.0+abc123").
+            int plus = informational.IndexOf('+', StringComparison.Ordinal);
+            return plus >= 0 ? informational[..plus] : informational;
+        }
+
+        return FileVersionInfo.GetVersionInfo(assembly.Location).ProductVersion
+            ?? assembly.GetName().Version?.ToString()
+            ?? "0.0.0";
+    }
+
+    /// <summary>Raised when the user invokes "New URL" — the shell opens the new-download dialog (TASK-053).</summary>
+    public event EventHandler? NewDownloadRequested;
+
+    /// <summary>Raised when the user opens Settings — the shell shows the settings screens (TASK-057).</summary>
+    public event EventHandler? SettingsRequested;
+
+    /// <summary>Raised when the user opens the Browsers panel (extension/browser integration).</summary>
+    public event EventHandler? BrowsersRequested;
+
     /// <summary>Cycles the application theme (Light → Dark → System).</summary>
     [RelayCommand]
     private void ToggleTheme() => _theme.Toggle();
@@ -39,4 +69,16 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <summary>Collapses or restores the sidebar pane.</summary>
     [RelayCommand]
     private void ToggleSidebar() => SidebarCollapsed = !SidebarCollapsed;
+
+    /// <summary>Starts a new download: signals the shell to open the New URL dialog (TASK-053).</summary>
+    [RelayCommand]
+    private void NewDownload() => NewDownloadRequested?.Invoke(this, EventArgs.Empty);
+
+    /// <summary>Opens the application settings (TASK-057).</summary>
+    [RelayCommand]
+    private void OpenSettings() => SettingsRequested?.Invoke(this, EventArgs.Empty);
+
+    /// <summary>Opens the connected-browsers panel.</summary>
+    [RelayCommand]
+    private void ShowBrowsers() => BrowsersRequested?.Invoke(this, EventArgs.Empty);
 }

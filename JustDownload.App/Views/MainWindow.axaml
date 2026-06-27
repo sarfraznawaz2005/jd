@@ -19,6 +19,8 @@
     <StreamGeometry x:Key="IconGear">M7,2 H9 V4 H7 Z M7,12 H9 V14 H7 Z M2,7 H4 V9 H2 Z M12,7 H14 V9 H12 Z M8,5 A3,3 0 1 1 7.99,5 Z</StreamGeometry>
     <StreamGeometry x:Key="IconList">M3,4 H13 V5.3 H3 Z M3,7.3 H13 V8.6 H3 Z M3,10.6 H13 V11.9 H3 Z</StreamGeometry>
     <StreamGeometry x:Key="IconFile">M4,2.5 H9 L12,5.5 V13.5 H4 Z</StreamGeometry>
+    <StreamGeometry x:Key="IconGlobe">M8,1.5 A6.5,6.5 0 1 1 7.99,1.5 Z M2,8 H14 M8,1.5 C5.5,4 5.5,12 8,14.5 M8,1.5 C10.5,4 10.5,12 8,14.5</StreamGeometry>
+    <StreamGeometry x:Key="IconInfo">M8,1.5 A6.5,6.5 0 1 1 7.99,1.5 Z M7.1,6.6 H8.9 V12 H7.1 Z M7,4 H9 V5.8 H7 Z</StreamGeometry>
   </Window.Resources>
 
   <DockPanel>
@@ -45,28 +47,29 @@
         </StackPanel>
 
         <!-- Primary action -->
-        <Button DockPanel.Dock="Left" Classes="App Accent" VerticalAlignment="Center" Margin="10,0,0,0">
+        <Button DockPanel.Dock="Left" Classes="App Accent" VerticalAlignment="Center" Margin="10,0,0,0"
+                Command="{Binding NewDownloadCommand}" ToolTip.Tip="New download (Ctrl+N)">
           <StackPanel Orientation="Horizontal" Spacing="7">
             <PathIcon Data="{StaticResource IconPlus}" Width="12" Height="12" />
             <TextBlock Text="New URL" VerticalAlignment="Center" />
           </StackPanel>
         </Button>
 
-        <!-- Transport group -->
+        <!-- Transport group: act on the selected download (Stop pauses all active) -->
         <Border DockPanel.Dock="Left" VerticalAlignment="Center" Margin="10,0,0,0"
                 Background="{DynamicResource CardBrush}" BorderBrush="{DynamicResource BorderBrush}"
                 BorderThickness="1" CornerRadius="{StaticResource RadiusSm}">
           <StackPanel Orientation="Horizontal">
-            <Button Classes="App Ghost" Width="34" ToolTip.Tip="Resume">
+            <Button Classes="App Ghost" Width="34" ToolTip.Tip="Resume" Command="{Binding Downloads.ResumeCommand}">
               <PathIcon Data="{StaticResource IconPlay}" Width="14" Height="14" />
             </Button>
-            <Button Classes="App Ghost" Width="34" ToolTip.Tip="Pause">
+            <Button Classes="App Ghost" Width="34" ToolTip.Tip="Pause" Command="{Binding Downloads.PauseCommand}">
               <PathIcon Data="{StaticResource IconPause}" Width="14" Height="14" />
             </Button>
-            <Button Classes="App Ghost" Width="34" ToolTip.Tip="Stop">
+            <Button Classes="App Ghost" Width="34" ToolTip.Tip="Stop all" Command="{Binding Downloads.StopAllCommand}">
               <PathIcon Data="{StaticResource IconStop}" Width="14" Height="14" />
             </Button>
-            <Button Classes="App Ghost" Width="34" ToolTip.Tip="Delete">
+            <Button Classes="App Ghost Danger" Width="34" ToolTip.Tip="Remove" Command="{Binding Downloads.RemoveCommand}">
               <PathIcon Data="{StaticResource IconTrash}" Width="14" Height="14" />
             </Button>
           </StackPanel>
@@ -77,8 +80,36 @@
                 Command="{Binding ToggleThemeCommand}" ToolTip.Tip="Toggle theme">
           <Ellipse Width="14" Height="14" Stroke="{DynamicResource TextDimBrush}" StrokeThickness="1.6" />
         </Button>
-        <Button DockPanel.Dock="Right" Classes="App Ghost IconOnly" VerticalAlignment="Center" Margin="2,0" ToolTip.Tip="Settings">
+        <Button DockPanel.Dock="Right" Classes="App Ghost IconOnly" VerticalAlignment="Center" ToolTip.Tip="About JustDownload">
+          <PathIcon Data="{StaticResource IconInfo}" Width="15" Height="15" />
+          <Button.Flyout>
+            <Flyout Placement="BottomEdgeAlignedRight">
+              <StackPanel Width="240" Spacing="6">
+                <StackPanel Orientation="Horizontal" Spacing="9">
+                  <Border Width="26" Height="26" CornerRadius="{StaticResource RadiusSm}" Background="{DynamicResource AccentBrush}">
+                    <PathIcon Data="{StaticResource IconDownload}" Width="15" Height="15" Foreground="{DynamicResource OnAccentBrush}" />
+                  </Border>
+                  <StackPanel VerticalAlignment="Center">
+                    <TextBlock Text="JustDownload" FontWeight="SemiBold" Foreground="{DynamicResource TextBrush}" />
+                    <TextBlock Text="{Binding AppVersion, StringFormat='Version {0}'}" FontSize="11"
+                               Foreground="{DynamicResource TextFaintBrush}" />
+                  </StackPanel>
+                </StackPanel>
+                <TextBlock Text="Cross-platform, light &amp; fast download manager."
+                           TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource TextDimBrush}" />
+                <TextBlock Text="Free &amp; open source · MIT License" FontSize="11"
+                           Foreground="{DynamicResource TextFaintBrush}" />
+              </StackPanel>
+            </Flyout>
+          </Button.Flyout>
+        </Button>
+        <Button DockPanel.Dock="Right" Classes="App Ghost IconOnly" VerticalAlignment="Center" Margin="2,0"
+                Command="{Binding OpenSettingsCommand}" ToolTip.Tip="Settings">
           <PathIcon Data="{StaticResource IconGear}" Width="15" Height="15" />
+        </Button>
+        <Button DockPanel.Dock="Right" Classes="App Ghost IconOnly" VerticalAlignment="Center"
+                Command="{Binding ShowBrowsersCommand}" ToolTip.Tip="Browsers">
+          <PathIcon Data="{StaticResource IconGlobe}" Width="15" Height="15" />
         </Button>
 
         <!-- Search -->

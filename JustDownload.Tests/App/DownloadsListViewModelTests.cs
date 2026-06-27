@@ -182,6 +182,49 @@ public sealed class DownloadsListViewModelTests
     }
 
     [AvaloniaFact]
+    public async Task StopAll_PausesEveryActiveDownload_AndIsEnabledOnlyWhenAnyActive()
+    {
+        var h = new Harness();
+        h.Repository.GetAllAsync(Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<Download>>(new[]
+            {
+                Record(1, DownloadStatusCodes.Active),
+                Record(2, DownloadStatusCodes.Paused),
+                Record(3, DownloadStatusCodes.Active),
+            }));
+        var vm = h.Build();
+        await vm.LoadAsync();
+
+        vm.StopAllCommand.CanExecute(null).Should().BeTrue("two downloads are active");
+
+        vm.StopAllCommand.Execute(null);
+        h.Actions.Received(1).Pause(1);
+        h.Actions.Received(1).Pause(3);
+        h.Actions.DidNotReceive().Pause(2);
+    }
+
+    [AvaloniaFact]
+    public async Task StopAll_IsDisabled_WhenNothingIsActive()
+    {
+        var h = new Harness();
+        h.Repository.GetAllAsync(Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<Download>>(new[] { Record(1, DownloadStatusCodes.Paused) }));
+        var vm = h.Build();
+        await vm.LoadAsync();
+
+        vm.StopAllCommand.CanExecute(null).Should().BeFalse();
+
+        // A progress event flipping it active should enable Stop-all.
+        h.Manager.ProgressChanged += Raise.Event<EventHandler<DownloadProgressChangedEventArgs>>(
+            h.Manager,
+            new DownloadProgressChangedEventArgs(
+                1, DownloadProgress.Create(DownloadStatus.Active, 1000, 1_000_000, 442_000, resumable: true)));
+        Dispatcher.UIThread.RunJobs();
+
+        vm.StopAllCommand.CanExecute(null).Should().BeTrue("the download became active");
+    }
+
+    [AvaloniaFact]
     public async Task RenewCommand_RaisesRenewRequestedForExpired()
     {
         var h = new Harness();
