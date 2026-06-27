@@ -1,0 +1,97 @@
+name: CI
+
+# Build, format-check, and test on a Windows/macOS/Linux matrix (TASK-013). The build runs with
+# warnings-as-errors and analyzers (Directory.Build.props), so a warning fails CI just like locally.
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+# Cancel superseded runs on the same ref to save CI minutes.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build-test:
+    name: build & test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Restore
+        run: dotnet restore JustDownload.sln
+
+      - name: Format check
+        run: dotnet format JustDownload.sln --verify-no-changes --no-restore
+
+      - name: Build (Release, warnings as errors)
+        run: dotnet build JustDownload.sln -c Release --no-restore
+
+      - name: Test (with coverage)
+        run: >-
+          dotnet test JustDownload.sln -c Release --no-build
+          --collect:"XPlat Code Coverage"
+          --results-directory ${{ github.workspace }}/coverage
+          --logger "trx;LogFileName=test-results.trx"
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-${{ matrix.os }}
+          path: ${{ github.workspace }}/coverage/**/coverage.cobertura.xml
+          if-no-files-found: error
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-${{ matrix.os }}
+          path: ${{ github.workspace }}/coverage/**/*.trx
+          if-no-files-found: warn
+
+  coverage-report:
+    name: coverage report
+    needs: build-test
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Download Linux coverage
+        uses: actions/download-artifact@v4
+        with:
+          name: coverage-ubuntu-latest
+          path: coverage
+
+      - name: Generate HTML + summary report
+        uses: danielpalme/ReportGenerator-GitHub-Action@5.3.11
+        with:
+          reports: coverage/**/coverage.cobertura.xml
+          targetdir: coverage-report
+          reporttypes: Html;MarkdownSummaryGithub
+
+      - name: Publish coverage to the job summary
+        if: always()
+        run: cat coverage-report/SummaryGithub.md >> "$GITHUB_STEP_SUMMARY" || true
+
+      - name: Upload HTML coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report-html
+          path: coverage-report
+          if-no-files-found: error

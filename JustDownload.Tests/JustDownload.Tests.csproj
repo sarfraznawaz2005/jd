@@ -27,6 +27,11 @@
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="8.0.1" />
     <!-- Headless Avalonia for UI shell/view-model tests (§3). -->
     <PackageReference Include="Avalonia.Headless.XUnit" Version="11.3.18" />
+    <!-- Code-coverage collector for "XPlat Code Coverage" data collection in CI (TASK-013). -->
+    <PackageReference Include="coverlet.collector" Version="6.0.2">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
   </ItemGroup>
 
   <ItemGroup>

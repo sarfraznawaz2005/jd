@@ -54,6 +54,7 @@ These are used by `JustDownload.Tests` and are **not** distributed with the appl
 | xunit.runner.visualstudio | 3.1.5 | MIT |
 | FluentAssertions | 7.2.2 | Apache-2.0 |
 | NSubstitute | 5.3.0 | BSD-3-Clause |
+| coverlet.collector | 6.0.2 | MIT |
 
 > **FluentAssertions is pinned to the 7.x line on purpose.** Version 8.x relocated to the use-restricted
 > Xceed license, which the dependency policy forbids. Do not upgrade past 7.x without sign-off.
