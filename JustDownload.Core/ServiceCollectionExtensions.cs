@@ -7,6 +7,7 @@ using JustDownload.Core.Diagnostics;
 using JustDownload.Core.Logging;
 using JustDownload.Core.Security;
 using JustDownload.Core.Settings;
+using JustDownload.Core.Transport;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
@@ -47,6 +48,7 @@ public static class ServiceCollectionExtensions
         services.AddJustDownloadData();
         services.AddJustDownloadSecrets();
         services.AddJustDownloadCategorization();
+        services.AddJustDownloadTransport();
 
         // Typed settings store over the settings repository (TASK-021): sane defaults, change
         // notifications, and persistence across restarts. Singleton so the cached snapshot and the
@@ -195,6 +197,25 @@ public static class ServiceCollectionExtensions
 
         services.TryAddSingleton<ICategoryRuleStore, SettingsCategoryRuleStore>();
         services.TryAddSingleton<ICategoryRuleService, CategoryRuleService>();
+
+        return services;
+    }
+
+    /// <summary>
+    /// Registers the HTTP/HTTPS transport (TASK-023): the single shared <see cref="SocketsHttpHandler"/>
+    /// (one connection pool for the whole app, AC2) and the <see cref="ITransport"/> over it. Both are
+    /// singletons. Uses <c>TryAdd</c> so a test can substitute a fake transport, and registers a default
+    /// <see cref="TransportOptions"/> a host can pre-register to override.
+    /// </summary>
+    /// <param name="services">The service collection to populate.</param>
+    /// <returns>The same <paramref name="services"/> instance, for chaining.</returns>
+    public static IServiceCollection AddJustDownloadTransport(this IServiceCollection services)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+
+        services.TryAddSingleton(new TransportOptions());
+        services.TryAddSingleton<ISharedHttpHandlerProvider, SharedHttpHandlerProvider>();
+        services.TryAddSingleton<ITransport, HttpTransport>();
 
         return services;
     }
