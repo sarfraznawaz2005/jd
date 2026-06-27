@@ -217,6 +217,9 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<ISharedHttpHandlerProvider, SharedHttpHandlerProvider>();
         services.TryAddSingleton<ITransport, HttpTransport>();
 
+        // Range-capability probe (TASK-024): decides segmented vs single-connection downloads.
+        services.TryAddSingleton<IResourceProbe, ResourceProbe>();
+
         return services;
     }
 }

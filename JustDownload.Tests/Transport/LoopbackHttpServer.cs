@@ -40,6 +40,12 @@ internal sealed class LoopbackHttpServer : IAsyncDisposable
     /// <summary>The <c>Content-Type</c> header value to send.</summary>
     public string ContentType { get; set; } = "application/octet-stream";
 
+    /// <summary>
+    /// Whether to send <c>Content-Length</c>. When <see langword="false"/> the body is delimited by the
+    /// connection close (so the client sees an unknown length) — used to test the unknown-size path.
+    /// </summary>
+    public bool SendContentLength { get; set; } = true;
+
     /// <summary>The server's base URL (loopback, ephemeral port).</summary>
     public Uri BaseUri { get; }
 
@@ -160,7 +166,11 @@ internal sealed class LoopbackHttpServer : IAsyncDisposable
         }
 
         headers.Append(CultureInfo.InvariantCulture, $"Content-Type: {ContentType}\r\n");
-        headers.Append(CultureInfo.InvariantCulture, $"Content-Length: {slice.Length}\r\n");
+        if (SendContentLength)
+        {
+            headers.Append(CultureInfo.InvariantCulture, $"Content-Length: {slice.Length}\r\n");
+        }
+
         headers.Append(SupportRanges ? "Accept-Ranges: bytes\r\n" : "Accept-Ranges: none\r\n");
         if (ContentDisposition is not null)
         {
