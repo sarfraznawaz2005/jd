@@ -72,6 +72,7 @@ internal sealed partial class SegmentedDownloader : ISegmentedDownloader
         DownloadRequest request,
         IProgress<long>? progress = null,
         ReceivedRanges? received = null,
+        IProgress<ConnectionProgress>? connectionProgress = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
@@ -86,12 +87,13 @@ internal sealed partial class SegmentedDownloader : ISegmentedDownloader
 
         if (connections <= 1 || probe.TotalLength is not > 0)
         {
-            return await DownloadSingleAsync(request, probe, limiter, progress, cancellationToken)
+            return await DownloadSingleAsync(request, probe, limiter, progress, connectionProgress, cancellationToken)
                 .ConfigureAwait(false);
         }
 
         return await DownloadSegmentedAsync(
-            request, probe, probe.TotalLength.Value, connections, limiter, progress, received, cancellationToken)
+            request, probe, probe.TotalLength.Value, connections, limiter, progress, received, connectionProgress,
+            cancellationToken)
             .ConfigureAwait(false);
     }
 
@@ -100,10 +102,11 @@ internal sealed partial class SegmentedDownloader : ISegmentedDownloader
         ResourceProbeResult probe,
         IRateLimiter limiter,
         IProgress<long>? progress,
+        IProgress<ConnectionProgress>? connectionProgress,
         CancellationToken cancellationToken)
     {
-        await using var file = PreallocatedFile.Create(
-            request.DestinationPath, probe.TotalLength is > 0 ? probe.TotalLength.Value : 0);
+        long totalLength = probe.TotalLength is > 0 ? probe.TotalLength.Value : 0;
+        await using var file = PreallocatedFile.Create(request.DestinationPath, totalLength);
 
         await using ITransportResponse response = await _transport
             .SendAsync(new TransportRequest { Uri = probe.FinalUri, Headers = request.Headers }, cancellationToken)
@@ -116,9 +119,19 @@ internal sealed partial class SegmentedDownloader : ISegmentedDownloader
         }
 
         await using Stream content = await response.OpenContentStreamAsync(cancellationToken).ConfigureAwait(false);
-        long bytes = await ThrottledCopyAsync(file, content, 0, limiter, progress, cancellationToken)
+        long bytes = await ThrottledCopyAsync(
+            file, content, 0, totalLength, limiter, progress, connectionProgress, cancellationToken)
             .ConfigureAwait(false);
         await file.FlushToDiskAsync(cancellationToken).ConfigureAwait(false);
+        connectionProgress?.Report(new ConnectionProgress
+        {
+            ConnectionId = 0,
+            SegmentIndex = 0,
+            Start = 0,
+            End = Math.Max(0, bytes - 1),
+            Position = bytes,
+            IsComplete = true,
+        });
 
         LogSingleConnection(_logger, bytes, probe.FinalUri);
 
@@ -141,6 +154,7 @@ internal sealed partial class SegmentedDownloader : ISegmentedDownloader
         IRateLimiter limiter,
         IProgress<long>? progress,
         ReceivedRanges? received,
+        IProgress<ConnectionProgress>? connectionProgress,
         CancellationToken cancellationToken)
     {
         await using var file = PreallocatedFile.Create(request.DestinationPath, totalLength);
@@ -164,7 +178,8 @@ internal sealed partial class SegmentedDownloader : ISegmentedDownloader
         Task[] workers = state.InitialSegments
             .Select(seg => Task.Run(
                 () => RunWorkerAsync(
-                    seg, state, file, probe.FinalUri, request.Headers, limiter, progress, received, cancellationToken),
+                    seg, seg.Index, state, file, probe.FinalUri, request.Headers, limiter, progress, received,
+                    connectionProgress, cancellationToken),
                 cancellationToken))
             .ToArray();
 
@@ -189,6 +204,7 @@ internal sealed partial class SegmentedDownloader : ISegmentedDownloader
 
     private async Task RunWorkerAsync(
         WorkerSegment segment,
+        int connectionId,
         DownloadState state,
         PreallocatedFile file,
         Uri uri,
@@ -196,6 +212,7 @@ internal sealed partial class SegmentedDownloader : ISegmentedDownloader
         IRateLimiter limiter,
         IProgress<long>? progress,
         ReceivedRanges? received,
+        IProgress<ConnectionProgress>? connectionProgress,
         CancellationToken cancellationToken)
     {
         // A steal must leave the victim at least one copy buffer of headroom before the split point, so a
@@ -206,15 +223,28 @@ internal sealed partial class SegmentedDownloader : ISegmentedDownloader
         WorkerSegment? current = segment;
         while (current is not null)
         {
-            await DownloadSegmentAsync(current, state, file, uri, headers, limiter, progress, received, cancellationToken)
-                .ConfigureAwait(false);
+            await DownloadSegmentAsync(
+                current, connectionId, state, file, uri, headers, limiter, progress, received, connectionProgress,
+                cancellationToken).ConfigureAwait(false);
             current.Complete();
             current = state.TrySteal(minStealSize);
         }
+
+        // This connection has no more work — report it idle so the UI can retire its live row.
+        connectionProgress?.Report(new ConnectionProgress
+        {
+            ConnectionId = connectionId,
+            SegmentIndex = segment.Index,
+            Start = segment.Start,
+            End = segment.EndInclusive,
+            Position = segment.WriteOffset,
+            IsComplete = true,
+        });
     }
 
     private async Task DownloadSegmentAsync(
         WorkerSegment segment,
+        int connectionId,
         DownloadState state,
         PreallocatedFile file,
         Uri uri,
@@ -222,6 +252,7 @@ internal sealed partial class SegmentedDownloader : ISegmentedDownloader
         IRateLimiter limiter,
         IProgress<long>? progress,
         ReceivedRanges? received,
+        IProgress<ConnectionProgress>? connectionProgress,
         CancellationToken cancellationToken)
     {
         int stallGuard = 0;
@@ -262,8 +293,9 @@ internal sealed partial class SegmentedDownloader : ISegmentedDownloader
             long before = segment.WriteOffset;
             await using Stream content =
                 await response.OpenContentStreamAsync(cancellationToken).ConfigureAwait(false);
-            await PumpAsync(segment, state, file, content, limiter, progress, received, cancellationToken)
-                .ConfigureAwait(false);
+            await PumpAsync(
+                segment, connectionId, state, file, content, limiter, progress, received, connectionProgress,
+                cancellationToken).ConfigureAwait(false);
 
             if (segment.WriteOffset > segment.EndInclusive)
             {
@@ -288,12 +320,14 @@ internal sealed partial class SegmentedDownloader : ISegmentedDownloader
 
     private static async Task PumpAsync(
         WorkerSegment segment,
+        int connectionId,
         DownloadState state,
         PreallocatedFile file,
         Stream content,
         IRateLimiter limiter,
         IProgress<long>? progress,
         ReceivedRanges? received,
+        IProgress<ConnectionProgress>? connectionProgress,
         CancellationToken cancellationToken)
     {
         byte[] buffer = ArrayPool<byte>.Shared.Rent(PreallocatedFile.CopyBufferSize);
@@ -338,6 +372,14 @@ internal sealed partial class SegmentedDownloader : ISegmentedDownloader
                 // observed via progress always corresponds to bytes already captured in the checkpoint.
                 received?.Add(writeAt, writeLength);
                 progress?.Report(state.AddBytes(writeLength));
+                connectionProgress?.Report(new ConnectionProgress
+                {
+                    ConnectionId = connectionId,
+                    SegmentIndex = segment.Index,
+                    Start = segment.Start,
+                    End = segment.EndInclusive,
+                    Position = segment.WriteOffset,
+                });
 
                 if (writeLength < read)
                 {
@@ -359,8 +401,10 @@ internal sealed partial class SegmentedDownloader : ISegmentedDownloader
         PreallocatedFile file,
         Stream content,
         long offset,
+        long knownTotal,
         IRateLimiter limiter,
         IProgress<long>? progress,
+        IProgress<ConnectionProgress>? connectionProgress,
         CancellationToken cancellationToken)
     {
         byte[] buffer = ArrayPool<byte>.Shared.Rent(PreallocatedFile.CopyBufferSize);
@@ -381,6 +425,14 @@ internal sealed partial class SegmentedDownloader : ISegmentedDownloader
                 position += read;
                 total += read;
                 progress?.Report(total);
+                connectionProgress?.Report(new ConnectionProgress
+                {
+                    ConnectionId = 0,
+                    SegmentIndex = 0,
+                    Start = offset,
+                    End = knownTotal > 0 ? knownTotal - 1 : position - 1,
+                    Position = position,
+                });
             }
         }
         finally

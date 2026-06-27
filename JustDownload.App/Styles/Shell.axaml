@@ -79,6 +79,16 @@
     <Setter Property="Padding" Value="0" />
   </Style>
 
+  <!-- Destructive (Cancel): red text on a card surface, red wash on hover. -->
+  <Style Selector="Button.App.Danger">
+    <Setter Property="Foreground" Value="{DynamicResource RedBrush}" />
+  </Style>
+  <Style Selector="Button.App.Danger:pointerover">
+    <Setter Property="Background" Value="{DynamicResource RedBrush}" />
+    <Setter Property="Foreground" Value="{DynamicResource OnAccentBrush}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource RedBrush}" />
+  </Style>
+
   <!-- Destructive (delete): ghost until hovered, then a red wash so the consequence reads clearly. -->
   <Style Selector="Button.App.Ghost.Danger:pointerover">
     <Setter Property="Background" Value="{DynamicResource RedBrush}" />
@@ -154,6 +164,22 @@
     <Setter Property="FontSize" Value="{StaticResource FontXs}" />
     <Setter Property="Foreground" Value="{DynamicResource TextFaintBrush}" />
     <Setter Property="HorizontalAlignment" Value="Center" />
+  </Style>
+
+  <!-- Detail view stat labels/values (TASK-054). -->
+  <Style Selector="TextBlock.StatKey">
+    <Setter Property="FontSize" Value="11" />
+    <Setter Property="Foreground" Value="{DynamicResource TextFaintBrush}" />
+  </Style>
+  <Style Selector="TextBlock.StatValue">
+    <Setter Property="FontSize" Value="14" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+  </Style>
+  <Style Selector="TextBlock.OptionValue">
+    <Setter Property="FontSize" Value="12.5" />
+    <Setter Property="TextWrapping" Value="Wrap" />
+    <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
   </Style>
 
   <!-- Card surface -->

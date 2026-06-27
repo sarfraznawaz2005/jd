@@ -22,10 +22,15 @@ public interface ISegmentedDownloader
     /// <param name="request">What to download and where.</param>
     /// <param name="progress">Optional sink for cumulative bytes-written updates.</param>
     /// <param name="received">Optional resume checkpoint: seeds resume and records committed writes.</param>
+    /// <param name="connectionProgress">
+    /// Optional sink for per-connection progress (TASK-054): each worker reports its current segment and
+    /// cursor as it writes, so the UI can show live per-connection stats. Ignored if <see langword="null"/>.
+    /// </param>
     /// <param name="cancellationToken">Cancels the download (honored promptly for pause/cancel).</param>
     Task<DownloadResult> DownloadAsync(
         DownloadRequest request,
         IProgress<long>? progress = null,
         ReceivedRanges? received = null,
+        IProgress<ConnectionProgress>? connectionProgress = null,
         CancellationToken cancellationToken = default);
 }

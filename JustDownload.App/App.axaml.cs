@@ -30,6 +30,7 @@ public partial class App : Application
             .AddSingleton<IClipboardService>(_ => new ClipboardService(GetActiveClipboard))
             .AddSingleton<StatusSummaryViewModel>()
             .AddSingleton<DownloadsListViewModel>()
+            .AddSingleton<DownloadDetailViewModel>()
             .AddSingleton<MainWindowViewModel>()
             .AddTransient<NewDownloadViewModel>()
             .BuildServiceProvider();
@@ -50,6 +51,9 @@ public partial class App : Application
             // The toolbar/command-palette "New URL" intent opens the dialog over the main window (TASK-052/053).
             mainViewModel.NewDownloadRequested += (_, _) => _ = ShowNewDownloadDialogAsync(window);
 
+            // Detaching the per-download detail pops it into its own window (TASK-054 AC0).
+            mainViewModel.Detail.DetachRequested += (_, _) => ShowDetachedDetail(window, mainViewModel.Detail);
+
             // Bring the schema up to date, then load the persisted downloads into the list — off the
             // initialisation path so the window paints immediately and never blocks on I/O (§6).
             Dispatcher.UIThread.Post(async () => await InitializeAndLoadAsync(), DispatcherPriority.Background);
@@ -66,6 +70,14 @@ public partial class App : Application
         };
 
         await dialog.ShowDialog(owner);
+    }
+
+    private static void ShowDetachedDetail(Window owner, DownloadDetailViewModel detail)
+    {
+        // The detached window shares the same detail view-model as the inline pane, so both stay live and in
+        // sync (AC0). Non-modal so the user can keep working in the main window.
+        var window = new DownloadDetailWindow { DataContext = detail };
+        window.Show(owner);
     }
 
     private async Task InitializeAndLoadAsync()

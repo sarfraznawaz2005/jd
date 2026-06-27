@@ -65,7 +65,8 @@ public sealed class ShellTests
             Substitute.For<IFileCategorizer>(),
             clock);
 
-        return new MainWindowViewModel(new ThemeService(), new StatusSummaryViewModel(manager), downloads);
+        var detail = new DownloadDetailViewModel(manager, Substitute.For<IDownloadActions>());
+        return new MainWindowViewModel(new ThemeService(), new StatusSummaryViewModel(manager), downloads, detail);
     }
 
     [AvaloniaFact]

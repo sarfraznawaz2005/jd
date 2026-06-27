@@ -29,6 +29,7 @@ internal sealed partial class DownloadManager : IDownloadManager
     private readonly IClock _clock;
     private readonly ILogger<DownloadManager> _logger;
     private readonly ConcurrentDictionary<long, DownloadProgress> _latest = new();
+    private readonly ConcurrentDictionary<long, ConnectionTracker> _connections = new();
 
     public DownloadManager(
         IDownloadRepository repository,
@@ -60,6 +61,9 @@ internal sealed partial class DownloadManager : IDownloadManager
     public event EventHandler<DownloadProgressChangedEventArgs>? ProgressChanged;
 
     public DownloadProgress? GetProgress(long id) => _latest.GetValueOrDefault(id);
+
+    public IReadOnlyList<ConnectionStat> GetConnections(long id) =>
+        _connections.TryGetValue(id, out ConnectionTracker? tracker) ? tracker.Snapshot() : [];
 
     public async Task<long> EnqueueAsync(
         EnqueueDownloadRequest request,
@@ -136,8 +140,9 @@ internal sealed partial class DownloadManager : IDownloadManager
             int connections = active.MaxConnections ?? _segmentationOptions.DefaultConnections;
             var estimator = new SpeedEstimator();
             var sink = new ProgressSink(this, id, estimator, active.TotalBytes, active.TotalBytes is > 0, connections);
+            var connectionSink = new ConnectionProgressSink(this, id);
 
-            result = await _downloader.DownloadAsync(downloadRequest, sink, received, cancellationToken)
+            result = await _downloader.DownloadAsync(downloadRequest, sink, received, connectionSink, cancellationToken)
                 .ConfigureAwait(false);
         }
         catch (OperationCanceledException)
@@ -235,6 +240,10 @@ internal sealed partial class DownloadManager : IDownloadManager
         // Persist on the same token-free path even when the caller's token was cancelled (a pause must
         // still record the paused state).
         await _repository.UpdateAsync(updated, CancellationToken.None).ConfigureAwait(false);
+
+        // The download is no longer running — drop its live per-connection stats so the detail view's
+        // Connections tab clears rather than showing a frozen last frame.
+        _connections.TryRemove(id, out _);
         RaiseStatus(id, fromStatus, to);
     }
 
@@ -419,6 +428,9 @@ internal sealed partial class DownloadManager : IDownloadManager
         ProgressChanged?.Invoke(this, new DownloadProgressChangedEventArgs(id, snapshot));
     }
 
+    private void OnConnectionProgress(long id, ConnectionProgress progress) =>
+        _connections.GetOrAdd(id, static _ => new ConnectionTracker()).Update(_clock, progress);
+
     /// <summary>
     /// A synchronous <see cref="IProgress{T}"/> bridge: the segmented downloader reports cumulative bytes
     /// from its worker threads, and each report is turned into a progress snapshot. Using a direct
@@ -447,6 +459,116 @@ internal sealed partial class DownloadManager : IDownloadManager
 
         public void Report(long value) =>
             _owner.OnBytes(_id, _estimator, _total, _resumable, _connections, value);
+    }
+
+    /// <summary>
+    /// Bridges the downloader's per-connection reports into the owning manager's <see cref="ConnectionTracker"/>
+    /// for one download (TASK-054). Direct <see cref="IProgress{T}"/> so the fold runs on the reporting worker
+    /// thread, keeping each connection's speed samples close to real order (mirrors <see cref="ProgressSink"/>).
+    /// </summary>
+    private sealed class ConnectionProgressSink : IProgress<ConnectionProgress>
+    {
+        private readonly DownloadManager _owner;
+        private readonly long _id;
+
+        public ConnectionProgressSink(DownloadManager owner, long id)
+        {
+            _owner = owner;
+            _id = id;
+        }
+
+        public void Report(ConnectionProgress value) => _owner.OnConnectionProgress(_id, value);
+    }
+
+    /// <summary>
+    /// Folds a download's stream of per-connection reports into live <see cref="ConnectionStat"/>s (TASK-054).
+    /// Each connection keeps its own <see cref="SpeedEstimator"/> fed by a cumulative byte count that survives
+    /// work-steals (a new segment continues the same connection's total), so the derived speed is per
+    /// connection, not per segment. Thread-safe: reports arrive concurrently from every worker thread.
+    /// </summary>
+    private sealed class ConnectionTracker
+    {
+        private readonly object _gate = new();
+        private readonly Dictionary<int, ConnectionState> _byConnection = [];
+
+        public void Update(IClock clock, ConnectionProgress progress)
+        {
+            lock (_gate)
+            {
+                if (!_byConnection.TryGetValue(progress.ConnectionId, out ConnectionState? state))
+                {
+                    state = new ConnectionState { LastSegmentIndex = progress.SegmentIndex, LastPosition = progress.Start };
+                    _byConnection[progress.ConnectionId] = state;
+                }
+
+                // Accumulate this connection's lifetime bytes from per-report deltas. Within one segment the
+                // delta is the cursor advance; when the connection steals a new segment its cursor jumps, so
+                // count only the bytes written into the new segment so far.
+                long delta = progress.SegmentIndex == state.LastSegmentIndex
+                    ? progress.Position - state.LastPosition
+                    : progress.SegmentDownloaded;
+                if (delta > 0)
+                {
+                    state.Cumulative += delta;
+                }
+
+                state.LastSegmentIndex = progress.SegmentIndex;
+                state.LastPosition = progress.Position;
+                state.Latest = progress;
+                state.Active = !progress.IsComplete;
+                state.Speed = progress.IsComplete ? 0 : state.Estimator.Sample(clock.UtcNow, state.Cumulative);
+            }
+        }
+
+        public List<ConnectionStat> Snapshot()
+        {
+            lock (_gate)
+            {
+                var stats = new List<ConnectionStat>(_byConnection.Count);
+                foreach (ConnectionState state in _byConnection.Values)
+                {
+                    ConnectionProgress latest = state.Latest;
+                    stats.Add(new ConnectionStat
+                    {
+                        ConnectionId = latest.ConnectionId,
+                        SegmentIndex = latest.SegmentIndex,
+                        Start = latest.Start,
+                        End = latest.End,
+                        DownloadedBytes = latest.SegmentDownloaded,
+                        TotalBytes = latest.SegmentTotal,
+                        BytesPerSecond = state.Speed,
+                        IsActive = state.Active,
+                    });
+                }
+
+                stats.Sort(static (a, b) => a.ConnectionId.CompareTo(b.ConnectionId));
+                return stats;
+            }
+        }
+
+        private sealed class ConnectionState
+        {
+            public SpeedEstimator Estimator { get; } = new();
+
+            public long Cumulative { get; set; }
+
+            public int LastSegmentIndex { get; set; }
+
+            public long LastPosition { get; set; }
+
+            public ConnectionProgress Latest { get; set; } = new()
+            {
+                ConnectionId = 0,
+                SegmentIndex = 0,
+                Start = 0,
+                End = 0,
+                Position = 0,
+            };
+
+            public double Speed { get; set; }
+
+            public bool Active { get; set; } = true;
+        }
     }
 
     [LoggerMessage(EventId = 1, Level = LogLevel.Information, Message = "Enqueued download {Id}: {Url}.")]

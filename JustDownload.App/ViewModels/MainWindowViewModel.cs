@@ -18,14 +18,23 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     [ObservableProperty]
     private bool _sidebarCollapsed;
 
-    public MainWindowViewModel(IThemeService theme, StatusSummaryViewModel status, DownloadsListViewModel downloads)
+    public MainWindowViewModel(
+        IThemeService theme,
+        StatusSummaryViewModel status,
+        DownloadsListViewModel downloads,
+        DownloadDetailViewModel detail)
     {
         ArgumentNullException.ThrowIfNull(theme);
         ArgumentNullException.ThrowIfNull(status);
         ArgumentNullException.ThrowIfNull(downloads);
+        ArgumentNullException.ThrowIfNull(detail);
         _theme = theme;
         Status = status;
         Downloads = downloads;
+        Detail = detail;
+
+        // Keep the detail pane pointed at the list's current selection (TASK-054).
+        Downloads.PropertyChanged += OnDownloadsPropertyChanged;
     }
 
     /// <summary>The live status-bar summary (active count, total speed, connections).</summary>
@@ -33,6 +42,17 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
     /// <summary>The downloads list shown in the master pane (TASK-051).</summary>
     public DownloadsListViewModel Downloads { get; }
+
+    /// <summary>The per-download detail shown in the detail pane (TASK-054).</summary>
+    public DownloadDetailViewModel Detail { get; }
+
+    private void OnDownloadsPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(DownloadsListViewModel.SelectedDownload))
+        {
+            Detail.Select(Downloads.SelectedDownload);
+        }
+    }
 
     /// <summary>The application version, shown in the About flyout.</summary>
     public string AppVersion { get; } = ResolveVersion();

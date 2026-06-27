@@ -47,7 +47,7 @@ public sealed class ToolbarTests
         }
 
         public MainWindowViewModel BuildMain(DownloadsListViewModel list) =>
-            new(new ThemeService(), new StatusSummaryViewModel(Manager), list);
+            new(new ThemeService(), new StatusSummaryViewModel(Manager), list, new DownloadDetailViewModel(Manager, Actions));
     }
 
     private static Download Record(long id, string status) => new()

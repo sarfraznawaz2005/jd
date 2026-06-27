@@ -2,6 +2,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="using:JustDownload.App.ViewModels"
         xmlns:conv="using:JustDownload.App.Converters"
+        xmlns:views="using:JustDownload.App.Views"
         x:Class="JustDownload.App.Views.MainWindow"
         x:DataType="vm:MainWindowViewModel"
         Title="JustDownload"
@@ -364,15 +365,10 @@
       <GridSplitter Grid.Column="2" Name="PaneSplitter" Width="4" ResizeDirection="Columns"
                     Background="Transparent" HorizontalAlignment="Center" />
 
-      <!-- Detail pane (per-download detail binds in via TASK-054) -->
+      <!-- Detail pane (per-download detail — TASK-054) -->
       <Border Grid.Column="3" Name="DetailPane" Background="{DynamicResource CardBrush}"
               BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1,0,0,0">
-        <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="240" Spacing="6">
-          <TextBlock Text="No download selected" FontSize="14" FontWeight="SemiBold" HorizontalAlignment="Center"
-                     Foreground="{DynamicResource TextDimBrush}" />
-          <TextBlock Text="Select a download to see its progress, segments, and options."
-                     TextWrapping="Wrap" TextAlignment="Center" Foreground="{DynamicResource TextFaintBrush}" />
-        </StackPanel>
+        <views:DownloadDetailView DataContext="{Binding Detail}" />
       </Border>
     </Grid>
   </DockPanel>

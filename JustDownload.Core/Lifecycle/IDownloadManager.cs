@@ -49,4 +49,11 @@ public interface IDownloadManager
     /// observed this session (e.g. it has not started since launch).
     /// </summary>
     DownloadProgress? GetProgress(long id);
+
+    /// <summary>
+    /// The latest per-connection stats for an active download (TASK-054, US-15c), ordered by connection id.
+    /// Empty when the download is not running or has no multi-connection activity this session. The detail
+    /// view refreshes this on each <see cref="ProgressChanged"/> tick for the selected download.
+    /// </summary>
+    IReadOnlyList<ConnectionStat> GetConnections(long id);
 }
