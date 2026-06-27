@@ -31,4 +31,9 @@
     <ProjectReference Include="..\JustDownload.Core\JustDownload.Core.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Small media fixtures (e.g. an h264 .ts) copied next to the test assembly for integration tests. -->
+    <None Include="Fixtures\**\*" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

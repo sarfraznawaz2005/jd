@@ -289,6 +289,7 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton(new FfmpegOptions());
         services.TryAddSingleton<IFfmpegLocator, FfmpegLocator>();
         services.TryAddSingleton<IFfmpegRunner, FfmpegRunner>();
+        services.TryAddSingleton<IMediaConverter, MediaConverter>();
 
         return services;
     }
