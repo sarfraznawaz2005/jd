@@ -21,6 +21,7 @@ public partial class App : Application
         new ServiceCollection()
             .AddJustDownloadCore()
             .AddSingleton<IThemeService, ThemeService>()
+            .AddSingleton<StatusSummaryViewModel>()
             .AddSingleton<MainWindowViewModel>()
             .BuildServiceProvider();
 

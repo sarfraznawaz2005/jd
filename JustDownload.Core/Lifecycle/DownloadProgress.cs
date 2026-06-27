@@ -38,6 +38,9 @@ public sealed record DownloadProgress
     /// </summary>
     public bool Resumable { get; init; }
 
+    /// <summary>The number of parallel connections this download is configured to use (0 if unknown).</summary>
+    public int Connections { get; init; }
+
     /// <summary>
     /// Builds a snapshot, deriving <see cref="Fraction"/> and <see cref="Eta"/> from the raw inputs. This is
     /// a pure function: the same inputs always yield the same snapshot.
@@ -47,12 +50,14 @@ public sealed record DownloadProgress
     /// <param name="totalBytes">Total size when known.</param>
     /// <param name="bytesPerSecond">Current speed; values ≤ 0 mean "unknown / idle".</param>
     /// <param name="resumable">Whether the transfer can resume from its current offset.</param>
+    /// <param name="connections">The configured parallel connection count (0 if unknown).</param>
     public static DownloadProgress Create(
         DownloadStatus status,
         long downloadedBytes,
         long? totalBytes,
         double bytesPerSecond,
-        bool resumable)
+        bool resumable,
+        int connections = 0)
     {
         long done = Math.Max(0, downloadedBytes);
         double speed = bytesPerSecond > 0 ? bytesPerSecond : 0;
@@ -88,6 +93,7 @@ public sealed record DownloadProgress
             Fraction = fraction,
             Eta = eta,
             Resumable = resumable,
+            Connections = connections,
         };
     }
 }

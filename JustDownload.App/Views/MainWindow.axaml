@@ -28,6 +28,12 @@
             BorderThickness="0,0,0,1">
       <DockPanel LastChildFill="False" Margin="14,0">
 
+        <!-- Sidebar toggle -->
+        <Button DockPanel.Dock="Left" Classes="App Ghost IconOnly" VerticalAlignment="Center" Margin="0,0,6,0"
+                Command="{Binding ToggleSidebarCommand}" ToolTip.Tip="Toggle sidebar">
+          <PathIcon Data="{StaticResource IconList}" Width="15" Height="15" />
+        </Button>
+
         <!-- Brand -->
         <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" Spacing="9" VerticalAlignment="Center" Margin="0,0,6,0">
           <Border Width="22" Height="22" CornerRadius="{StaticResource RadiusSm}" Background="{DynamicResource AccentBrush}">
@@ -99,22 +105,30 @@
       <DockPanel Margin="14,0" LastChildFill="False">
         <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" Spacing="7" VerticalAlignment="Center">
           <Ellipse Width="7" Height="7" Fill="{DynamicResource GreenBrush}" />
-          <TextBlock Text="0 active" FontSize="11.5" Foreground="{DynamicResource TextDimBrush}" />
+          <TextBlock Text="{Binding Status.ActiveCount, StringFormat='{}{0} active'}" FontSize="11.5"
+                     Foreground="{DynamicResource TextDimBrush}" />
         </StackPanel>
-        <TextBlock DockPanel.Dock="Left" Text="Total speed —" Margin="18,0,0,0" FontSize="11.5"
-                   VerticalAlignment="Center" Foreground="{DynamicResource TextDimBrush}" />
-        <TextBlock DockPanel.Dock="Left" Text="0 connections" Margin="18,0,0,0" FontSize="11.5"
-                   VerticalAlignment="Center" Foreground="{DynamicResource TextDimBrush}" />
+        <TextBlock DockPanel.Dock="Left" Text="{Binding Status.TotalSpeedDisplay, StringFormat='Total speed {0}'}"
+                   Margin="18,0,0,0" FontSize="11.5" VerticalAlignment="Center" Foreground="{DynamicResource TextDimBrush}" />
+        <TextBlock DockPanel.Dock="Left" Text="{Binding Status.Connections, StringFormat='{}{0} connections'}"
+                   Margin="18,0,0,0" FontSize="11.5" VerticalAlignment="Center" Foreground="{DynamicResource TextDimBrush}" />
         <TextBlock DockPanel.Dock="Right" Text="Speed limit: Unlimited" FontSize="11.5"
                    VerticalAlignment="Center" Foreground="{DynamicResource TextDimBrush}" />
       </DockPanel>
     </Border>
 
-    <!-- ===== Body: sidebar + content ===== -->
-    <Grid ColumnDefinitions="232,*">
+    <!-- ===== Body: three-pane master/detail (PRD 2.4.1) ===== -->
+    <Grid>
+      <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="Auto" />
+        <ColumnDefinition Width="*" MinWidth="320" />
+        <ColumnDefinition Width="Auto" />
+        <ColumnDefinition Width="360" MinWidth="280" />
+      </Grid.ColumnDefinitions>
 
-      <!-- Sidebar -->
-      <Border Grid.Column="0" Name="Sidebar" Background="{DynamicResource SidebarBrush}"
+      <!-- Sidebar (collapsible) -->
+      <Border Grid.Column="0" Name="Sidebar" Width="232" IsVisible="{Binding !SidebarCollapsed}"
+              Background="{DynamicResource SidebarBrush}"
               BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,1,0">
         <ScrollViewer>
           <StackPanel Margin="8,12">
@@ -181,8 +195,8 @@
         </ScrollViewer>
       </Border>
 
-      <!-- Content: empty state (the list/detail bind in via TASK-048/049) -->
-      <Border Grid.Column="1" Background="{DynamicResource BgBrush}">
+      <!-- List pane (the downloads list binds in via TASK-051; empty state for now) -->
+      <Border Grid.Column="1" Name="ListPane" Background="{DynamicResource BgBrush}">
         <StackPanel Name="EmptyState" HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="340" Spacing="6">
           <Border Width="64" Height="64" CornerRadius="18" HorizontalAlignment="Center" Margin="0,0,0,12"
                   Background="{DynamicResource CardBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1">
@@ -198,6 +212,21 @@
               <TextBlock Text="New URL" VerticalAlignment="Center" />
             </StackPanel>
           </Button>
+        </StackPanel>
+      </Border>
+
+      <!-- Resize handle between list and detail -->
+      <GridSplitter Grid.Column="2" Name="PaneSplitter" Width="4" ResizeDirection="Columns"
+                    Background="Transparent" HorizontalAlignment="Center" />
+
+      <!-- Detail pane (per-download detail binds in via TASK-054) -->
+      <Border Grid.Column="3" Name="DetailPane" Background="{DynamicResource CardBrush}"
+              BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1,0,0,0">
+        <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="240" Spacing="6">
+          <TextBlock Text="No download selected" FontSize="14" FontWeight="SemiBold" HorizontalAlignment="Center"
+                     Foreground="{DynamicResource TextDimBrush}" />
+          <TextBlock Text="Select a download to see its progress, segments, and options."
+                     TextWrapping="Wrap" TextAlignment="Center" Foreground="{DynamicResource TextFaintBrush}" />
         </StackPanel>
       </Border>
     </Grid>

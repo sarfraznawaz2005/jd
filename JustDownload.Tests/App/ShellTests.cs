@@ -7,6 +7,8 @@ using FluentAssertions;
 using JustDownload.App.Services;
 using JustDownload.App.ViewModels;
 using JustDownload.App.Views;
+using JustDownload.Core.Lifecycle;
+using NSubstitute;
 using Xunit;
 
 namespace JustDownload.Tests.App;
@@ -42,19 +44,36 @@ public sealed class ShellTests
         space.Should().Be(16d);
     }
 
+    private static MainWindowViewModel BuildViewModel() =>
+        new(new ThemeService(), new StatusSummaryViewModel(Substitute.For<IDownloadManager>()));
+
     [AvaloniaFact]
     public void MainWindow_MountsWithShellChrome()
     {
-        var window = new MainWindow
-        {
-            DataContext = new MainWindowViewModel(new ThemeService()),
-        };
+        var window = new MainWindow { DataContext = BuildViewModel() };
         window.Show();
 
         window.FindControl<Border>("Toolbar").Should().NotBeNull("the toolbar is part of the shell");
         window.FindControl<Border>("Sidebar").Should().NotBeNull("the sidebar is part of the shell");
         window.FindControl<Border>("StatusBar").Should().NotBeNull("the status bar is part of the shell");
         window.FindControl<StackPanel>("EmptyState").Should().NotBeNull("the empty-state placeholder shows");
+    }
+
+    [AvaloniaFact]
+    public void MainWindow_HasThreePanes_WithResizeAndCollapse()
+    {
+        var vm = BuildViewModel();
+        var window = new MainWindow { DataContext = vm };
+        window.Show();
+
+        Border sidebar = window.FindControl<Border>("Sidebar")!;
+        window.FindControl<Border>("ListPane").Should().NotBeNull("the list pane is the master pane");
+        window.FindControl<Border>("DetailPane").Should().NotBeNull("the detail pane is the detail master/detail half");
+        window.FindControl<GridSplitter>("PaneSplitter").Should().NotBeNull("list and detail are resizable");
+
+        sidebar.IsVisible.Should().BeTrue();
+        vm.ToggleSidebarCommand.Execute(null);
+        sidebar.IsVisible.Should().BeFalse("toggling collapses the sidebar");
     }
 
     [AvaloniaFact]

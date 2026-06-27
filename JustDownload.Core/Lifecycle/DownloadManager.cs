@@ -25,6 +25,7 @@ internal sealed partial class DownloadManager : IDownloadManager
     private readonly ISegmentRepository _segments;
     private readonly ISegmentedDownloader _downloader;
     private readonly IResourceProbe _probe;
+    private readonly SegmentationOptions _segmentationOptions;
     private readonly IClock _clock;
     private readonly ILogger<DownloadManager> _logger;
     private readonly ConcurrentDictionary<long, DownloadProgress> _latest = new();
@@ -34,6 +35,7 @@ internal sealed partial class DownloadManager : IDownloadManager
         ISegmentRepository segments,
         ISegmentedDownloader downloader,
         IResourceProbe probe,
+        SegmentationOptions segmentationOptions,
         IClock clock,
         ILogger<DownloadManager> logger)
     {
@@ -41,12 +43,14 @@ internal sealed partial class DownloadManager : IDownloadManager
         ArgumentNullException.ThrowIfNull(segments);
         ArgumentNullException.ThrowIfNull(downloader);
         ArgumentNullException.ThrowIfNull(probe);
+        ArgumentNullException.ThrowIfNull(segmentationOptions);
         ArgumentNullException.ThrowIfNull(clock);
         ArgumentNullException.ThrowIfNull(logger);
         _repository = repository;
         _segments = segments;
         _downloader = downloader;
         _probe = probe;
+        _segmentationOptions = segmentationOptions;
         _clock = clock;
         _logger = logger;
     }
@@ -129,8 +133,9 @@ internal sealed partial class DownloadManager : IDownloadManager
             // so a later renew can prove identity (TASK-032).
             active = await PrepareForDownloadAsync(active, headers, cancellationToken).ConfigureAwait(false);
 
+            int connections = active.MaxConnections ?? _segmentationOptions.DefaultConnections;
             var estimator = new SpeedEstimator();
-            var sink = new ProgressSink(this, id, estimator, active.TotalBytes, active.TotalBytes is > 0);
+            var sink = new ProgressSink(this, id, estimator, active.TotalBytes, active.TotalBytes is > 0, connections);
 
             result = await _downloader.DownloadAsync(downloadRequest, sink, received, cancellationToken)
                 .ConfigureAwait(false);
@@ -200,7 +205,8 @@ internal sealed partial class DownloadManager : IDownloadManager
 
         // Final snapshot: 100%, ETA zero, resumable iff the transfer used ranges.
         DownloadProgress done = DownloadProgress.Create(
-            DownloadStatus.Completed, result.TotalBytes, result.TotalBytes, 0, !result.SingleConnection);
+            DownloadStatus.Completed, result.TotalBytes, result.TotalBytes, 0, !result.SingleConnection,
+            result.SingleConnection ? 1 : result.InitialSegments);
         _latest[id] = done;
         ProgressChanged?.Invoke(this, new DownloadProgressChangedEventArgs(id, done));
 
@@ -403,11 +409,12 @@ internal sealed partial class DownloadManager : IDownloadManager
     private void RaiseStatus(long id, DownloadStatus? previous, DownloadStatus current) =>
         StatusChanged?.Invoke(this, new DownloadStatusChangedEventArgs(id, previous, current));
 
-    private void OnBytes(long id, SpeedEstimator estimator, long? total, bool resumable, long cumulativeBytes)
+    private void OnBytes(
+        long id, SpeedEstimator estimator, long? total, bool resumable, int connections, long cumulativeBytes)
     {
         double speed = estimator.Sample(_clock.UtcNow, cumulativeBytes);
         DownloadProgress snapshot = DownloadProgress.Create(
-            DownloadStatus.Active, cumulativeBytes, total, speed, resumable);
+            DownloadStatus.Active, cumulativeBytes, total, speed, resumable, connections);
         _latest[id] = snapshot;
         ProgressChanged?.Invoke(this, new DownloadProgressChangedEventArgs(id, snapshot));
     }
@@ -425,17 +432,21 @@ internal sealed partial class DownloadManager : IDownloadManager
         private readonly SpeedEstimator _estimator;
         private readonly long? _total;
         private readonly bool _resumable;
+        private readonly int _connections;
 
-        public ProgressSink(DownloadManager owner, long id, SpeedEstimator estimator, long? total, bool resumable)
+        public ProgressSink(
+            DownloadManager owner, long id, SpeedEstimator estimator, long? total, bool resumable, int connections)
         {
             _owner = owner;
             _id = id;
             _estimator = estimator;
             _total = total;
             _resumable = resumable;
+            _connections = connections;
         }
 
-        public void Report(long value) => _owner.OnBytes(_id, _estimator, _total, _resumable, value);
+        public void Report(long value) =>
+            _owner.OnBytes(_id, _estimator, _total, _resumable, _connections, value);
     }
 
     [LoggerMessage(EventId = 1, Level = LogLevel.Information, Message = "Enqueued download {Id}: {Url}.")]
