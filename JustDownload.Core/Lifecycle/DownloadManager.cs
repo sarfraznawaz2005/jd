@@ -3,6 +3,7 @@ using JustDownload.Core.Abstractions;
 using JustDownload.Core.Data.Models;
 using JustDownload.Core.Data.Repositories;
 using JustDownload.Core.Downloading;
+using JustDownload.Core.Transport;
 using Microsoft.Extensions.Logging;
 
 namespace JustDownload.Core.Lifecycle;
@@ -23,6 +24,7 @@ internal sealed partial class DownloadManager : IDownloadManager
     private readonly IDownloadRepository _repository;
     private readonly ISegmentRepository _segments;
     private readonly ISegmentedDownloader _downloader;
+    private readonly IResourceProbe _probe;
     private readonly IClock _clock;
     private readonly ILogger<DownloadManager> _logger;
     private readonly ConcurrentDictionary<long, DownloadProgress> _latest = new();
@@ -31,17 +33,20 @@ internal sealed partial class DownloadManager : IDownloadManager
         IDownloadRepository repository,
         ISegmentRepository segments,
         ISegmentedDownloader downloader,
+        IResourceProbe probe,
         IClock clock,
         ILogger<DownloadManager> logger)
     {
         ArgumentNullException.ThrowIfNull(repository);
         ArgumentNullException.ThrowIfNull(segments);
         ArgumentNullException.ThrowIfNull(downloader);
+        ArgumentNullException.ThrowIfNull(probe);
         ArgumentNullException.ThrowIfNull(clock);
         ArgumentNullException.ThrowIfNull(logger);
         _repository = repository;
         _segments = segments;
         _downloader = downloader;
+        _probe = probe;
         _clock = clock;
         _logger = logger;
     }
@@ -102,19 +107,14 @@ internal sealed partial class DownloadManager : IDownloadManager
         // Seed the resume checkpoint from any persisted segments so this run fetches only the missing gaps.
         ReceivedRanges received = await LoadReceivedAsync(id, cancellationToken).ConfigureAwait(false);
 
-        var estimator = new SpeedEstimator();
-        bool resumable = record.TotalBytes is > 0;
-        var sink = new ProgressSink(this, id, estimator, record.TotalBytes, resumable);
-
+        IReadOnlyList<KeyValuePair<string, string>> headers = BuildHeaders(record);
         var downloadRequest = new DownloadRequest
         {
             Url = new Uri(record.Url),
             DestinationPath = Path.Combine(record.Directory, record.Filename),
             Connections = record.MaxConnections,
             SpeedLimit = record.SpeedLimit,
-            Headers = record.Referrer is { Length: > 0 } referrer
-                ? [new KeyValuePair<string, string>("Referer", referrer)]
-                : [],
+            Headers = headers,
         };
 
         // Periodically flush the checkpoint so a crash loses at most one interval; pause/cancel flushes the
@@ -125,6 +125,13 @@ internal sealed partial class DownloadManager : IDownloadManager
         DownloadResult result;
         try
         {
+            // Detect an already-expired link and capture the resume validators (ETag/size) before fetching,
+            // so a later renew can prove identity (TASK-032).
+            active = await PrepareForDownloadAsync(active, headers, cancellationToken).ConfigureAwait(false);
+
+            var estimator = new SpeedEstimator();
+            var sink = new ProgressSink(this, id, estimator, active.TotalBytes, active.TotalBytes is > 0);
+
             result = await _downloader.DownloadAsync(downloadRequest, sink, received, cancellationToken)
                 .ConfigureAwait(false);
         }
@@ -137,6 +144,27 @@ internal sealed partial class DownloadManager : IDownloadManager
             await TransitionToTerminalAsync(id, active, DownloadStatus.Paused, error: null, completedAt: null)
                 .ConfigureAwait(false);
             throw;
+        }
+        catch (DownloadExpiredException ex)
+        {
+            // The link expired: keep the checkpoint so a renew with a fresh URL can resume the bytes.
+            await StopCheckpointLoopAsync(checkpointCts, checkpointLoop).ConfigureAwait(false);
+            await PersistSegmentsAsync(id, received, CancellationToken.None).ConfigureAwait(false);
+            await TransitionToTerminalAsync(id, active, DownloadStatus.Expired, ex.Message, completedAt: null)
+                .ConfigureAwait(false);
+            LogExpired(_logger, id);
+            throw;
+        }
+        catch (ResourceProbeException ex) when (ExpiryDetection.IsExpiryStatusCode(ex.StatusCode))
+        {
+            // The probe (e.g. when resuming a download whose validators were already captured) hit an expiry
+            // status — surface it as Expired and keep the checkpoint for a renew.
+            await StopCheckpointLoopAsync(checkpointCts, checkpointLoop).ConfigureAwait(false);
+            await PersistSegmentsAsync(id, received, CancellationToken.None).ConfigureAwait(false);
+            await TransitionToTerminalAsync(id, active, DownloadStatus.Expired, ex.Message, completedAt: null)
+                .ConfigureAwait(false);
+            LogExpired(_logger, id);
+            throw new DownloadExpiredException(ex.Message, ex);
         }
         catch (ResumeNotSupportedException ex)
         {
@@ -203,6 +231,90 @@ internal sealed partial class DownloadManager : IDownloadManager
         await _repository.UpdateAsync(updated, CancellationToken.None).ConfigureAwait(false);
         RaiseStatus(id, fromStatus, to);
     }
+
+    public async Task<DownloadResult> RenewAsync(long id, Uri newUrl, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(newUrl);
+
+        Download record = await _repository.GetAsync(id, cancellationToken).ConfigureAwait(false)
+            ?? throw new KeyNotFoundException($"No download exists with id {id}.");
+
+        ResourceProbeResult probe;
+        try
+        {
+            probe = await _probe.ProbeAsync(newUrl, BuildHeaders(record), cancellationToken).ConfigureAwait(false);
+        }
+        catch (ResourceProbeException ex) when (ExpiryDetection.IsExpiryStatusCode(ex.StatusCode))
+        {
+            // The replacement URL is itself already expired.
+            throw new DownloadExpiredException($"The renewed link is also expired (status {ex.StatusCode}).", ex);
+        }
+
+        // Resume only when the new resource is provably the same bytes; otherwise drop the checkpoint so the
+        // restart is clean (US-13 AC2-3).
+        bool sameResource = DownloadIdentity.Matches(record, probe);
+        if (!sameResource)
+        {
+            await ClearSegmentsAsync(id).ConfigureAwait(false);
+        }
+
+        Download renewed = record with
+        {
+            Url = newUrl.ToString(),
+            ETag = probe.ETag ?? record.ETag,
+            TotalBytes = probe.TotalLength ?? record.TotalBytes,
+            Error = null,
+        };
+        await _repository.UpdateAsync(renewed, cancellationToken).ConfigureAwait(false);
+        LogRenewed(_logger, id, sameResource);
+
+        // StartAsync resumes from the (kept) checkpoint on a match, or restarts from zero on a mismatch.
+        return await StartAsync(id, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Pre-flight before fetching (TASK-032): fail fast if the signed URL is already past its expiry, and on
+    /// the first run capture the resume validators (ETag/size) so a later renew can confirm identity. A probe
+    /// that returns an expiry status is surfaced as <see cref="DownloadExpiredException"/>.
+    /// </summary>
+    private async Task<Download> PrepareForDownloadAsync(
+        Download active,
+        IReadOnlyList<KeyValuePair<string, string>> headers,
+        CancellationToken cancellationToken)
+    {
+        var uri = new Uri(active.Url);
+        if (ExpiryDetection.IsUrlExpired(uri, _clock.UtcNow))
+        {
+            throw new DownloadExpiredException("The download link has expired (its signed URL is past its expiry).");
+        }
+
+        if (!string.IsNullOrEmpty(active.ETag) || active.TotalBytes is not null)
+        {
+            return active; // validators already captured on a prior run
+        }
+
+        try
+        {
+            ResourceProbeResult probe = await _probe.ProbeAsync(uri, headers, cancellationToken).ConfigureAwait(false);
+            Download withValidators = active with { ETag = probe.ETag, TotalBytes = probe.TotalLength };
+            await _repository.UpdateAsync(withValidators, cancellationToken).ConfigureAwait(false);
+            return withValidators;
+        }
+        catch (ResourceProbeException ex) when (ExpiryDetection.IsExpiryStatusCode(ex.StatusCode))
+        {
+            throw new DownloadExpiredException($"The download link has expired (status {ex.StatusCode}).", ex);
+        }
+        catch (ResourceProbeException)
+        {
+            // A non-expiry probe failure: proceed and let the downloader surface the real error.
+            return active;
+        }
+    }
+
+    private static IReadOnlyList<KeyValuePair<string, string>> BuildHeaders(Download record) =>
+        record.Referrer is { Length: > 0 } referrer
+            ? [new KeyValuePair<string, string>("Referer", referrer)]
+            : [];
 
     /// <summary>Rebuilds the resume checkpoint from persisted segment rows (empty for a fresh download).</summary>
     private async Task<ReceivedRanges> LoadReceivedAsync(long id, CancellationToken cancellationToken)
@@ -334,4 +446,10 @@ internal sealed partial class DownloadManager : IDownloadManager
 
     [LoggerMessage(EventId = 3, Level = LogLevel.Warning, Message = "Download {Id} failed.")]
     private static partial void LogFailed(ILogger logger, long id, Exception exception);
+
+    [LoggerMessage(EventId = 4, Level = LogLevel.Information, Message = "Download {Id} link expired; awaiting renew.")]
+    private static partial void LogExpired(ILogger logger, long id);
+
+    [LoggerMessage(EventId = 5, Level = LogLevel.Information, Message = "Download {Id} renewed (sameResource={SameResource}).")]
+    private static partial void LogRenewed(ILogger logger, long id, bool sameResource);
 }

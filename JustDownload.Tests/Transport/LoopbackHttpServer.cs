@@ -57,6 +57,12 @@ internal sealed class LoopbackHttpServer : IAsyncDisposable
     /// </summary>
     public bool SendContentLength { get; set; } = true;
 
+    /// <summary>
+    /// When set, every response is answered with this status code and an empty body — used to simulate an
+    /// expired/withdrawn link (e.g. <c>403</c>/<c>410</c>).
+    /// </summary>
+    public int? StatusOverride { get; set; }
+
     /// <summary>A delay applied to every response before it is written (holds the connection open).</summary>
     public TimeSpan ResponseDelay { get; set; } = TimeSpan.Zero;
 
@@ -233,6 +239,16 @@ internal sealed class LoopbackHttpServer : IAsyncDisposable
         if (delay > TimeSpan.Zero)
         {
             await Task.Delay(delay, ct).ConfigureAwait(false);
+        }
+
+        if (StatusOverride is { } overrideStatus)
+        {
+            byte[] errorHead = Encoding.ASCII.GetBytes(string.Create(
+                CultureInfo.InvariantCulture,
+                $"HTTP/1.1 {overrideStatus} Status\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"));
+            await stream.WriteAsync(errorHead, ct).ConfigureAwait(false);
+            await stream.FlushAsync(ct).ConfigureAwait(false);
+            return;
         }
 
         byte[] body = Body;

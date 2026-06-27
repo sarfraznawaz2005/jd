@@ -35,6 +35,16 @@ public interface IDownloadManager
     Task<DownloadResult> StartAsync(long id, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Renews an expired (or failed) download with a fresh <paramref name="newUrl"/> and continues it: if the
+    /// new resource is provably the same bytes (matching ETag, else matching size) the existing checkpoint is
+    /// kept and the download resumes; otherwise the checkpoint is dropped and it restarts cleanly (TASK-032,
+    /// US-13). Returns the completed download's result.
+    /// </summary>
+    /// <exception cref="KeyNotFoundException">No download exists with that id.</exception>
+    /// <exception cref="DownloadExpiredException">The replacement URL is itself expired.</exception>
+    Task<DownloadResult> RenewAsync(long id, Uri newUrl, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// The latest in-memory progress snapshot for a download, or <see langword="null"/> if none has been
     /// observed this session (e.g. it has not started since launch).
     /// </summary>

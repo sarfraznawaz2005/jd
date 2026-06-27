@@ -55,6 +55,19 @@ internal sealed partial class SegmentedDownloader : ISegmentedDownloader
             ? new CompositeRateLimiter(_globalRateLimiter, new TokenBucket(_clock, request.SpeedLimit.Value))
             : _globalRateLimiter;
 
+    // A 403/410 mid-download conventionally means a time-limited/signed link has lapsed; surface it as an
+    // expiry so the manager can offer a renew rather than reporting a generic failure (TASK-032, US-13).
+    private static void ThrowIfExpired(int statusCode)
+    {
+        if (statusCode is 403 or 410)
+        {
+            throw new DownloadExpiredException($"The download link has expired (server returned {statusCode}).")
+            {
+                StatusCode = statusCode,
+            };
+        }
+    }
+
     public async Task<DownloadResult> DownloadAsync(
         DownloadRequest request,
         IProgress<long>? progress = null,
@@ -98,6 +111,7 @@ internal sealed partial class SegmentedDownloader : ISegmentedDownloader
 
         if (!response.IsSuccessStatusCode)
         {
+            ThrowIfExpired(response.StatusCode);
             throw new IOException($"Download failed: server returned status {response.StatusCode}.");
         }
 
@@ -232,6 +246,7 @@ internal sealed partial class SegmentedDownloader : ISegmentedDownloader
 
             if (!response.IsSuccessStatusCode)
             {
+                ThrowIfExpired(response.StatusCode);
                 throw new IOException(
                     $"Segment {segment.Index} failed: server returned status {response.StatusCode}.");
             }
