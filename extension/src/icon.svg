@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  JustDownload brand mark — master source for the extension icons (TASK-086).
+  A rounded-square accent gradient (#5b67d6 → #8a7bf0, matching the app/mockup
+  logo) with a white "download" glyph (arrow into a tray). The raster icons in
+  src/icons/icon-*.png are generated from this same geometry by scripts/gen-icons.js;
+  Chrome/Edge require PNG icons, so the PNGs are what the manifests reference.
+-->
+<svg width="128" height="128" viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="jd" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#5b67d6"/>
+      <stop offset="1" stop-color="#8a7bf0"/>
+    </linearGradient>
+  </defs>
+  <rect x="0" y="0" width="128" height="128" rx="28" ry="28" fill="url(#jd)"/>
+  <g fill="#ffffff">
+    <!-- arrow shaft -->
+    <rect x="56" y="33" width="16" height="34" rx="3"/>
+    <!-- arrow head (points down) -->
+    <path d="M40 58 L88 58 L64 88 Z"/>
+    <!-- tray / baseline -->
+    <rect x="36" y="100" width="56" height="10" rx="5"/>
+  </g>
+</svg>

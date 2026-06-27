@@ -10,6 +10,9 @@
     "build:chrome": "node build.js chrome",
     "build:edge": "node build.js edge",
     "build:firefox": "node build.js firefox",
+    "gen-icons": "node scripts/gen-icons.js",
+    "zip": "node scripts/zip.js",
+    "package": "node build.js && node scripts/zip.js",
     "clean": "node build.js --clean"
   }
 }

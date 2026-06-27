@@ -16,7 +16,7 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
-const zlib = require("node:zlib");
+const { generateAll } = require("./scripts/gen-icons");
 
 const ROOT = __dirname;
 const SRC = path.join(ROOT, "src");
@@ -53,98 +53,6 @@ function deepMerge(base, override) {
     }
   }
   return out;
-}
-
-/* ----------------------------------------------------------- PNG encoding */
-
-/** Encode raw RGBA bytes into a PNG buffer (no deps; uses Node zlib + crc32). */
-function encodePng(width, height, rgba) {
-  const sig = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
-
-  const ihdr = Buffer.alloc(13);
-  ihdr.writeUInt32BE(width, 0);
-  ihdr.writeUInt32BE(height, 4);
-  ihdr[8] = 8;  // bit depth
-  ihdr[9] = 6;  // color type: RGBA
-  // bytes 10-12: compression/filter/interlace = 0
-
-  // Prefix each scanline with filter byte 0 (none).
-  const stride = width * 4;
-  const raw = Buffer.alloc((stride + 1) * height);
-  for (let y = 0; y < height; y++) {
-    raw[y * (stride + 1)] = 0;
-    rgba.copy(raw, y * (stride + 1) + 1, y * stride, y * stride + stride);
-  }
-  const idat = zlib.deflateSync(raw, { level: 9 });
-
-  const chunk = (type, data) => {
-    const len = Buffer.alloc(4);
-    len.writeUInt32BE(data.length, 0);
-    const typed = Buffer.concat([Buffer.from(type, "ascii"), data]);
-    const crc = Buffer.alloc(4);
-    crc.writeUInt32BE(zlib.crc32(typed) >>> 0, 0);
-    return Buffer.concat([len, typed, crc]);
-  };
-
-  return Buffer.concat([
-    sig,
-    chunk("IHDR", ihdr),
-    chunk("IDAT", idat),
-    chunk("IEND", Buffer.alloc(0)),
-  ]);
-}
-
-/** Draw the JustDownload mark: accent rounded square + white download arrow. */
-function drawIcon(size) {
-  const rgba = Buffer.alloc(size * size * 4);
-  // Light-theme accent #5b67d6.
-  const ACC = [0x5b, 0x67, 0xd6];
-  const radius = size * 0.22;
-
-  const inRoundedRect = (x, y) => {
-    const r = radius;
-    const minX = r, minY = r, maxX = size - r, maxY = size - r;
-    const cx = Math.min(Math.max(x, minX), maxX);
-    const cy = Math.min(Math.max(y, minY), maxY);
-    return (x - cx) ** 2 + (y - cy) ** 2 <= r * r;
-  };
-
-  for (let y = 0; y < size; y++) {
-    for (let x = 0; x < size; x++) {
-      const i = (y * size + x) * 4;
-      if (!inRoundedRect(x + 0.5, y + 0.5)) {
-        rgba[i + 3] = 0; // transparent outside the rounded square
-        continue;
-      }
-      const u = x / (size - 1);
-      const v = y / (size - 1);
-
-      const stem = Math.abs(u - 0.5) < 0.075 && v > 0.24 && v < 0.55;
-      const head = v >= 0.5 && v <= 0.74 && Math.abs(u - 0.5) < (0.74 - v) * 0.95;
-      const tray = v > 0.80 && v < 0.875 && Math.abs(u - 0.5) < 0.26;
-
-      let col = ACC;
-      if (stem || head || tray) col = [0xff, 0xff, 0xff];
-
-      rgba[i] = col[0];
-      rgba[i + 1] = col[1];
-      rgba[i + 2] = col[2];
-      rgba[i + 3] = 0xff;
-    }
-  }
-  return encodePng(size, size, rgba);
-}
-
-/** Generate source icons into src/icons (idempotent — only writes if missing). */
-function ensureIcons() {
-  fs.mkdirSync(ICONS_DIR, { recursive: true });
-  for (const size of ICON_SIZES) {
-    const file = path.join(ICONS_DIR, `icon-${size}.png`);
-    if (!fs.existsSync(file)) {
-      fs.writeFileSync(file, drawIcon(size));
-      console.log(`  generated icons/icon-${size}.png`);
-    }
-  }
 }
 
 /* -------------------------------------------------------------- building */
@@ -201,7 +109,12 @@ function main() {
   }
 
   console.log("JustDownload extension build");
-  ensureIcons();
+  // Committed brand icons (src/icons) are the source of truth; only generate if a clean
+  // checkout is missing them. Run `npm run gen-icons` to deliberately regenerate.
+  const generated = generateAll({ force: false });
+  if (generated.length) {
+    console.log(`  generated missing icons: ${generated.join(", ")}`);
+  }
   for (const t of selected) {
     buildTarget(t);
   }

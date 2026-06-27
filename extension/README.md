@@ -21,7 +21,11 @@ extension/
 │   ├── background.js        ← MV3 service worker (stub message handler)
 │   ├── content.js           ← content script (stub)
 │   ├── popup.html/.css/.js  ← extension popup (modern-minimal, light + dark)
-│   └── icons/               ← generated placeholder PNGs (by build.js)
+│   ├── icon.svg             ← brand-mark master (source of truth for the icons)
+│   └── icons/               ← real PNG icons rendered from icon.svg (committed)
+├── scripts/
+│   ├── gen-icons.js         ← renders src/icons/*.png from the brand mark (anti-aliased)
+│   └── zip.js               ← packages dist/<browser>/ → dist/<browser>.zip (no deps)
 ├── build.js                 ← zero-dependency Node build (merge + copy)
 ├── package.json             ← npm scripts
 └── dist/                    ← build output, one folder per browser (git-ignored)
@@ -45,13 +49,31 @@ Other scripts:
 
 ```bash
 npm run build:chrome       # single target (also :edge, :firefox)
+npm run gen-icons          # re-render src/icons/*.png from src/icon.svg
+npm run package            # build, then zip each dist/<browser>/ → dist/<browser>.zip
+npm run zip                # zip already-built dist/<browser>/ folders
 npm run clean              # remove dist/
 ```
 
 Each `dist/<browser>/` contains a valid `manifest.json` plus the shared assets
 (`background.js`, `content.js`, `popup.*`, `icons/`) and is ready to load
-unpacked. Zipping for store upload is intentionally left out of the scaffold —
-zip a `dist/<browser>/` folder when a release is needed.
+unpacked.
+
+## Icons
+
+`src/icon.svg` is the brand-mark master (a rounded-square accent gradient with a
+white download glyph, matching the app/mockup logo). `npm run gen-icons` renders
+it to anti-aliased `src/icons/icon-{16,32,48,128}.png` — the raster sizes
+Chrome/Edge require — using a zero-dependency Node renderer. Those PNGs are
+**committed**, so a fresh checkout loads unpacked without a build; `build.js` only
+regenerates them if a checkout is missing them.
+
+## Packaging for store upload
+
+`npm run package` builds all targets and writes a store-uploadable
+`dist/chrome.zip`, `dist/edge.zip`, and `dist/firefox.zip` (a minimal,
+dependency-free, deterministic ZIP writer). Upload the matching archive to each
+browser's developer dashboard.
 
 ## Load the unpacked extension
 
