@@ -1,5 +1,7 @@
 using System.Buffers;
+using JustDownload.Core.Abstractions;
 using JustDownload.Core.Storage;
+using JustDownload.Core.Throttling;
 using JustDownload.Core.Transport;
 using Microsoft.Extensions.Logging;
 
@@ -18,23 +20,40 @@ internal sealed partial class SegmentedDownloader : ISegmentedDownloader
     private readonly ITransport _transport;
     private readonly IResourceProbe _probe;
     private readonly SegmentationOptions _options;
+    private readonly IClock _clock;
+    private readonly IRateLimiter _globalRateLimiter;
     private readonly ILogger<SegmentedDownloader> _logger;
 
     public SegmentedDownloader(
         ITransport transport,
         IResourceProbe probe,
         SegmentationOptions options,
+        IClock clock,
+        IRateLimiter globalRateLimiter,
         ILogger<SegmentedDownloader> logger)
     {
         ArgumentNullException.ThrowIfNull(transport);
         ArgumentNullException.ThrowIfNull(probe);
         ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(clock);
+        ArgumentNullException.ThrowIfNull(globalRateLimiter);
         ArgumentNullException.ThrowIfNull(logger);
         _transport = transport;
         _probe = probe;
         _options = options;
+        _clock = clock;
+        _globalRateLimiter = globalRateLimiter;
         _logger = logger;
     }
+
+    /// <summary>
+    /// Builds the limiter for a download: the shared global cap plus, when the request sets a per-download
+    /// speed limit, a private bucket — both applied so the strictest wins (TASK-030).
+    /// </summary>
+    private IRateLimiter CreateLimiter(DownloadRequest request) =>
+        request.SpeedLimit is > 0
+            ? new CompositeRateLimiter(_globalRateLimiter, new TokenBucket(_clock, request.SpeedLimit.Value))
+            : _globalRateLimiter;
 
     public async Task<DownloadResult> DownloadAsync(
         DownloadRequest request,
@@ -49,21 +68,23 @@ internal sealed partial class SegmentedDownloader : ISegmentedDownloader
 
         int requested = request.Connections ?? _options.DefaultConnections;
         int connections = probe.PlanConnectionCount(requested);
+        IRateLimiter limiter = CreateLimiter(request);
 
         if (connections <= 1 || probe.TotalLength is not > 0)
         {
-            return await DownloadSingleAsync(request, probe, progress, cancellationToken)
+            return await DownloadSingleAsync(request, probe, limiter, progress, cancellationToken)
                 .ConfigureAwait(false);
         }
 
         return await DownloadSegmentedAsync(
-            request, probe, probe.TotalLength.Value, connections, progress, cancellationToken)
+            request, probe, probe.TotalLength.Value, connections, limiter, progress, cancellationToken)
             .ConfigureAwait(false);
     }
 
     private async Task<DownloadResult> DownloadSingleAsync(
         DownloadRequest request,
         ResourceProbeResult probe,
+        IRateLimiter limiter,
         IProgress<long>? progress,
         CancellationToken cancellationToken)
     {
@@ -80,7 +101,8 @@ internal sealed partial class SegmentedDownloader : ISegmentedDownloader
         }
 
         await using Stream content = await response.OpenContentStreamAsync(cancellationToken).ConfigureAwait(false);
-        long bytes = await file.CopyFromAsync(content, 0, progress, cancellationToken).ConfigureAwait(false);
+        long bytes = await ThrottledCopyAsync(file, content, 0, limiter, progress, cancellationToken)
+            .ConfigureAwait(false);
         await file.FlushToDiskAsync(cancellationToken).ConfigureAwait(false);
 
         LogSingleConnection(_logger, bytes, probe.FinalUri);
@@ -101,6 +123,7 @@ internal sealed partial class SegmentedDownloader : ISegmentedDownloader
         ResourceProbeResult probe,
         long totalLength,
         int connections,
+        IRateLimiter limiter,
         IProgress<long>? progress,
         CancellationToken cancellationToken)
     {
@@ -113,7 +136,8 @@ internal sealed partial class SegmentedDownloader : ISegmentedDownloader
 
         Task[] workers = state.InitialSegments
             .Select(seg => Task.Run(
-                () => RunWorkerAsync(seg, state, file, probe.FinalUri, request.Headers, progress, cancellationToken),
+                () => RunWorkerAsync(
+                    seg, state, file, probe.FinalUri, request.Headers, limiter, progress, cancellationToken),
                 cancellationToken))
             .ToArray();
 
@@ -139,13 +163,14 @@ internal sealed partial class SegmentedDownloader : ISegmentedDownloader
         PreallocatedFile file,
         Uri uri,
         IReadOnlyList<KeyValuePair<string, string>> headers,
+        IRateLimiter limiter,
         IProgress<long>? progress,
         CancellationToken cancellationToken)
     {
         WorkerSegment? current = segment;
         while (current is not null)
         {
-            await DownloadSegmentAsync(current, state, file, uri, headers, progress, cancellationToken)
+            await DownloadSegmentAsync(current, state, file, uri, headers, limiter, progress, cancellationToken)
                 .ConfigureAwait(false);
             current.Complete();
             current = state.TrySteal(_options.MinStealSize);
@@ -158,6 +183,7 @@ internal sealed partial class SegmentedDownloader : ISegmentedDownloader
         PreallocatedFile file,
         Uri uri,
         IReadOnlyList<KeyValuePair<string, string>> headers,
+        IRateLimiter limiter,
         IProgress<long>? progress,
         CancellationToken cancellationToken)
     {
@@ -196,7 +222,8 @@ internal sealed partial class SegmentedDownloader : ISegmentedDownloader
             long before = segment.WriteOffset;
             await using Stream content =
                 await response.OpenContentStreamAsync(cancellationToken).ConfigureAwait(false);
-            await PumpAsync(segment, state, file, content, progress, cancellationToken).ConfigureAwait(false);
+            await PumpAsync(segment, state, file, content, limiter, progress, cancellationToken)
+                .ConfigureAwait(false);
 
             if (segment.WriteOffset > segment.EndInclusive)
             {
@@ -224,6 +251,7 @@ internal sealed partial class SegmentedDownloader : ISegmentedDownloader
         DownloadState state,
         PreallocatedFile file,
         Stream content,
+        IRateLimiter limiter,
         IProgress<long>? progress,
         CancellationToken cancellationToken)
     {
@@ -257,6 +285,10 @@ internal sealed partial class SegmentedDownloader : ISegmentedDownloader
                 }
 
                 int writeLength = (int)Math.Min(read, writable);
+
+                // Throttle to the global + per-download cap before committing the bytes (US-3).
+                await limiter.AcquireAsync(writeLength, cancellationToken).ConfigureAwait(false);
+
                 await file.WriteAsync(writeAt, buffer.AsMemory(0, writeLength), cancellationToken)
                     .ConfigureAwait(false);
                 segment.Advance(writeLength);
@@ -266,6 +298,44 @@ internal sealed partial class SegmentedDownloader : ISegmentedDownloader
                 {
                     return; // Hit the end (or a fresh steal boundary); stop this assignment.
                 }
+            }
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(buffer);
+        }
+    }
+
+    /// <summary>
+    /// Single-connection throttled copy: streams <paramref name="content"/> into the file from
+    /// <paramref name="offset"/>, acquiring from <paramref name="limiter"/> before each write (US-3).
+    /// </summary>
+    private static async Task<long> ThrottledCopyAsync(
+        PreallocatedFile file,
+        Stream content,
+        long offset,
+        IRateLimiter limiter,
+        IProgress<long>? progress,
+        CancellationToken cancellationToken)
+    {
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(PreallocatedFile.CopyBufferSize);
+        try
+        {
+            long position = offset;
+            long total = 0;
+            while (true)
+            {
+                int read = await content.ReadAsync(buffer, cancellationToken).ConfigureAwait(false);
+                if (read <= 0)
+                {
+                    return total;
+                }
+
+                await limiter.AcquireAsync(read, cancellationToken).ConfigureAwait(false);
+                await file.WriteAsync(position, buffer.AsMemory(0, read), cancellationToken).ConfigureAwait(false);
+                position += read;
+                total += read;
+                progress?.Report(total);
             }
         }
         finally

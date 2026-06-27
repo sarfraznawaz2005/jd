@@ -9,6 +9,7 @@ using JustDownload.Core.Logging;
 using JustDownload.Core.Security;
 using JustDownload.Core.Settings;
 using JustDownload.Core.Storage;
+using JustDownload.Core.Throttling;
 using JustDownload.Core.Transport;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -254,6 +255,11 @@ public static class ServiceCollectionExtensions
     public static IServiceCollection AddJustDownloadDownloading(this IServiceCollection services)
     {
         ArgumentNullException.ThrowIfNull(services);
+
+        // The engine needs a clock and the shared global bandwidth cap (TASK-030); TryAdd so the full
+        // composition root (which registers IClock) and a host's own global limiter still win.
+        services.TryAddSingleton<IClock, SystemClock>();
+        services.TryAddSingleton<IRateLimiter>(sp => new TokenBucket(sp.GetRequiredService<IClock>()));
 
         services.TryAddSingleton(new SegmentationOptions());
         services.TryAddSingleton<ISegmentedDownloader, SegmentedDownloader>();
