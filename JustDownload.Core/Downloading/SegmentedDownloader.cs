@@ -167,13 +167,18 @@ internal sealed partial class SegmentedDownloader : ISegmentedDownloader
         IProgress<long>? progress,
         CancellationToken cancellationToken)
     {
+        // A steal must leave the victim at least one copy buffer of headroom before the split point, so a
+        // read already in flight against the old end can never reach (and overlap) the stolen tail. With
+        // the default 1 MiB MinStealSize this is a no-op; it only matters for tiny configured values.
+        long minStealSize = Math.Max(_options.MinStealSize, PreallocatedFile.CopyBufferSize);
+
         WorkerSegment? current = segment;
         while (current is not null)
         {
             await DownloadSegmentAsync(current, state, file, uri, headers, limiter, progress, cancellationToken)
                 .ConfigureAwait(false);
             current.Complete();
-            current = state.TrySteal(_options.MinStealSize);
+            current = state.TrySteal(minStealSize);
         }
     }
 

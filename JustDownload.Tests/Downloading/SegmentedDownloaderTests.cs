@@ -61,7 +61,7 @@ public sealed class SegmentedDownloaderTests : IDisposable
         {
             Body = body,
             SupportRanges = true,
-            ResponseDelay = TimeSpan.FromMilliseconds(60), // overlap the connections so the peak is observable
+            ResponseDelay = TimeSpan.FromMilliseconds(120), // overlap the connections so the peak is observable
         };
         using ServiceProvider provider = BuildProvider();
         var downloader = provider.GetRequiredService<ISegmentedDownloader>();
@@ -140,16 +140,31 @@ public sealed class SegmentedDownloaderTests : IDisposable
         using ServiceProvider provider = BuildProvider();
         var downloader = provider.GetRequiredService<ISegmentedDownloader>();
 
-        long last = 0;
-        var progress = new Progress<long>(v => Interlocked.Exchange(ref last, v));
+        // Progress<T> callbacks run on the thread pool out of order, so track the high-water mark
+        // (the cumulative total is monotonic) rather than whichever callback happens to run last.
+        long maxReported = 0;
+        var progress = new Progress<long>(v =>
+        {
+            long current;
+            do
+            {
+                current = Interlocked.Read(ref maxReported);
+                if (v <= current)
+                {
+                    return;
+                }
+            }
+            while (Interlocked.CompareExchange(ref maxReported, v, current) != current);
+        });
 
         await downloader.DownloadAsync(
             new DownloadRequest { Url = server.Url("file.bin"), DestinationPath = Dest("prog.bin"), Connections = 4 },
             progress);
 
-        // Allow the last posted progress callback to run.
-        await Task.Delay(50);
-        Interlocked.Read(ref last).Should().Be(body.Length);
+        // Let any queued progress callbacks drain, then the high-water mark must equal the file size
+        // (and never exceed it — which would mean overlapping/double-counted writes).
+        await Task.Delay(100);
+        Interlocked.Read(ref maxReported).Should().Be(body.Length);
     }
 
     public void Dispose()

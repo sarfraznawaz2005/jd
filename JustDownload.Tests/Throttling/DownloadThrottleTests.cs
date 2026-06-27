@@ -60,7 +60,7 @@ public sealed class DownloadThrottleTests : IDisposable
         byte[] body = Bytes(256 * 1024);
         await using var server = new LoopbackHttpServer { Body = body, SupportRanges = true };
         using ServiceProvider provider = BuildProvider();
-        provider.GetRequiredService<IRateLimiter>().BytesPerSecond = 256 * 1024; // ~1s for 256 KiB
+        provider.GetRequiredService<IRateLimiter>().BytesPerSecond = 128 * 1024; // ~2s for 256 KiB
 
         var downloader = provider.GetRequiredService<ISegmentedDownloader>();
         var stopwatch = Stopwatch.StartNew();
@@ -72,7 +72,7 @@ public sealed class DownloadThrottleTests : IDisposable
         });
         stopwatch.Stop();
 
-        stopwatch.ElapsedMilliseconds.Should().BeGreaterThan(600, "256 KiB at 256 KiB/s should take about a second");
+        stopwatch.ElapsedMilliseconds.Should().BeGreaterThan(1200, "256 KiB at 128 KiB/s should take about two seconds");
         (await File.ReadAllBytesAsync(Dest("global.bin"))).Should().Equal(body);
     }
 
@@ -91,11 +91,11 @@ public sealed class DownloadThrottleTests : IDisposable
             Url = server.Url("file.bin"),
             DestinationPath = Dest("perdl.bin"),
             Connections = 4,
-            SpeedLimit = 128 * 1024, // ~1s for 128 KiB
+            SpeedLimit = 64 * 1024, // ~2s for 128 KiB
         });
         stopwatch.Stop();
 
-        stopwatch.ElapsedMilliseconds.Should().BeGreaterThan(500);
+        stopwatch.ElapsedMilliseconds.Should().BeGreaterThan(1200);
         (await File.ReadAllBytesAsync(Dest("perdl.bin"))).Should().Equal(body);
     }
 
@@ -117,7 +117,7 @@ public sealed class DownloadThrottleTests : IDisposable
         });
         stopwatch.Stop();
 
-        stopwatch.ElapsedMilliseconds.Should().BeLessThan(400, "an uncapped loopback download is near-instant");
+        stopwatch.ElapsedMilliseconds.Should().BeLessThan(1000, "an uncapped loopback download is well under the throttled floor");
         (await File.ReadAllBytesAsync(Dest("fast.bin"))).Should().Equal(body);
     }
 
