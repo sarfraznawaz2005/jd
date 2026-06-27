@@ -18,6 +18,8 @@ internal sealed class LoopbackHttpServer : IAsyncDisposable
     private readonly TcpListener _listener;
     private readonly CancellationTokenSource _cts = new();
     private readonly Task _loop;
+    private int _currentConnections;
+    private int _maxConnections;
 
     public LoopbackHttpServer()
     {
@@ -45,6 +47,18 @@ internal sealed class LoopbackHttpServer : IAsyncDisposable
     /// connection close (so the client sees an unknown length) — used to test the unknown-size path.
     /// </summary>
     public bool SendContentLength { get; set; } = true;
+
+    /// <summary>A delay applied to every response before it is written (holds the connection open).</summary>
+    public TimeSpan ResponseDelay { get; set; } = TimeSpan.Zero;
+
+    /// <summary>Requests whose range starts at or beyond this offset get an extra <see cref="SlowTailDelay"/>.</summary>
+    public long SlowTailFrom { get; set; } = long.MaxValue;
+
+    /// <summary>Extra delay for "slow tail" requests (used to provoke work-stealing deterministically).</summary>
+    public TimeSpan SlowTailDelay { get; set; } = TimeSpan.Zero;
+
+    /// <summary>The peak number of simultaneously-open connections the server has seen.</summary>
+    public int MaxConcurrentConnections => Volatile.Read(ref _maxConnections);
 
     /// <summary>The server's base URL (loopback, ephemeral port).</summary>
     public Uri BaseUri { get; }
@@ -78,6 +92,7 @@ internal sealed class LoopbackHttpServer : IAsyncDisposable
     {
         using (client)
         {
+            UpdateMax(Interlocked.Increment(ref _currentConnections));
             NetworkStream stream = client.GetStream();
             try
             {
@@ -92,7 +107,25 @@ internal sealed class LoopbackHttpServer : IAsyncDisposable
             catch (OperationCanceledException)
             {
             }
+            finally
+            {
+                Interlocked.Decrement(ref _currentConnections);
+            }
         }
+    }
+
+    private void UpdateMax(int candidate)
+    {
+        int max;
+        do
+        {
+            max = Volatile.Read(ref _maxConnections);
+            if (candidate <= max)
+            {
+                return;
+            }
+        }
+        while (Interlocked.CompareExchange(ref _maxConnections, candidate, max) != max);
     }
 
     private static async Task<(string Method, (long From, long? To)? Range)> ReadRequestAsync(
@@ -143,6 +176,17 @@ internal sealed class LoopbackHttpServer : IAsyncDisposable
     private async Task WriteResponseAsync(
         NetworkStream stream, string method, (long From, long? To)? range, CancellationToken ct)
     {
+        TimeSpan delay = ResponseDelay;
+        if (range is { } requested && requested.From >= SlowTailFrom)
+        {
+            delay += SlowTailDelay;
+        }
+
+        if (delay > TimeSpan.Zero)
+        {
+            await Task.Delay(delay, ct).ConfigureAwait(false);
+        }
+
         byte[] body = Body;
         byte[] slice;
         int status;

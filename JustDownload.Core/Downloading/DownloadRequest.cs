@@ -1,0 +1,21 @@
+namespace JustDownload.Core.Downloading;
+
+/// <summary>
+/// A request to download one resource to a file (TASK-026): the source <see cref="Url"/>, the
+/// <see cref="DestinationPath"/> to write, the desired number of <see cref="Connections"/>, and any
+/// extra request <see cref="Headers"/> (cookies/referrer from the browser extension, etc.).
+/// </summary>
+public sealed record DownloadRequest
+{
+    /// <summary>The resource URL.</summary>
+    public required Uri Url { get; init; }
+
+    /// <summary>The absolute path of the file to write.</summary>
+    public required string DestinationPath { get; init; }
+
+    /// <summary>The requested connection count (clamped to 1–32), or <see langword="null"/> for the default.</summary>
+    public int? Connections { get; init; }
+
+    /// <summary>Extra request headers to send on every connection.</summary>
+    public IReadOnlyList<KeyValuePair<string, string>> Headers { get; init; } = [];
+}

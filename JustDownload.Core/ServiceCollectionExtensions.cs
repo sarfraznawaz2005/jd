@@ -4,6 +4,7 @@ using JustDownload.Core.Data;
 using JustDownload.Core.Data.Migrations;
 using JustDownload.Core.Data.Repositories;
 using JustDownload.Core.Diagnostics;
+using JustDownload.Core.Downloading;
 using JustDownload.Core.Logging;
 using JustDownload.Core.Security;
 using JustDownload.Core.Settings;
@@ -51,6 +52,7 @@ public static class ServiceCollectionExtensions
         services.AddJustDownloadCategorization();
         services.AddJustDownloadTransport();
         services.AddJustDownloadStorage();
+        services.AddJustDownloadDownloading();
 
         // Typed settings store over the settings repository (TASK-021): sane defaults, change
         // notifications, and persistence across restarts. Singleton so the cached snapshot and the
@@ -238,6 +240,23 @@ public static class ServiceCollectionExtensions
         ArgumentNullException.ThrowIfNull(services);
 
         services.TryAddTransient<ISegmentCheckpointer, SegmentCheckpointer>();
+
+        return services;
+    }
+
+    /// <summary>
+    /// Registers dynamic segmentation (TASK-026): the segmented downloader that splits a resource across
+    /// connections with work-stealing, plus the default <see cref="SegmentationOptions"/> (a host can
+    /// pre-register its own to override). Depends on the transport (probe + range GET) and storage layers.
+    /// </summary>
+    /// <param name="services">The service collection to populate.</param>
+    /// <returns>The same <paramref name="services"/> instance, for chaining.</returns>
+    public static IServiceCollection AddJustDownloadDownloading(this IServiceCollection services)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+
+        services.TryAddSingleton(new SegmentationOptions());
+        services.TryAddSingleton<ISegmentedDownloader, SegmentedDownloader>();
 
         return services;
     }
