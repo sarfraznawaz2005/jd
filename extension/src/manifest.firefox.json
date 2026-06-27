@@ -1,0 +1,11 @@
+{
+  "background": {
+    "service_worker": "background.js"
+  },
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "justdownload@justdownload.app",
+      "strict_min_version": "121.0"
+    }
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "name": "justdownload-extension",
+  "version": "0.1.0",
+  "private": true,
+  "description": "JustDownload MV3 browser extension — shared source, per-browser packaging (Chrome/Edge/Firefox).",
+  "license": "MIT",
+  "type": "commonjs",
+  "scripts": {
+    "build": "node build.js",
+    "build:chrome": "node build.js chrome",
+    "build:edge": "node build.js edge",
+    "build:firefox": "node build.js firefox",
+    "clean": "node build.js --clean"
+  }
+}

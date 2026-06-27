@@ -1,0 +1,93 @@
+/* JustDownload popup — modern-minimal (Linear/Arc/Raycast), per mockups/extension.html.
+   Light default; follows OS dark mode via prefers-color-scheme. */
+
+:root {
+  --bg: #f4f4f6;
+  --card: #ffffff;
+  --border: #e4e4e9;
+  --border-soft: #ececf0;
+  --text: #17171b;
+  --text-dim: #5d5d67;
+  --text-faint: #9a9aa3;
+  --accent: #5b67d6;
+  --accent-h: #4c58c9;
+  --green: #1faf57;
+  --track: #e6e6ea;
+  --radius: 12px;
+  --radius-s: 8px;
+  --font: "Inter", -apple-system, "Segoe UI", system-ui, Roboto, sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0c0c0e;
+    --card: #161619;
+    --border: #26262c;
+    --border-soft: #1b1b20;
+    --text: #ececef;
+    --text-dim: #9b9ba4;
+    --text-faint: #65656e;
+    --accent: #5e6ad2;
+    --accent-h: #6f7bea;
+    --green: #3ecf73;
+    --track: #2a2a31;
+  }
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  width: 360px;
+  font-family: var(--font);
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--text);
+  background: var(--card);
+  letter-spacing: -0.1px;
+  -webkit-font-smoothing: antialiased;
+}
+
+svg { width: 16px; height: 16px; flex: none; stroke: currentColor; fill: none; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
+
+/* header */
+.puhead { display: flex; align-items: center; gap: 10px; padding: 14px 16px; border-bottom: 1px solid var(--border); }
+.puhead b { font-size: 13.5px; }
+.logo { width: 24px; height: 24px; border-radius: 7px; background: linear-gradient(145deg, var(--accent), #8a7bf0); display: grid; place-items: center; }
+.logo svg { width: 14px; height: 14px; stroke: #fff; }
+.st { margin-left: auto; font-size: 11px; color: var(--text-faint); display: flex; align-items: center; gap: 6px; }
+.st .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--text-faint); }
+.st.connected { color: var(--green); }
+.st.connected .dot { background: var(--green); }
+
+/* body */
+.pubody { padding: 14px 16px; }
+.section-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.6px; color: var(--text-faint); margin-bottom: 9px; font-weight: 600; }
+
+.empty { display: flex; align-items: center; gap: 9px; padding: 14px 11px; border: 1px dashed var(--border); border-radius: var(--radius-s); color: var(--text-faint); font-size: 12.5px; margin-bottom: 9px; }
+.empty svg { width: 20px; height: 20px; stroke: var(--text-faint); fill: var(--text-faint); stroke-width: 1.4; }
+
+.media { display: flex; align-items: center; gap: 11px; padding: 11px; border: 1px solid var(--border); border-radius: 10px; margin-bottom: 9px; background: var(--bg); }
+.media .ft { width: 34px; height: 34px; border-radius: 8px; display: grid; place-items: center; flex: none; background: var(--track); }
+.media .nm { flex: 1; min-width: 0; }
+.media .nm .t { font-weight: 550; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 12.5px; }
+.media .nm .s { font-size: 11px; color: var(--text-faint); }
+.media .dl { width: 32px; height: 32px; border-radius: 8px; background: var(--accent); display: grid; place-items: center; flex: none; cursor: pointer; }
+.media .dl svg { width: 16px; height: 16px; stroke: #fff; }
+
+.pubtn { width: 100%; height: 40px; border-radius: 10px; background: var(--accent); color: #fff; border: none; font-weight: 600; font-size: 12.5px; display: flex; align-items: center; justify-content: center; gap: 8px; margin: 4px 0 12px; cursor: pointer; }
+.pubtn:hover { background: var(--accent-h); }
+.pubtn svg { width: 15px; height: 15px; stroke: #fff; }
+
+.purow { display: flex; align-items: center; gap: 10px; padding: 11px 0; border-top: 1px solid var(--border-soft); font-size: 12.5px; color: var(--text-dim); }
+.purow .ico { color: var(--text-faint); display: grid; place-items: center; }
+.purow .ico svg { width: 14px; height: 14px; }
+.purow .trail { margin-left: auto; }
+.purow .value { color: var(--text); }
+.purow .chev { color: var(--text-faint); font-size: 16px; line-height: 1; }
+.purow[role="button"] { cursor: pointer; }
+.purow[role="button"]:hover { color: var(--text); }
+
+.toggle { display: inline-block; width: 30px; height: 18px; border-radius: 10px; background: var(--track); position: relative; cursor: pointer; transition: background .15s; }
+.toggle::after { content: ""; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: #fff; transition: left .15s; }
+.toggle.on { background: var(--accent); }
+.toggle.on::after { left: 14px; }
