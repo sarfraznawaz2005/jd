@@ -31,6 +31,7 @@ public partial class App : Application
             .AddSingleton<StatusSummaryViewModel>()
             .AddSingleton<DownloadsListViewModel>()
             .AddSingleton<DownloadDetailViewModel>()
+            .AddSingleton<SidebarViewModel>()
             .AddSingleton<MainWindowViewModel>()
             .AddTransient<NewDownloadViewModel>()
             .BuildServiceProvider();

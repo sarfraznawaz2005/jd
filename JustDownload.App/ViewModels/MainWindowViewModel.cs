@@ -22,16 +22,19 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         IThemeService theme,
         StatusSummaryViewModel status,
         DownloadsListViewModel downloads,
-        DownloadDetailViewModel detail)
+        DownloadDetailViewModel detail,
+        SidebarViewModel sidebar)
     {
         ArgumentNullException.ThrowIfNull(theme);
         ArgumentNullException.ThrowIfNull(status);
         ArgumentNullException.ThrowIfNull(downloads);
         ArgumentNullException.ThrowIfNull(detail);
+        ArgumentNullException.ThrowIfNull(sidebar);
         _theme = theme;
         Status = status;
         Downloads = downloads;
         Detail = detail;
+        Sidebar = sidebar;
 
         // Keep the detail pane pointed at the list's current selection (TASK-054).
         Downloads.PropertyChanged += OnDownloadsPropertyChanged;
@@ -45,6 +48,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
     /// <summary>The per-download detail shown in the detail pane (TASK-054).</summary>
     public DownloadDetailViewModel Detail { get; }
+
+    /// <summary>The category-tree sidebar that filters the list (TASK-050).</summary>
+    public SidebarViewModel Sidebar { get; }
 
     private void OnDownloadsPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
     {

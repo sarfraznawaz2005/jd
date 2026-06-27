@@ -164,66 +164,29 @@
               Background="{DynamicResource SidebarBrush}"
               BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,1,0">
         <ScrollViewer>
-          <StackPanel Margin="8,12">
+          <!-- Category-tree (TASK-050), data-driven from the sidebar view-model. -->
+          <StackPanel Name="SidebarNav" Margin="8,12" DataContext="{Binding Sidebar}">
+            <StackPanel.Resources>
+              <DataTemplate x:Key="NavNodeTemplate" x:DataType="vm:SidebarNodeViewModel">
+                <Button Classes="Nav" Classes.Active="{Binding IsSelected}" Classes.Child="{Binding IsChild}"
+                        Command="{Binding #SidebarNav.((vm:SidebarViewModel)DataContext).SelectCommand}"
+                        CommandParameter="{Binding}">
+                  <Grid ColumnDefinitions="Auto,*,Auto">
+                    <PathIcon Grid.Column="0" Width="15" Height="15" Margin="0,0,10,0"
+                              Data="{Binding IconKey, Converter={x:Static conv:ResourceKeyConverter.Instance}}"
+                              Foreground="{DynamicResource TextFaintBrush}" />
+                    <TextBlock Grid.Column="1" Text="{Binding Label}" VerticalAlignment="Center" />
+                    <Border Grid.Column="2" Classes="CountPill"><TextBlock Text="{Binding Count}" /></Border>
+                  </Grid>
+                </Button>
+              </DataTemplate>
+            </StackPanel.Resources>
+
             <TextBlock Classes="NavLabel" Text="LIBRARY" />
-            <Button Classes="Nav Active">
-              <Grid ColumnDefinitions="Auto,*,Auto">
-                <PathIcon Grid.Column="0" Data="{StaticResource IconList}" Width="16" Height="16" Margin="0,0,10,0"
-                          Foreground="{DynamicResource AccentBrush}" />
-                <TextBlock Grid.Column="1" Text="All Downloads" VerticalAlignment="Center" />
-                <Border Grid.Column="2" Classes="CountPill"><TextBlock Text="0" /></Border>
-              </Grid>
-            </Button>
-            <Button Classes="Nav Child">
-              <Grid ColumnDefinitions="Auto,*,Auto">
-                <PathIcon Grid.Column="0" Data="{StaticResource IconFile}" Width="14" Height="14" Margin="0,0,10,0"
-                          Foreground="{DynamicResource TextFaintBrush}" />
-                <TextBlock Grid.Column="1" Text="Video" VerticalAlignment="Center" />
-                <Border Grid.Column="2" Classes="CountPill"><TextBlock Text="0" /></Border>
-              </Grid>
-            </Button>
-            <Button Classes="Nav Child">
-              <Grid ColumnDefinitions="Auto,*,Auto">
-                <PathIcon Grid.Column="0" Data="{StaticResource IconFile}" Width="14" Height="14" Margin="0,0,10,0"
-                          Foreground="{DynamicResource TextFaintBrush}" />
-                <TextBlock Grid.Column="1" Text="Audio" VerticalAlignment="Center" />
-                <Border Grid.Column="2" Classes="CountPill"><TextBlock Text="0" /></Border>
-              </Grid>
-            </Button>
-            <Button Classes="Nav Child">
-              <Grid ColumnDefinitions="Auto,*,Auto">
-                <PathIcon Grid.Column="0" Data="{StaticResource IconFile}" Width="14" Height="14" Margin="0,0,10,0"
-                          Foreground="{DynamicResource TextFaintBrush}" />
-                <TextBlock Grid.Column="1" Text="Documents" VerticalAlignment="Center" />
-                <Border Grid.Column="2" Classes="CountPill"><TextBlock Text="0" /></Border>
-              </Grid>
-            </Button>
-            <Button Classes="Nav Child">
-              <Grid ColumnDefinitions="Auto,*,Auto">
-                <PathIcon Grid.Column="0" Data="{StaticResource IconFile}" Width="14" Height="14" Margin="0,0,10,0"
-                          Foreground="{DynamicResource TextFaintBrush}" />
-                <TextBlock Grid.Column="1" Text="Programs" VerticalAlignment="Center" />
-                <Border Grid.Column="2" Classes="CountPill"><TextBlock Text="0" /></Border>
-              </Grid>
-            </Button>
+            <ItemsControl ItemsSource="{Binding Nodes}" ItemTemplate="{StaticResource NavNodeTemplate}" />
 
             <TextBlock Classes="NavLabel" Text="STATUS" Margin="10,16,0,4" />
-            <Button Classes="Nav">
-              <Grid ColumnDefinitions="Auto,*,Auto">
-                <PathIcon Grid.Column="0" Data="{StaticResource IconPlay}" Width="16" Height="16" Margin="0,0,10,0"
-                          Foreground="{DynamicResource TextFaintBrush}" />
-                <TextBlock Grid.Column="1" Text="Incomplete" VerticalAlignment="Center" />
-                <Border Grid.Column="2" Classes="CountPill"><TextBlock Text="0" /></Border>
-              </Grid>
-            </Button>
-            <Button Classes="Nav">
-              <Grid ColumnDefinitions="Auto,*,Auto">
-                <PathIcon Grid.Column="0" Data="{StaticResource IconFile}" Width="16" Height="16" Margin="0,0,10,0"
-                          Foreground="{DynamicResource TextFaintBrush}" />
-                <TextBlock Grid.Column="1" Text="Completed" VerticalAlignment="Center" />
-                <Border Grid.Column="2" Classes="CountPill"><TextBlock Text="0" /></Border>
-              </Grid>
-            </Button>
+            <ItemsControl ItemsSource="{Binding StatusNodes}" ItemTemplate="{StaticResource NavNodeTemplate}" />
           </StackPanel>
         </ScrollViewer>
       </Border>

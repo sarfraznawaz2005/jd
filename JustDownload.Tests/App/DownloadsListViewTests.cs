@@ -38,7 +38,8 @@ public sealed class DownloadsListViewTests
             Substitute.For<IClipboardService>(), Substitute.For<IFileRevealer>(), categorizer, clock);
 
         var detail = new DownloadDetailViewModel(manager, Substitute.For<IDownloadActions>());
-        return new MainWindowViewModel(new ThemeService(), new StatusSummaryViewModel(manager), downloads, detail);
+        var sidebar = new SidebarViewModel(downloads);
+        return new MainWindowViewModel(new ThemeService(), new StatusSummaryViewModel(manager), downloads, detail, sidebar);
     }
 
     private static Download Record(long id) => new()
