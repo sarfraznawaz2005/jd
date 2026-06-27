@@ -5,6 +5,7 @@ using JustDownload.Core.Data.Migrations;
 using JustDownload.Core.Data.Repositories;
 using JustDownload.Core.Diagnostics;
 using JustDownload.Core.Downloading;
+using JustDownload.Core.Lifecycle;
 using JustDownload.Core.Logging;
 using JustDownload.Core.Media;
 using JustDownload.Core.NativeMessaging;
@@ -56,6 +57,7 @@ public static class ServiceCollectionExtensions
         services.AddJustDownloadTransport();
         services.AddJustDownloadStorage();
         services.AddJustDownloadDownloading();
+        services.AddJustDownloadLifecycle();
         services.AddJustDownloadMedia();
         services.AddJustDownloadNativeMessaging();
 
@@ -271,6 +273,24 @@ public static class ServiceCollectionExtensions
 
         services.TryAddSingleton(new SegmentationOptions());
         services.TryAddSingleton<ISegmentedDownloader, SegmentedDownloader>();
+
+        return services;
+    }
+
+    /// <summary>
+    /// Registers the download lifecycle manager (TASK-031): the queue/state-machine orchestrator that drives
+    /// downloads through queued → active → complete/error, persists every transition, and raises observable
+    /// status/progress events the UI binds to (US-15b). Singleton so its in-session progress cache and events
+    /// are shared by every consumer. Depends on the data layer (download repository) and the segmentation
+    /// engine, both registered before this in <see cref="AddJustDownloadCore"/>.
+    /// </summary>
+    /// <param name="services">The service collection to populate.</param>
+    /// <returns>The same <paramref name="services"/> instance, for chaining.</returns>
+    public static IServiceCollection AddJustDownloadLifecycle(this IServiceCollection services)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+
+        services.TryAddSingleton<IDownloadManager, DownloadManager>();
 
         return services;
     }
