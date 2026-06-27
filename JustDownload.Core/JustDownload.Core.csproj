@@ -37,6 +37,14 @@
       to the light-&-fast budget. Pinned to the net8 LTS line.
     -->
     <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.10" />
+    <!--
+      Windows DPAPI secret storage (TASK-022, CLAUDE.md §5 "secrets at rest"). Microsoft's
+      System.Security.Cryptography.ProtectedData (MIT, part of dotnet/runtime) wraps DPAPI; the
+      API exists on all targets but is only invoked under an OperatingSystem.IsWindows() guard
+      (macOS/Linux use the OS keychain via a child process, no managed dependency). MIT-licensed,
+      tiny, no native payload on non-Windows — within the §4 allow-list and the light-&-fast budget.
+    -->
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="8.0.0" />
   </ItemGroup>
 
 </Project>

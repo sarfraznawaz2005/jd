@@ -4,6 +4,7 @@ using JustDownload.Core.Data.Migrations;
 using JustDownload.Core.Data.Repositories;
 using JustDownload.Core.Diagnostics;
 using JustDownload.Core.Logging;
+using JustDownload.Core.Security;
 using JustDownload.Core.Settings;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -43,6 +44,7 @@ public static class ServiceCollectionExtensions
 
         services.AddJustDownloadLogging(configureLogging);
         services.AddJustDownloadData();
+        services.AddJustDownloadSecrets();
 
         // Typed settings store over the settings repository (TASK-021): sane defaults, change
         // notifications, and persistence across restarts. Singleton so the cached snapshot and the
@@ -124,6 +126,44 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<ISegmentRepository, SegmentRepository>();
         services.TryAddSingleton<ISettingsRepository, SettingsRepository>();
         services.TryAddSingleton<IBlacklistRepository, BlacklistRepository>();
+
+        return services;
+    }
+
+    /// <summary>
+    /// Registers the OS keychain secret store (TASK-022, CLAUDE.md §5 / PRD §4.6): credentials and
+    /// tokens live in the per-user OS vault — DPAPI on Windows, the login Keychain on macOS, the
+    /// Secret Service / libsecret on Linux — and only the opaque <c>secret_ref</c> is ever persisted
+    /// in SQLite. The concrete backend is chosen by the host OS; an unsupported platform gets a
+    /// store that fails loudly rather than falling back to plaintext. Uses <c>TryAdd</c> so a test
+    /// can substitute an in-memory store.
+    /// </summary>
+    /// <param name="services">The service collection to populate.</param>
+    /// <returns>The same <paramref name="services"/> instance, for chaining.</returns>
+    public static IServiceCollection AddJustDownloadSecrets(this IServiceCollection services)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+
+        services.TryAddSingleton<ISecretStorePathProvider, SecretStorePathProvider>();
+
+        // Each branch is guarded by the matching OperatingSystem check so the platform-availability
+        // analyzer (CA1416) can prove the OS-specific store type is only referenced on its OS.
+        if (OperatingSystem.IsWindows())
+        {
+            services.TryAddSingleton<ISecretStore, WindowsDpapiSecretStore>();
+        }
+        else if (OperatingSystem.IsMacOS())
+        {
+            services.TryAddSingleton<ISecretStore, MacOsKeychainSecretStore>();
+        }
+        else if (OperatingSystem.IsLinux())
+        {
+            services.TryAddSingleton<ISecretStore, LinuxSecretToolSecretStore>();
+        }
+        else
+        {
+            services.TryAddSingleton<ISecretStore, UnsupportedSecretStore>();
+        }
 
         return services;
     }
