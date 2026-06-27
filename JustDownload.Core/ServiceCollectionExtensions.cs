@@ -6,6 +6,7 @@ using JustDownload.Core.Data.Repositories;
 using JustDownload.Core.Diagnostics;
 using JustDownload.Core.Downloading;
 using JustDownload.Core.Logging;
+using JustDownload.Core.Media;
 using JustDownload.Core.Security;
 using JustDownload.Core.Settings;
 using JustDownload.Core.Storage;
@@ -54,6 +55,7 @@ public static class ServiceCollectionExtensions
         services.AddJustDownloadTransport();
         services.AddJustDownloadStorage();
         services.AddJustDownloadDownloading();
+        services.AddJustDownloadMedia();
 
         // Typed settings store over the settings repository (TASK-021): sane defaults, change
         // notifications, and persistence across restarts. Singleton so the cached snapshot and the
@@ -267,6 +269,24 @@ public static class ServiceCollectionExtensions
 
         services.TryAddSingleton(new SegmentationOptions());
         services.TryAddSingleton<ISegmentedDownloader, SegmentedDownloader>();
+
+        return services;
+    }
+
+    /// <summary>
+    /// Registers the ffmpeg integration (TASK-040, D7): options, the locator (path + version check), and
+    /// the process runner used by HLS concat / A-V mux / ts→mp4 remux. ffmpeg is invoked as a separate
+    /// LGPL process and is never required at startup — it is resolved lazily on first media use.
+    /// </summary>
+    /// <param name="services">The service collection to populate.</param>
+    /// <returns>The same <paramref name="services"/> instance, for chaining.</returns>
+    public static IServiceCollection AddJustDownloadMedia(this IServiceCollection services)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+
+        services.TryAddSingleton(new FfmpegOptions());
+        services.TryAddSingleton<IFfmpegLocator, FfmpegLocator>();
+        services.TryAddSingleton<IFfmpegRunner, FfmpegRunner>();
 
         return services;
     }
