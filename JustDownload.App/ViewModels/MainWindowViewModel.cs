@@ -15,8 +15,16 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 {
     private readonly IThemeService _theme;
 
+    /// <summary>Width (DIPs) below which the sidebar auto-hides so the list+detail still fit (TASK-048).</summary>
+    public const double NarrowBreakpoint = 940;
+
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(SidebarVisible))]
     private bool _sidebarCollapsed;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(SidebarVisible))]
+    private bool _isNarrow;
 
     public MainWindowViewModel(
         IThemeService theme,
@@ -51,6 +59,16 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
     /// <summary>The category-tree sidebar that filters the list (TASK-050).</summary>
     public SidebarViewModel Sidebar { get; }
+
+    /// <summary>The sidebar is shown when the user hasn't collapsed it and the window is wide enough (TASK-048).</summary>
+    public bool SidebarVisible => !SidebarCollapsed && !IsNarrow;
+
+    /// <summary>
+    /// Updates the responsive layout from the current window width (TASK-048): below
+    /// <see cref="NarrowBreakpoint"/> the sidebar auto-hides so the list and detail panes still fit without
+    /// the list being squeezed below its usable minimum (keeps 800x600 workable).
+    /// </summary>
+    public void UpdateForWidth(double width) => IsNarrow = width < NarrowBreakpoint;
 
     private void OnDownloadsPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
     {

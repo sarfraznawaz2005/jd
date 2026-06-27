@@ -167,7 +167,7 @@
       </Grid.ColumnDefinitions>
 
       <!-- Sidebar (collapsible) -->
-      <Border Grid.Column="0" Name="Sidebar" Width="232" IsVisible="{Binding !SidebarCollapsed}"
+      <Border Grid.Column="0" Name="Sidebar" Width="232" IsVisible="{Binding SidebarVisible}"
               Background="{DynamicResource SidebarBrush}"
               BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,1,0">
         <ScrollViewer>

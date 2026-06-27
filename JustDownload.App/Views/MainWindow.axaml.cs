@@ -3,6 +3,7 @@ using Avalonia.Controls;
 using Avalonia.Data;
 using Avalonia.Input;
 using Avalonia.Interactivity;
+using Avalonia.Reactive;
 using Avalonia.VisualTree;
 
 namespace JustDownload.App.Views;
@@ -20,6 +21,17 @@ public partial class MainWindow : Window
 
         // Once the headers are realised, give each a context menu that toggles which columns are shown.
         DownloadsGrid.Loaded += OnDownloadsGridLoaded;
+
+        // Drive the responsive layout (sidebar auto-hide) from the window width (TASK-048).
+        this.GetObservable(ClientSizeProperty).Subscribe(new AnonymousObserver<Size>(OnClientSizeChanged));
+    }
+
+    private void OnClientSizeChanged(Size size)
+    {
+        if (DataContext is ViewModels.MainWindowViewModel vm)
+        {
+            vm.UpdateForWidth(size.Width);
+        }
     }
 
     private void OnGridPointerPressed(object? sender, PointerPressedEventArgs e)
