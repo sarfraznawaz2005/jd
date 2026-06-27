@@ -1,0 +1,149 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:JustDownload.App.ViewModels.Settings"
+        xmlns:conv="using:JustDownload.App.Converters"
+        x:Class="JustDownload.App.Views.SettingsWindow"
+        x:DataType="vm:SettingsViewModel"
+        Title="Settings"
+        Width="760" Height="560"
+        MinWidth="640" MinHeight="460"
+        WindowStartupLocation="CenterOwner"
+        Background="{DynamicResource BgBrush}">
+
+  <Window.DataTemplates>
+
+    <!-- General -->
+    <DataTemplate DataType="vm:GeneralSettingsViewModel">
+      <StackPanel Spacing="18">
+        <TextBlock Text="General" Classes="SettingsHeading" />
+        <StackPanel Spacing="4">
+          <TextBlock Text="Theme" Classes="StatKey" />
+          <ComboBox ItemsSource="{Binding Themes}" SelectedItem="{Binding SelectedTheme, Mode=TwoWay}" Width="200" HorizontalAlignment="Left" />
+        </StackPanel>
+        <StackPanel Spacing="4">
+          <TextBlock Text="List density" Classes="StatKey" />
+          <ComboBox ItemsSource="{Binding Densities}" SelectedItem="{Binding Density, Mode=TwoWay}" Width="200" HorizontalAlignment="Left" />
+        </StackPanel>
+        <StackPanel Spacing="4">
+          <TextBlock Text="Default video quality" Classes="StatKey" />
+          <ComboBox ItemsSource="{Binding VideoQualities}" SelectedItem="{Binding DefaultVideoQuality, Mode=TwoWay}" Width="200" HorizontalAlignment="Left" />
+        </StackPanel>
+        <StackPanel Spacing="4">
+          <TextBlock Text="Default output container" Classes="StatKey" />
+          <ComboBox ItemsSource="{Binding Containers}" SelectedItem="{Binding DefaultContainer, Mode=TwoWay}" Width="200" HorizontalAlignment="Left" />
+        </StackPanel>
+      </StackPanel>
+    </DataTemplate>
+
+    <!-- Connections -->
+    <DataTemplate DataType="vm:ConnectionsSettingsViewModel">
+      <StackPanel Spacing="18">
+        <TextBlock Text="Connections" Classes="SettingsHeading" />
+        <StackPanel Spacing="4">
+          <TextBlock Text="Default connections per download" Classes="StatKey" />
+          <TextBlock Text="Dynamic segmentation splits each download into this many connections (1–32)."
+                     Classes="SettingsHint" />
+          <NumericUpDown Value="{Binding ConnectionsPerDownload, Mode=TwoWay}"
+                         Minimum="1" Maximum="32" Increment="1"
+                         Width="160" HorizontalAlignment="Left" />
+        </StackPanel>
+        <StackPanel Spacing="4">
+          <TextBlock Text="Maximum concurrent downloads" Classes="StatKey" />
+          <NumericUpDown Value="{Binding MaxConcurrentDownloads, Mode=TwoWay}"
+                         Minimum="1" Maximum="16" Increment="1"
+                         Width="160" HorizontalAlignment="Left" />
+        </StackPanel>
+        <StackPanel Spacing="6">
+          <TextBlock Text="Global speed limit" Classes="StatKey" />
+          <StackPanel Orientation="Horizontal" Spacing="12">
+            <ToggleSwitch IsChecked="{Binding SpeedLimited, Mode=TwoWay}" OnContent="Limited" OffContent="Unlimited" />
+            <NumericUpDown Value="{Binding SpeedLimitMegabytesPerSecond, Mode=TwoWay}" Minimum="0.1" Increment="0.5"
+                           IsEnabled="{Binding SpeedLimited}" Width="140" />
+            <TextBlock Text="MB/s" VerticalAlignment="Center" Foreground="{DynamicResource TextDimBrush}" />
+          </StackPanel>
+          <TextBlock Text="{Binding SpeedLimitDisplay, StringFormat='Current: {0}'}" Classes="SettingsHint" />
+        </StackPanel>
+      </StackPanel>
+    </DataTemplate>
+
+    <!-- Categories -->
+    <DataTemplate DataType="vm:CategoriesSettingsViewModel">
+      <StackPanel Spacing="18">
+        <TextBlock Text="Categories" Classes="SettingsHeading" />
+        <StackPanel Orientation="Horizontal" Spacing="12">
+          <ToggleSwitch IsChecked="{Binding OrganizeByCategory, Mode=TwoWay}" />
+          <TextBlock Text="Move completed downloads into a per-category subfolder" VerticalAlignment="Center"
+                     Foreground="{DynamicResource TextBrush}" />
+        </StackPanel>
+        <StackPanel Spacing="4">
+          <TextBlock Text="Organized root folder" Classes="StatKey" />
+          <TextBlock Text="Leave empty to organize in place (next to where each file was downloaded)."
+                     Classes="SettingsHint" />
+          <TextBox Text="{Binding OrganizedRootDirectory, Mode=TwoWay, UpdateSourceTrigger=LostFocus}" Width="360"
+                   HorizontalAlignment="Left" />
+        </StackPanel>
+        <StackPanel Spacing="4">
+          <TextBlock Text="Category folders" Classes="StatKey" />
+          <ItemsControl ItemsSource="{Binding Folders}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:CategoriesSettingsViewModel+CategoryFolderRow">
+                <Grid ColumnDefinitions="160,*" Margin="0,3">
+                  <TextBlock Grid.Column="0" Text="{Binding Category}" Foreground="{DynamicResource TextBrush}" />
+                  <TextBlock Grid.Column="1" Text="{Binding Folder}" Foreground="{DynamicResource TextDimBrush}" />
+                </Grid>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </StackPanel>
+      </StackPanel>
+    </DataTemplate>
+
+    <!-- Info (Proxy / Authentication / Browsers / Advanced) -->
+    <DataTemplate DataType="vm:InfoSettingsViewModel">
+      <StackPanel Spacing="14">
+        <TextBlock Text="{Binding Heading}" Classes="SettingsHeading" />
+        <ItemsControl ItemsSource="{Binding Paragraphs}">
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="x:String">
+              <TextBlock Text="{Binding}" TextWrapping="Wrap" Margin="0,0,0,8"
+                         Foreground="{DynamicResource TextDimBrush}" />
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+      </StackPanel>
+    </DataTemplate>
+
+  </Window.DataTemplates>
+
+  <Grid ColumnDefinitions="208,*">
+
+    <!-- Section nav rail -->
+    <Border Grid.Column="0" Background="{DynamicResource SidebarBrush}"
+            BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,1,0">
+      <StackPanel Name="SettingsNav" Margin="8,14">
+        <TextBlock Classes="NavLabel" Text="SETTINGS" />
+        <ItemsControl ItemsSource="{Binding Sections}">
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="vm:SettingsSectionViewModel">
+              <Button Classes="Nav" Classes.Active="{Binding IsSelected}"
+                      Command="{Binding #SettingsNav.((vm:SettingsViewModel)DataContext).SelectCommand}"
+                      CommandParameter="{Binding}">
+                <Grid ColumnDefinitions="Auto,*">
+                  <PathIcon Grid.Column="0" Width="15" Height="15" Margin="0,0,10,0"
+                            Data="{Binding IconKey, Converter={x:Static conv:ResourceKeyConverter.Instance}}"
+                            Foreground="{DynamicResource TextFaintBrush}" />
+                  <TextBlock Grid.Column="1" Text="{Binding Label}" VerticalAlignment="Center" />
+                </Grid>
+              </Button>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+      </StackPanel>
+    </Border>
+
+    <!-- Selected section content -->
+    <ScrollViewer Grid.Column="1">
+      <ContentControl Margin="28,24" Content="{Binding SelectedSection.Content}" />
+    </ScrollViewer>
+  </Grid>
+</Window>

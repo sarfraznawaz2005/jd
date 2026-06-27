@@ -166,6 +166,18 @@
     <Setter Property="HorizontalAlignment" Value="Center" />
   </Style>
 
+  <!-- Settings section headings/hints (TASK-057). -->
+  <Style Selector="TextBlock.SettingsHeading">
+    <Setter Property="FontSize" Value="18" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+  </Style>
+  <Style Selector="TextBlock.SettingsHint">
+    <Setter Property="FontSize" Value="11.5" />
+    <Setter Property="TextWrapping" Value="Wrap" />
+    <Setter Property="Foreground" Value="{DynamicResource TextFaintBrush}" />
+  </Style>
+
   <!-- Detail view stat labels/values (TASK-054). -->
   <Style Selector="TextBlock.StatKey">
     <Setter Property="FontSize" Value="11" />

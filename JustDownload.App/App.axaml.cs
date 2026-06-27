@@ -34,6 +34,7 @@ public partial class App : Application
             .AddSingleton<SidebarViewModel>()
             .AddSingleton<MainWindowViewModel>()
             .AddTransient<NewDownloadViewModel>()
+            .AddTransient<JustDownload.App.ViewModels.Settings.SettingsViewModel>()
             .BuildServiceProvider();
 
     public override void Initialize() => AvaloniaXamlLoader.Load(this);
@@ -55,6 +56,9 @@ public partial class App : Application
             // Detaching the per-download detail pops it into its own window (TASK-054 AC0).
             mainViewModel.Detail.DetachRequested += (_, _) => ShowDetachedDetail(window, mainViewModel.Detail);
 
+            // The toolbar "Settings" intent opens the settings window (TASK-057).
+            mainViewModel.SettingsRequested += (_, _) => _ = ShowSettingsDialogAsync(window);
+
             // Bring the schema up to date, then load the persisted downloads into the list — off the
             // initialisation path so the window paints immediately and never blocks on I/O (§6).
             Dispatcher.UIThread.Post(async () => await InitializeAndLoadAsync(), DispatcherPriority.Background);
@@ -68,6 +72,16 @@ public partial class App : Application
         var dialog = new NewDownloadWindow
         {
             DataContext = Services.GetRequiredService<NewDownloadViewModel>(),
+        };
+
+        await dialog.ShowDialog(owner);
+    }
+
+    private async Task ShowSettingsDialogAsync(Window owner)
+    {
+        var dialog = new SettingsWindow
+        {
+            DataContext = Services.GetRequiredService<JustDownload.App.ViewModels.Settings.SettingsViewModel>(),
         };
 
         await dialog.ShowDialog(owner);
