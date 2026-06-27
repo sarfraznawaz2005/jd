@@ -154,6 +154,41 @@ public sealed class DownloadDetailViewModelTests
         detached.Should().BeSameAs(row);
     }
 
+    [AvaloniaFact]
+    public void SegmentVisualization_RunsWhileActive_AndShowsTheStream()
+    {
+        var manager = Substitute.For<IDownloadManager>();
+        manager.GetConnections(1).Returns(new[]
+        {
+            Stat(0, 0, 999, 600, 100),
+            Stat(1, 1000, 1999, 300, 90),
+        });
+        var vm = new DownloadDetailViewModel(manager, Substitute.For<IDownloadActions>());
+
+        vm.Select(Row(status: DownloadStatusCodes.Active));
+
+        vm.Segments.IsRunning.Should().BeTrue("the repaint loop runs while the download is active");
+        vm.Segments.HasStreams.Should().BeTrue();
+        vm.Segments.Streams.Should().ContainSingle();
+        vm.Segments.Streams[0].Label.Should().Be("File");
+        vm.Segments.Streams[0].SegmentCount.Should().Be(2);
+
+        vm.Dispose();
+    }
+
+    [AvaloniaFact]
+    public void SegmentVisualization_StopsWhenNotActive()
+    {
+        var manager = Substitute.For<IDownloadManager>();
+        manager.GetConnections(Arg.Any<long>()).Returns([]);
+        var vm = new DownloadDetailViewModel(manager, Substitute.For<IDownloadActions>());
+
+        vm.Select(Row(status: DownloadStatusCodes.Paused));
+
+        vm.Segments.IsRunning.Should().BeFalse("a paused download has no live segment repaint");
+        vm.Segments.HasStreams.Should().BeFalse();
+    }
+
     private static void RaiseProgress(IDownloadManager manager, long id) =>
         manager.ProgressChanged += Raise.Event<EventHandler<DownloadProgressChangedEventArgs>>(
             manager,

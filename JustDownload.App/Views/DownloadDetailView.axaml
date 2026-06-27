@@ -81,10 +81,35 @@
                 </StackPanel>
               </Grid>
 
-              <StackPanel Spacing="6">
-                <TextBlock Text="{Binding SegmentsDisplay, StringFormat='Connections: {0}'}" FontSize="11.5"
-                           Foreground="{DynamicResource TextFaintBrush}" />
-              </StackPanel>
+              <!-- Live segment/connection visualization (TASK-055): one stacked strip per stream. -->
+              <ItemsControl ItemsSource="{Binding Segments.Streams}" IsVisible="{Binding Segments.HasStreams}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="vm:StreamStripViewModel">
+                    <StackPanel Spacing="6" Margin="0,0,0,14">
+                      <Grid ColumnDefinitions="*,Auto">
+                        <TextBlock Grid.Column="0" Text="{Binding Label, StringFormat='{}{0} stream'}" Classes="StatKey" />
+                        <TextBlock Grid.Column="1" Text="{Binding SegmentCount, StringFormat='Segments: {0}'}" Classes="StatKey" />
+                      </Grid>
+                      <ItemsControl ItemsSource="{Binding Cells}">
+                        <ItemsControl.ItemsPanel>
+                          <ItemsPanelTemplate>
+                            <WrapPanel Orientation="Horizontal" />
+                          </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                          <DataTemplate x:DataType="vm:SegmentCellViewModel">
+                            <ProgressBar Classes="SegCell" Orientation="Vertical" Minimum="0" Maximum="100"
+                                         Value="{Binding FillPercent}" Margin="0,0,4,4" />
+                          </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                      </ItemsControl>
+                    </StackPanel>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+
+              <TextBlock Text="Waiting for connections…" IsVisible="{Binding !Segments.HasStreams}"
+                         FontSize="11.5" Foreground="{DynamicResource TextFaintBrush}" />
             </StackPanel>
           </ScrollViewer>
         </TabItem>

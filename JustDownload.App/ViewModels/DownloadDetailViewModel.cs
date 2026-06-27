@@ -50,9 +50,13 @@ public sealed partial class DownloadDetailViewModel : ViewModelBase, IDisposable
         ArgumentNullException.ThrowIfNull(actions);
         _manager = manager;
         _actions = actions;
+        Segments = new SegmentVisualizationViewModel(BuildStreamSnapshots);
         _manager.ProgressChanged += OnProgressChanged;
         _manager.StatusChanged += OnStatusChanged;
     }
+
+    /// <summary>The live segment/connection visualization shown on the Download tab (TASK-055).</summary>
+    public SegmentVisualizationViewModel Segments { get; }
 
     /// <summary>The live per-connection rows shown on the Connections tab.</summary>
     public ObservableCollection<ConnectionRowViewModel> Connections { get; } = [];
@@ -81,6 +85,24 @@ public sealed partial class DownloadDetailViewModel : ViewModelBase, IDisposable
         _connectionsById.Clear();
         RefreshStats();
         RefreshConnections();
+        UpdateSegmentVisualization();
+    }
+
+    /// <summary>One stream per download today ("File"); muxed media will supply one snapshot per stream.</summary>
+    private IReadOnlyList<StreamSnapshot> BuildStreamSnapshots() =>
+        Selected is { } row ? [new StreamSnapshot("File", _manager.GetConnections(row.Id))] : [];
+
+    /// <summary>Runs the capped-rate segment repaint only while the selected download is actively transferring.</summary>
+    private void UpdateSegmentVisualization()
+    {
+        if (Selected?.IsDownloading == true)
+        {
+            Segments.Start();
+        }
+        else
+        {
+            Segments.Stop();
+        }
     }
 
     private void OnProgressChanged(object? sender, DownloadProgressChangedEventArgs e)
@@ -110,6 +132,7 @@ public sealed partial class DownloadDetailViewModel : ViewModelBase, IDisposable
             PauseCommand.NotifyCanExecuteChanged();
             CancelCommand.NotifyCanExecuteChanged();
             RefreshConnections();
+            UpdateSegmentVisualization();
         });
     }
 
@@ -195,5 +218,6 @@ public sealed partial class DownloadDetailViewModel : ViewModelBase, IDisposable
     {
         _manager.ProgressChanged -= OnProgressChanged;
         _manager.StatusChanged -= OnStatusChanged;
+        Segments.Dispose();
     }
 }

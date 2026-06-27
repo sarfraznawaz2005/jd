@@ -146,4 +146,14 @@
   <Style Selector="ProgressBar.Mini.paused">
     <Setter Property="Foreground" Value="{DynamicResource AmberBrush}" />
   </Style>
+
+  <!-- Segment-visualization cell (TASK-055): a small vertical block that fills with a connection's progress. -->
+  <Style Selector="ProgressBar.SegCell">
+    <Setter Property="Width" Value="22" />
+    <Setter Property="Height" Value="30" />
+    <Setter Property="MinWidth" Value="22" />
+    <Setter Property="CornerRadius" Value="3" />
+    <Setter Property="Background" Value="{DynamicResource TrackBrush}" />
+    <Setter Property="Foreground" Value="{DynamicResource AccentBrush}" />
+  </Style>
 </Styles>
