@@ -13,6 +13,9 @@ using ServiceProvider provider = new ServiceCollection()
 // Capture and surface unhandled exceptions — no silent failures (§1).
 provider.GetRequiredService<IGlobalErrorHandler>().Install();
 
+// Run Core's async startup initialisation (applies persisted categorization overrides, TASK-085).
+await provider.InitializeJustDownloadCoreAsync();
+
 IAppInfoProvider appInfo = provider.GetRequiredService<IAppInfoProvider>();
 Console.WriteLine($"{appInfo.Name} Native Messaging Host");
 return 0;

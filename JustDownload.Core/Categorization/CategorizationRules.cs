@@ -86,6 +86,43 @@ public sealed class CategorizationRules
     }
 
     /// <summary>
+    /// Applies a single persisted override (TASK-085) by dispatching it to the matching <c>Map…</c>
+    /// method for its <see cref="CategoryRuleOverride.Scope"/>. Re-applying an existing key overrides it,
+    /// which is how a user's saved tweak wins over the seeded default.
+    /// </summary>
+    /// <param name="ruleOverride">The override to apply.</param>
+    /// <returns>The same instance, so a set of overrides can be chained.</returns>
+    public CategorizationRules ApplyOverride(CategoryRuleOverride ruleOverride)
+    {
+        ArgumentNullException.ThrowIfNull(ruleOverride);
+
+        return ruleOverride.Scope switch
+        {
+            CategoryRuleScope.Extension => MapExtension(ruleOverride.Key, ruleOverride.Category),
+            CategoryRuleScope.MimeType => MapMimeType(ruleOverride.Key, ruleOverride.Category),
+            CategoryRuleScope.MimeTopLevelType =>
+                MapMimeTopLevelType(ruleOverride.Key, ruleOverride.Category),
+            _ => throw new ArgumentOutOfRangeException(
+                nameof(ruleOverride), ruleOverride.Scope, "Unknown category rule scope."),
+        };
+    }
+
+    /// <summary>Applies a sequence of persisted overrides in order (TASK-085).</summary>
+    /// <param name="overrides">The overrides to apply over the current mappings.</param>
+    /// <returns>The same instance, for chaining.</returns>
+    public CategorizationRules ApplyOverrides(IEnumerable<CategoryRuleOverride> overrides)
+    {
+        ArgumentNullException.ThrowIfNull(overrides);
+
+        foreach (CategoryRuleOverride ruleOverride in overrides)
+        {
+            ApplyOverride(ruleOverride);
+        }
+
+        return this;
+    }
+
+    /// <summary>
     /// Resolves a category from a file extension. The input may carry a leading dot and any case.
     /// </summary>
     /// <param name="extension">A file extension such as <c>"mp4"</c> or <c>".MP4"</c>.</param>

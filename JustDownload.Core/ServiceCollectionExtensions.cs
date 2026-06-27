@@ -177,6 +177,12 @@ public static class ServiceCollectionExtensions
     /// are singletons (categorization is stateless); the shared <see cref="CategorizationRules"/> is
     /// registered as a concrete so a host can resolve and edit it at runtime. Uses <c>TryAdd</c> so a
     /// test or host can pre-register its own rules or categorizer and have it win.
+    /// <para>
+    /// Also registers persistence of the user's rule overrides (TASK-085): the settings-backed
+    /// <see cref="ICategoryRuleStore"/> and the <see cref="ICategoryRuleService"/> that applies persisted
+    /// overrides over the defaults at startup and saves new edits. (Persistence depends on the data layer,
+    /// which <see cref="AddJustDownloadCore"/> registers before this.)
+    /// </para>
     /// </summary>
     /// <param name="services">The service collection to populate.</param>
     /// <returns>The same <paramref name="services"/> instance, for chaining.</returns>
@@ -186,6 +192,9 @@ public static class ServiceCollectionExtensions
 
         services.TryAddSingleton(CategorizationRules.CreateDefault());
         services.TryAddSingleton<IFileCategorizer, FileCategorizer>();
+
+        services.TryAddSingleton<ICategoryRuleStore, SettingsCategoryRuleStore>();
+        services.TryAddSingleton<ICategoryRuleService, CategoryRuleService>();
 
         return services;
     }
