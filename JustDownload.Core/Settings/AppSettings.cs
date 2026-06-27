@@ -35,4 +35,17 @@ public sealed record AppSettings
 
     /// <summary>The visual theme. Default <see cref="AppTheme.Light"/> (locked decision D4).</summary>
     public AppTheme Theme { get; init; } = AppTheme.Light;
+
+    /// <summary>
+    /// Whether completed downloads are moved into a per-category subfolder (US-8 AC3, TASK-046).
+    /// Default <see langword="false"/> — the file stays where it was downloaded.
+    /// </summary>
+    public bool OrganizeByCategory { get; init; }
+
+    /// <summary>
+    /// The root directory under which category subfolders are created when
+    /// <see cref="OrganizeByCategory"/> is on. <see langword="null"/>/empty means "use the directory the
+    /// file was downloaded to" (organize in place). Default <see langword="null"/>.
+    /// </summary>
+    public string? OrganizedRootDirectory { get; init; }
 }

@@ -203,6 +203,10 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<ICategoryRuleStore, SettingsCategoryRuleStore>();
         services.TryAddSingleton<ICategoryRuleService, CategoryRuleService>();
 
+        // Move-completed-downloads-by-category (TASK-046): editable folder-name rules + the organizer.
+        services.TryAddSingleton(CategoryFolderRules.CreateDefault());
+        services.TryAddSingleton<IDownloadOrganizer, DownloadOrganizer>();
+
         return services;
     }
 

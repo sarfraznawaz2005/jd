@@ -18,6 +18,8 @@ internal static partial class SettingsSerializer
     internal const string DefaultContainerKey = "media.default_container";
     internal const string DensityKey = "ui.density";
     internal const string ThemeKey = "ui.theme";
+    internal const string OrganizeByCategoryKey = "organize.by_category";
+    internal const string OrganizedRootDirectoryKey = "organize.root_directory";
 
     /// <summary>
     /// Serializes every setting to its storage representation. The result always contains all keys so
@@ -40,6 +42,9 @@ internal static partial class SettingsSerializer
             [DefaultContainerKey] = settings.DefaultContainer.ToString(),
             [DensityKey] = settings.Density.ToString(),
             [ThemeKey] = settings.Theme.ToString(),
+            [OrganizeByCategoryKey] =
+                settings.OrganizeByCategory.ToString(CultureInfo.InvariantCulture),
+            [OrganizedRootDirectoryKey] = settings.OrganizedRootDirectory ?? string.Empty,
         };
     }
 
@@ -71,7 +76,44 @@ internal static partial class SettingsSerializer
                 ParseEnum(stored, DefaultContainerKey, defaults.DefaultContainer, logger),
             Density = ParseEnum(stored, DensityKey, defaults.Density, logger),
             Theme = ParseEnum(stored, ThemeKey, defaults.Theme, logger),
+            OrganizeByCategory =
+                ParseBool(stored, OrganizeByCategoryKey, defaults.OrganizeByCategory, logger),
+            OrganizedRootDirectory =
+                ParseOptionalString(stored, OrganizedRootDirectoryKey, defaults.OrganizedRootDirectory),
         };
+    }
+
+    private static bool ParseBool(
+        IReadOnlyDictionary<string, string?> stored,
+        string key,
+        bool fallback,
+        ILogger logger)
+    {
+        if (!stored.TryGetValue(key, out string? raw) || raw is null)
+        {
+            return fallback;
+        }
+
+        if (bool.TryParse(raw, out bool value))
+        {
+            return value;
+        }
+
+        LogIgnored(logger, key, raw);
+        return fallback;
+    }
+
+    private static string? ParseOptionalString(
+        IReadOnlyDictionary<string, string?> stored,
+        string key,
+        string? fallback)
+    {
+        if (!stored.TryGetValue(key, out string? raw) || raw is null)
+        {
+            return fallback;
+        }
+
+        return string.IsNullOrWhiteSpace(raw) ? null : raw;
     }
 
     private static int ParseInt(
