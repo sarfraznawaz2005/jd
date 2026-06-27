@@ -61,6 +61,85 @@ public static class Segmentation
     }
 
     /// <summary>
+    /// Distributes up to <paramref name="connections"/> worker segments across a set of disjoint
+    /// <paramref name="gaps"/> (the not-yet-downloaded ranges of a resumed download), proportional to each
+    /// gap's size, then splits each gap evenly into its share. Every gap gets at least one segment so it is
+    /// always covered; extra connections go to the largest pieces, never splitting below
+    /// <paramref name="minSegmentSize"/>. With a single full-span gap this reduces to <see cref="Split"/>.
+    /// Pure and deterministic (US-2 resume planning).
+    /// </summary>
+    public static IReadOnlyList<SegmentRange> SplitRanges(
+        IReadOnlyList<SegmentRange> gaps,
+        int connections,
+        long minSegmentSize)
+    {
+        ArgumentNullException.ThrowIfNull(gaps);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(minSegmentSize);
+
+        if (gaps.Count == 0)
+        {
+            return [];
+        }
+
+        int budget = Math.Clamp(connections, MinConnections, MaxConnections);
+        int n = gaps.Count;
+        var pieces = new int[n];
+        Array.Fill(pieces, 1);
+        int used = n;
+
+        // Hand out the remaining connections to whichever gap currently has the largest piece, provided one
+        // more cut still leaves both pieces at or above the minimum segment size.
+        while (used < budget)
+        {
+            int best = -1;
+            long bestPieceSize = 0;
+            for (int i = 0; i < n; i++)
+            {
+                long len = gaps[i].Length;
+                long currentPiece = len / pieces[i];
+                long nextPiece = len / (pieces[i] + 1);
+                if (nextPiece >= minSegmentSize && currentPiece > bestPieceSize)
+                {
+                    bestPieceSize = currentPiece;
+                    best = i;
+                }
+            }
+
+            if (best < 0)
+            {
+                break; // No gap can be split further without going below the minimum.
+            }
+
+            pieces[best]++;
+            used++;
+        }
+
+        var ranges = new List<SegmentRange>(used);
+        for (int i = 0; i < n; i++)
+        {
+            SplitOne(gaps[i], pieces[i], ranges);
+        }
+
+        return ranges;
+    }
+
+    // Splits one inclusive range into `count` contiguous pieces, spreading any remainder one byte at a time
+    // across the leading pieces (matching Split's even-division behaviour).
+    private static void SplitOne(SegmentRange range, int count, List<SegmentRange> into)
+    {
+        long length = range.Length;
+        long baseSize = length / count;
+        long remainder = length % count;
+        long start = range.Start;
+        for (int k = 0; k < count; k++)
+        {
+            long size = baseSize + (k < remainder ? 1 : 0);
+            into.Add(new SegmentRange(start, start + size - 1));
+            start += size;
+        }
+    }
+
+    /// <summary>
     /// Chooses the work-steal: the candidate with the most remaining bytes is split in half — the victim
     /// keeps the front half and the idle connection takes the tail half. Returns <see langword="null"/>
     /// when the largest remaining range is smaller than twice <paramref name="minStealSize"/> (so neither

@@ -58,6 +58,7 @@ internal sealed partial class SegmentedDownloader : ISegmentedDownloader
     public async Task<DownloadResult> DownloadAsync(
         DownloadRequest request,
         IProgress<long>? progress = null,
+        ReceivedRanges? received = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
@@ -77,7 +78,7 @@ internal sealed partial class SegmentedDownloader : ISegmentedDownloader
         }
 
         return await DownloadSegmentedAsync(
-            request, probe, probe.TotalLength.Value, connections, limiter, progress, cancellationToken)
+            request, probe, probe.TotalLength.Value, connections, limiter, progress, received, cancellationToken)
             .ConfigureAwait(false);
     }
 
@@ -125,19 +126,31 @@ internal sealed partial class SegmentedDownloader : ISegmentedDownloader
         int connections,
         IRateLimiter limiter,
         IProgress<long>? progress,
+        ReceivedRanges? received,
         CancellationToken cancellationToken)
     {
-        IReadOnlyList<SegmentRange> ranges =
-            Segmentation.Split(totalLength, connections, _options.MinSegmentSize);
-
         await using var file = PreallocatedFile.Create(request.DestinationPath, totalLength);
 
-        var state = new DownloadState(ranges);
+        // Resume: only the gaps not already on disk are fetched; a fresh download covers the whole span.
+        long baseBytes = received?.TotalReceived ?? 0;
+        IReadOnlyList<SegmentRange> ranges = baseBytes > 0
+            ? Segmentation.SplitRanges(received!.Gaps(totalLength), connections, _options.MinSegmentSize)
+            : Segmentation.Split(totalLength, connections, _options.MinSegmentSize);
+
+        if (ranges.Count == 0)
+        {
+            // Everything was already received (a resume of a finished-but-uncommitted download).
+            await file.FlushToDiskAsync(cancellationToken).ConfigureAwait(false);
+            progress?.Report(totalLength);
+            return CompletedSegmentedResult(probe, totalLength, initialSegments: 0, steals: 0);
+        }
+
+        var state = new DownloadState(ranges, baseBytes);
 
         Task[] workers = state.InitialSegments
             .Select(seg => Task.Run(
                 () => RunWorkerAsync(
-                    seg, state, file, probe.FinalUri, request.Headers, limiter, progress, cancellationToken),
+                    seg, state, file, probe.FinalUri, request.Headers, limiter, progress, received, cancellationToken),
                 cancellationToken))
             .ToArray();
 
@@ -146,16 +159,19 @@ internal sealed partial class SegmentedDownloader : ISegmentedDownloader
 
         LogSegmented(_logger, state.BytesWritten, probe.FinalUri, ranges.Count, state.Steals);
 
-        return new DownloadResult
+        return CompletedSegmentedResult(probe, totalLength, ranges.Count, state.Steals);
+    }
+
+    private static DownloadResult CompletedSegmentedResult(
+        ResourceProbeResult probe, long totalLength, int initialSegments, int steals) => new()
         {
             TotalBytes = totalLength,
             FinalUri = probe.FinalUri,
             FileName = probe.SuggestedFileName,
             SingleConnection = false,
-            InitialSegments = ranges.Count,
-            Steals = state.Steals,
+            InitialSegments = initialSegments,
+            Steals = steals,
         };
-    }
 
     private async Task RunWorkerAsync(
         WorkerSegment segment,
@@ -165,6 +181,7 @@ internal sealed partial class SegmentedDownloader : ISegmentedDownloader
         IReadOnlyList<KeyValuePair<string, string>> headers,
         IRateLimiter limiter,
         IProgress<long>? progress,
+        ReceivedRanges? received,
         CancellationToken cancellationToken)
     {
         // A steal must leave the victim at least one copy buffer of headroom before the split point, so a
@@ -175,7 +192,7 @@ internal sealed partial class SegmentedDownloader : ISegmentedDownloader
         WorkerSegment? current = segment;
         while (current is not null)
         {
-            await DownloadSegmentAsync(current, state, file, uri, headers, limiter, progress, cancellationToken)
+            await DownloadSegmentAsync(current, state, file, uri, headers, limiter, progress, received, cancellationToken)
                 .ConfigureAwait(false);
             current.Complete();
             current = state.TrySteal(minStealSize);
@@ -190,6 +207,7 @@ internal sealed partial class SegmentedDownloader : ISegmentedDownloader
         IReadOnlyList<KeyValuePair<string, string>> headers,
         IRateLimiter limiter,
         IProgress<long>? progress,
+        ReceivedRanges? received,
         CancellationToken cancellationToken)
     {
         int stallGuard = 0;
@@ -227,7 +245,7 @@ internal sealed partial class SegmentedDownloader : ISegmentedDownloader
             long before = segment.WriteOffset;
             await using Stream content =
                 await response.OpenContentStreamAsync(cancellationToken).ConfigureAwait(false);
-            await PumpAsync(segment, state, file, content, limiter, progress, cancellationToken)
+            await PumpAsync(segment, state, file, content, limiter, progress, received, cancellationToken)
                 .ConfigureAwait(false);
 
             if (segment.WriteOffset > segment.EndInclusive)
@@ -258,6 +276,7 @@ internal sealed partial class SegmentedDownloader : ISegmentedDownloader
         Stream content,
         IRateLimiter limiter,
         IProgress<long>? progress,
+        ReceivedRanges? received,
         CancellationToken cancellationToken)
     {
         byte[] buffer = ArrayPool<byte>.Shared.Rent(PreallocatedFile.CopyBufferSize);
@@ -297,6 +316,10 @@ internal sealed partial class SegmentedDownloader : ISegmentedDownloader
                 await file.WriteAsync(writeAt, buffer.AsMemory(0, writeLength), cancellationToken)
                     .ConfigureAwait(false);
                 segment.Advance(writeLength);
+
+                // Record the committed range as the resume checkpoint before reporting progress, so a pause
+                // observed via progress always corresponds to bytes already captured in the checkpoint.
+                received?.Add(writeAt, writeLength);
                 progress?.Report(state.AddBytes(writeLength));
 
                 if (writeLength < read)

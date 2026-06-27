@@ -14,9 +14,10 @@ internal sealed class DownloadState
     private int _steals;
     private long _bytesWritten;
 
-    public DownloadState(IReadOnlyList<SegmentRange> ranges)
+    public DownloadState(IReadOnlyList<SegmentRange> ranges, long baseBytes = 0)
     {
         ArgumentNullException.ThrowIfNull(ranges);
+        ArgumentOutOfRangeException.ThrowIfNegative(baseBytes);
         _segments = new List<WorkerSegment>(ranges.Count);
         for (int i = 0; i < ranges.Count; i++)
         {
@@ -25,6 +26,10 @@ internal sealed class DownloadState
 
         _nextIndex = ranges.Count;
         InitialSegments = _segments.ToArray();
+
+        // On a resume the already-downloaded bytes are counted up front so cumulative progress and the
+        // reported byte total stay correct even though this session only fetches the remaining gaps.
+        _bytesWritten = baseBytes;
     }
 
     /// <summary>The segments to spawn a worker for (the initial split).</summary>

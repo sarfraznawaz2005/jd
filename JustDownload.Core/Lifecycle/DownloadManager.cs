@@ -17,7 +17,11 @@ namespace JustDownload.Core.Lifecycle;
 /// </summary>
 internal sealed partial class DownloadManager : IDownloadManager
 {
+    /// <summary>How often the resume checkpoint is flushed to the database during an active download.</summary>
+    private static readonly TimeSpan CheckpointInterval = TimeSpan.FromMilliseconds(500);
+
     private readonly IDownloadRepository _repository;
+    private readonly ISegmentRepository _segments;
     private readonly ISegmentedDownloader _downloader;
     private readonly IClock _clock;
     private readonly ILogger<DownloadManager> _logger;
@@ -25,15 +29,18 @@ internal sealed partial class DownloadManager : IDownloadManager
 
     public DownloadManager(
         IDownloadRepository repository,
+        ISegmentRepository segments,
         ISegmentedDownloader downloader,
         IClock clock,
         ILogger<DownloadManager> logger)
     {
         ArgumentNullException.ThrowIfNull(repository);
+        ArgumentNullException.ThrowIfNull(segments);
         ArgumentNullException.ThrowIfNull(downloader);
         ArgumentNullException.ThrowIfNull(clock);
         ArgumentNullException.ThrowIfNull(logger);
         _repository = repository;
+        _segments = segments;
         _downloader = downloader;
         _clock = clock;
         _logger = logger;
@@ -92,6 +99,9 @@ internal sealed partial class DownloadManager : IDownloadManager
         await _repository.UpdateAsync(active, cancellationToken).ConfigureAwait(false);
         RaiseStatus(id, from, DownloadStatus.Active);
 
+        // Seed the resume checkpoint from any persisted segments so this run fetches only the missing gaps.
+        ReceivedRanges received = await LoadReceivedAsync(id, cancellationToken).ConfigureAwait(false);
+
         var estimator = new SpeedEstimator();
         bool resumable = record.TotalBytes is > 0;
         var sink = new ProgressSink(this, id, estimator, record.TotalBytes, resumable);
@@ -107,25 +117,40 @@ internal sealed partial class DownloadManager : IDownloadManager
                 : [],
         };
 
+        // Periodically flush the checkpoint so a crash loses at most one interval; pause/cancel flushes the
+        // exact final offsets below, so a clean pause re-fetches nothing (AC0/AC1).
+        using var checkpointCts = new CancellationTokenSource();
+        Task checkpointLoop = CheckpointLoopAsync(id, received, checkpointCts.Token);
+
         DownloadResult result;
         try
         {
-            result = await _downloader.DownloadAsync(downloadRequest, sink, cancellationToken).ConfigureAwait(false);
+            result = await _downloader.DownloadAsync(downloadRequest, sink, received, cancellationToken)
+                .ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {
-            // Cancellation is a pause: the partial file and segment checkpoints remain for resume.
+            // Cancellation is a pause: persist the exact offsets reached, then mark Paused. The partial file
+            // and these segment rows let a resume continue without re-fetching.
+            await StopCheckpointLoopAsync(checkpointCts, checkpointLoop).ConfigureAwait(false);
+            await PersistSegmentsAsync(id, received, CancellationToken.None).ConfigureAwait(false);
             await TransitionToTerminalAsync(id, active, DownloadStatus.Paused, error: null, completedAt: null)
                 .ConfigureAwait(false);
             throw;
         }
         catch (Exception ex)
         {
+            // A failed download keeps its checkpoint so a retry resumes rather than restarts.
+            await StopCheckpointLoopAsync(checkpointCts, checkpointLoop).ConfigureAwait(false);
+            await PersistSegmentsAsync(id, received, CancellationToken.None).ConfigureAwait(false);
             await TransitionToTerminalAsync(id, active, DownloadStatus.Failed, ex.Message, completedAt: null)
                 .ConfigureAwait(false);
             LogFailed(_logger, id, ex);
             throw;
         }
+
+        await StopCheckpointLoopAsync(checkpointCts, checkpointLoop).ConfigureAwait(false);
+        await ClearSegmentsAsync(id).ConfigureAwait(false); // complete — no resume state to keep
 
         await TransitionToTerminalAsync(
             id,
@@ -166,6 +191,90 @@ internal sealed partial class DownloadManager : IDownloadManager
         // still record the paused state).
         await _repository.UpdateAsync(updated, CancellationToken.None).ConfigureAwait(false);
         RaiseStatus(id, fromStatus, to);
+    }
+
+    /// <summary>Rebuilds the resume checkpoint from persisted segment rows (empty for a fresh download).</summary>
+    private async Task<ReceivedRanges> LoadReceivedAsync(long id, CancellationToken cancellationToken)
+    {
+        IReadOnlyList<DownloadSegment> rows =
+            await _segments.GetByDownloadAsync(id, cancellationToken).ConfigureAwait(false);
+        if (rows.Count == 0)
+        {
+            return new ReceivedRanges();
+        }
+
+        return new ReceivedRanges(rows.Select(r => new ByteInterval(r.Start, r.End)));
+    }
+
+    /// <summary>
+    /// Replaces the download's persisted segment rows with the current coalesced received intervals — the
+    /// checkpoint a resume reads. A handful of rows, applied as a delete-then-insert so the on-disk set
+    /// exactly mirrors what is on the file.
+    /// </summary>
+    private async Task PersistSegmentsAsync(long id, ReceivedRanges received, CancellationToken cancellationToken)
+    {
+        IReadOnlyList<ByteInterval> intervals = received.Snapshot();
+
+        IReadOnlyList<DownloadSegment> existing =
+            await _segments.GetByDownloadAsync(id, cancellationToken).ConfigureAwait(false);
+        foreach (DownloadSegment row in existing)
+        {
+            await _segments.DeleteAsync(row.Id, cancellationToken).ConfigureAwait(false);
+        }
+
+        for (int i = 0; i < intervals.Count; i++)
+        {
+            ByteInterval interval = intervals[i];
+            await _segments.AddAsync(
+                new DownloadSegment
+                {
+                    DownloadId = id,
+                    Index = i,
+                    Start = interval.Start,
+                    End = interval.EndInclusive,
+                    Downloaded = interval.Length,
+                    State = "complete",
+                },
+                cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    private async Task ClearSegmentsAsync(long id)
+    {
+        IReadOnlyList<DownloadSegment> existing =
+            await _segments.GetByDownloadAsync(id, CancellationToken.None).ConfigureAwait(false);
+        foreach (DownloadSegment row in existing)
+        {
+            await _segments.DeleteAsync(row.Id, CancellationToken.None).ConfigureAwait(false);
+        }
+    }
+
+    private async Task CheckpointLoopAsync(long id, ReceivedRanges received, CancellationToken token)
+    {
+        try
+        {
+            while (!token.IsCancellationRequested)
+            {
+                await Task.Delay(CheckpointInterval, token).ConfigureAwait(false);
+                await PersistSegmentsAsync(id, received, token).ConfigureAwait(false);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Expected when the download ends; the caller persists the final checkpoint.
+        }
+    }
+
+    private static async Task StopCheckpointLoopAsync(CancellationTokenSource cts, Task loop)
+    {
+        await cts.CancelAsync().ConfigureAwait(false);
+        try
+        {
+            await loop.ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+        }
     }
 
     private void RaiseStatus(long id, DownloadStatus? previous, DownloadStatus current) =>

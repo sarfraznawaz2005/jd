@@ -18,6 +18,8 @@ internal sealed class LoopbackHttpServer : IAsyncDisposable
     private readonly TcpListener _listener;
     private readonly CancellationTokenSource _cts = new();
     private readonly Task _loop;
+    private readonly object _servedGate = new();
+    private readonly List<(long From, long To)> _served = [];
     private int _currentConnections;
     private int _maxConnections;
 
@@ -59,6 +61,45 @@ internal sealed class LoopbackHttpServer : IAsyncDisposable
 
     /// <summary>The peak number of simultaneously-open connections the server has seen.</summary>
     public int MaxConcurrentConnections => Volatile.Read(ref _maxConnections);
+
+    /// <summary>The inclusive byte ranges actually sent as response bodies, in order served.</summary>
+    public IReadOnlyList<(long From, long To)> ServedRanges
+    {
+        get
+        {
+            lock (_servedGate)
+            {
+                return _served.ToArray();
+            }
+        }
+    }
+
+    /// <summary>The total number of body bytes served so far (across all requests).</summary>
+    public long ServedBytes
+    {
+        get
+        {
+            lock (_servedGate)
+            {
+                long total = 0;
+                foreach ((long from, long to) in _served)
+                {
+                    total += to - from + 1;
+                }
+
+                return total;
+            }
+        }
+    }
+
+    /// <summary>Resets the served-range log (used to isolate a resume session from the prior one).</summary>
+    public void ClearServedRanges()
+    {
+        lock (_servedGate)
+        {
+            _served.Clear();
+        }
+    }
 
     /// <summary>The server's base URL (loopback, ephemeral port).</summary>
     public Uri BaseUri { get; }
@@ -193,6 +234,8 @@ internal sealed class LoopbackHttpServer : IAsyncDisposable
         string reason;
         var headers = new StringBuilder();
 
+        long servedFrom;
+        long servedTo;
         if (range is { } r && SupportRanges && body.Length > 0)
         {
             long from = Math.Max(0, r.From);
@@ -201,12 +244,24 @@ internal sealed class LoopbackHttpServer : IAsyncDisposable
             status = 206;
             reason = "Partial Content";
             headers.Append(CultureInfo.InvariantCulture, $"Content-Range: bytes {from}-{to}/{body.Length}\r\n");
+            servedFrom = from;
+            servedTo = to;
         }
         else
         {
             slice = body;
             status = 200;
             reason = "OK";
+            servedFrom = 0;
+            servedTo = body.Length - 1;
+        }
+
+        if (!string.Equals(method, "HEAD", StringComparison.OrdinalIgnoreCase) && slice.Length > 0)
+        {
+            lock (_servedGate)
+            {
+                _served.Add((servedFrom, servedTo));
+            }
         }
 
         headers.Append(CultureInfo.InvariantCulture, $"Content-Type: {ContentType}\r\n");
