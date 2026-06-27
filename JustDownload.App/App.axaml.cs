@@ -1,4 +1,5 @@
 using Avalonia;
+using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Input.Platform;
 using Avalonia.Markup.Xaml;
@@ -25,10 +26,12 @@ public partial class App : Application
             .AddSingleton<IThemeService, ThemeService>()
             .AddSingleton<IDownloadActions, DownloadActionsService>()
             .AddSingleton<IFileRevealer, FileRevealer>()
+            .AddSingleton<IDownloadFolderProvider, DownloadFolderProvider>()
             .AddSingleton<IClipboardService>(_ => new ClipboardService(GetActiveClipboard))
             .AddSingleton<StatusSummaryViewModel>()
             .AddSingleton<DownloadsListViewModel>()
             .AddSingleton<MainWindowViewModel>()
+            .AddTransient<NewDownloadViewModel>()
             .BuildServiceProvider();
 
     public override void Initialize() => AvaloniaXamlLoader.Load(this);
@@ -40,10 +43,12 @@ public partial class App : Application
 
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
-            desktop.MainWindow = new MainWindow
-            {
-                DataContext = Services.GetRequiredService<MainWindowViewModel>(),
-            };
+            MainWindowViewModel mainViewModel = Services.GetRequiredService<MainWindowViewModel>();
+            var window = new MainWindow { DataContext = mainViewModel };
+            desktop.MainWindow = window;
+
+            // The toolbar/command-palette "New URL" intent opens the dialog over the main window (TASK-052/053).
+            mainViewModel.NewDownloadRequested += (_, _) => _ = ShowNewDownloadDialogAsync(window);
 
             // Bring the schema up to date, then load the persisted downloads into the list — off the
             // initialisation path so the window paints immediately and never blocks on I/O (§6).
@@ -51,6 +56,16 @@ public partial class App : Application
         }
 
         base.OnFrameworkInitializationCompleted();
+    }
+
+    private async Task ShowNewDownloadDialogAsync(Window owner)
+    {
+        var dialog = new NewDownloadWindow
+        {
+            DataContext = Services.GetRequiredService<NewDownloadViewModel>(),
+        };
+
+        await dialog.ShowDialog(owner);
     }
 
     private async Task InitializeAndLoadAsync()

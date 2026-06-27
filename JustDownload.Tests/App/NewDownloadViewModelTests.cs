@@ -1,0 +1,216 @@
+using FluentAssertions;
+using JustDownload.App.Services;
+using JustDownload.App.ViewModels;
+using JustDownload.Core.Categorization;
+using JustDownload.Core.Lifecycle;
+using JustDownload.Core.Settings;
+using JustDownload.Core.Transport;
+using Microsoft.Extensions.Logging.Abstractions;
+using NSubstitute;
+using Xunit;
+
+namespace JustDownload.Tests.App;
+
+/// <summary>
+/// Unit tests for the New URL dialog view-model (TASK-053): URL paste auto-detects filename/category/folder,
+/// the form enqueues a download (optionally starting it), and input is validated.
+/// </summary>
+public sealed class NewDownloadViewModelTests
+{
+    private sealed class Harness
+    {
+        public IResourceProbe Probe { get; } = Substitute.For<IResourceProbe>();
+        public IFileCategorizer Categorizer { get; } = Substitute.For<IFileCategorizer>();
+        public IDownloadFolderProvider Folders { get; } = Substitute.For<IDownloadFolderProvider>();
+        public ISettingsService Settings { get; } = Substitute.For<ISettingsService>();
+        public IDownloadManager Manager { get; } = Substitute.For<IDownloadManager>();
+        public IDownloadActions Actions { get; } = Substitute.For<IDownloadActions>();
+
+        public Harness()
+        {
+            Settings.Current.Returns(new AppSettings { ConnectionsPerDownload = 8 });
+            Folders.GetBaseFolder().Returns(@"C:\Users\me\Downloads");
+            Folders.GetFolderForCategory(Arg.Any<FileCategory>())
+                .Returns(ci => $@"C:\Users\me\Downloads\{((FileCategory)ci[0])}");
+            Categorizer.Categorize(Arg.Any<string?>(), Arg.Any<string?>()).Returns(FileCategory.Program);
+        }
+
+        public NewDownloadViewModel Build() =>
+            new(Probe, Categorizer, Folders, Settings, Manager, Actions, NullLogger<NewDownloadViewModel>.Instance);
+
+        public void SetProbe(string fileName, long? size, bool ranges) =>
+            Probe.ProbeAsync(Arg.Any<Uri>(), Arg.Any<IReadOnlyList<KeyValuePair<string, string>>?>(), Arg.Any<CancellationToken>())
+                .Returns(Task.FromResult(new ResourceProbeResult
+                {
+                    FinalUri = new Uri("https://download.mozilla.org/firefox-126.0.dmg"),
+                    StatusCode = 200,
+                    SupportsRanges = ranges,
+                    TotalLength = size,
+                    SuggestedFileName = fileName,
+                }));
+    }
+
+    [Fact]
+    public void StartsWithAutoCategory_AndBaseFolder()
+    {
+        var vm = new Harness().Build();
+        vm.SelectedCategory.IsAuto.Should().BeTrue();
+        vm.SaveToFolder.Should().Be(@"C:\Users\me\Downloads");
+        vm.ConnectionsHint.Should().Contain("8 connections");
+    }
+
+    [Fact]
+    public async Task DetectAsync_FillsFileName_Category_AndFolder()
+    {
+        var h = new Harness();
+        h.SetProbe("firefox-126.0.dmg", 55_300_000, ranges: true);
+        var vm = h.Build();
+        vm.Url = "https://download.mozilla.org/firefox-126.0.dmg";
+
+        await vm.DetectAsync();
+
+        vm.FileName.Should().Be("firefox-126.0.dmg");
+        vm.SaveToFolder.Should().Be(@"C:\Users\me\Downloads\Program", "the folder follows the detected category");
+        vm.DetectionMessage.Should().Contain("resumable");
+        vm.CanSubmit.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task DetectAsync_DoesNotOverwriteUserEditedFields()
+    {
+        var h = new Harness();
+        h.SetProbe("server-name.bin", 1000, ranges: true);
+        var vm = h.Build();
+        vm.FileName = "my-name.bin";    // user typed first
+        vm.SaveToFolder = @"D:\Custom"; // user chose a folder
+        vm.Url = "https://host.example/server-name.bin";
+
+        await vm.DetectAsync();
+
+        vm.FileName.Should().Be("my-name.bin", "a manual file name is not clobbered by detection");
+        vm.SaveToFolder.Should().Be(@"D:\Custom", "a manual folder is not clobbered by detection");
+    }
+
+    [Fact]
+    public async Task DetectAsync_ProbeFailure_SurfacesMessage_AndDoesNotThrow()
+    {
+        var h = new Harness();
+        h.Probe.ProbeAsync(Arg.Any<Uri>(), Arg.Any<IReadOnlyList<KeyValuePair<string, string>>?>(), Arg.Any<CancellationToken>())
+            .Returns<Task<ResourceProbeResult>>(_ => throw new ResourceProbeException(new Uri("https://host.example/missing.bin"), 404));
+        var vm = h.Build();
+        vm.Url = "https://host.example/missing.bin";
+
+        await vm.DetectAsync();
+
+        vm.DetectionMessage.Should().Contain("Couldn't read");
+        vm.IsDetecting.Should().BeFalse();
+    }
+
+    [Theory]
+    [InlineData("", false)]
+    [InlineData("not a url", false)]
+    [InlineData("ftp://host/file", false)]
+    [InlineData("https://host.example/file.zip", true)]
+    public void Validation_AcceptsOnlyHttpUrls(string url, bool expectValidUrl)
+    {
+        var vm = new Harness().Build();
+        vm.FileName = "file.zip";
+        vm.Url = url;
+
+        if (expectValidUrl)
+        {
+            vm.UrlError.Should().BeNull();
+            vm.CanSubmit.Should().BeTrue();
+        }
+        else
+        {
+            vm.CanSubmit.Should().BeFalse();
+        }
+    }
+
+    [Fact]
+    public void Validation_RejectsInvalidFileNameCharacters()
+    {
+        var vm = new Harness().Build();
+        vm.Url = "https://host.example/file.zip";
+        vm.FileName = "bad:name?.zip";
+
+        vm.FileNameError.Should().NotBeNull();
+        vm.CanSubmit.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task DownloadNow_EnqueuesAndStarts()
+    {
+        var h = new Harness();
+        h.Manager.EnqueueAsync(Arg.Any<EnqueueDownloadRequest>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(42L));
+        var vm = h.Build();
+        vm.Url = "https://host.example/file.zip";
+        vm.FileName = "file.zip";
+        vm.SaveToFolder = @"C:\Dest";
+
+        bool closed = false;
+        bool enqueuedSignal = false;
+        vm.CloseRequested += (_, ok) => { closed = true; enqueuedSignal = ok; };
+
+        vm.DownloadNowCommand.CanExecute(null).Should().BeTrue();
+        await vm.DownloadNowCommand.ExecuteAsync(null);
+
+        await h.Manager.Received(1).EnqueueAsync(
+            Arg.Is<EnqueueDownloadRequest>(r =>
+                r.FileName == "file.zip" &&
+                r.DestinationDirectory == @"C:\Dest" &&
+                r.MaxConnections == 8 &&
+                r.Url == new Uri("https://host.example/file.zip")),
+            Arg.Any<CancellationToken>());
+        h.Actions.Received(1).Start(42);
+        closed.Should().BeTrue();
+        enqueuedSignal.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task AddPaused_EnqueuesWithoutStarting()
+    {
+        var h = new Harness();
+        h.Manager.EnqueueAsync(Arg.Any<EnqueueDownloadRequest>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(7L));
+        var vm = h.Build();
+        vm.Url = "https://host.example/file.zip";
+        vm.FileName = "file.zip";
+        vm.SaveToFolder = @"C:\Dest";
+        vm.UseSegmentation = false; // single connection
+
+        await vm.AddPausedCommand.ExecuteAsync(null);
+
+        await h.Manager.Received(1).EnqueueAsync(
+            Arg.Is<EnqueueDownloadRequest>(r => r.MaxConnections == 1), Arg.Any<CancellationToken>());
+        h.Actions.DidNotReceive().Start(Arg.Any<long>());
+    }
+
+    [Fact]
+    public void Cancel_ClosesWithoutEnqueue()
+    {
+        var h = new Harness();
+        var vm = h.Build();
+        bool? result = null;
+        vm.CloseRequested += (_, ok) => result = ok;
+
+        vm.CancelCommand.Execute(null);
+
+        result.Should().BeFalse();
+        h.Manager.DidNotReceive().EnqueueAsync(Arg.Any<EnqueueDownloadRequest>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ExplicitCategory_RetargetsFolder()
+    {
+        var h = new Harness();
+        var vm = h.Build();
+
+        vm.SelectedCategory = vm.Categories.Single(c => c.Category == FileCategory.Video);
+
+        vm.SaveToFolder.Should().Be(@"C:\Users\me\Downloads\Video");
+        await Task.CompletedTask;
+    }
+}

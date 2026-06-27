@@ -1,0 +1,84 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:JustDownload.App.ViewModels"
+        x:Class="JustDownload.App.Views.NewDownloadWindow"
+        x:DataType="vm:NewDownloadViewModel"
+        Title="New download"
+        Width="520" SizeToContent="Height"
+        MinWidth="460"
+        CanResize="False"
+        WindowStartupLocation="CenterOwner"
+        Background="{DynamicResource CardBrush}">
+
+  <Window.Resources>
+    <StreamGeometry x:Key="IconFolder">M2,3.5 H6.5 L8,5 H14 V12.5 H2 Z</StreamGeometry>
+  </Window.Resources>
+
+  <StackPanel Margin="20" Spacing="14">
+
+    <!-- Header -->
+    <TextBlock Text="New download" FontSize="16" FontWeight="SemiBold" Foreground="{DynamicResource TextBrush}" />
+
+    <!-- URL -->
+    <StackPanel Spacing="5">
+      <TextBlock Text="URL" FontSize="12" Foreground="{DynamicResource TextDimBrush}" />
+      <TextBox Name="UrlBox" Text="{Binding Url, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+               Watermark="https://example.com/file.zip" />
+      <TextBlock Text="{Binding UrlError}" IsVisible="{Binding UrlError, Converter={x:Static ObjectConverters.IsNotNull}}"
+                 FontSize="11" Foreground="{DynamicResource RedBrush}" />
+    </StackPanel>
+
+    <!-- File name + Category -->
+    <Grid ColumnDefinitions="*,Auto" >
+      <StackPanel Grid.Column="0" Spacing="5" Margin="0,0,12,0">
+        <TextBlock Text="File name" FontSize="12" Foreground="{DynamicResource TextDimBrush}" />
+        <TextBox Text="{Binding FileName, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+        <TextBlock Text="{Binding FileNameError}"
+                   IsVisible="{Binding FileNameError, Converter={x:Static ObjectConverters.IsNotNull}}"
+                   FontSize="11" Foreground="{DynamicResource RedBrush}" />
+      </StackPanel>
+      <StackPanel Grid.Column="1" Spacing="5" Width="170">
+        <TextBlock Text="Category" FontSize="12" Foreground="{DynamicResource TextDimBrush}" />
+        <ComboBox ItemsSource="{Binding Categories}" SelectedItem="{Binding SelectedCategory, Mode=TwoWay}"
+                  HorizontalAlignment="Stretch" />
+      </StackPanel>
+    </Grid>
+
+    <!-- Save to -->
+    <StackPanel Spacing="5">
+      <TextBlock Text="Save to" FontSize="12" Foreground="{DynamicResource TextDimBrush}" />
+      <Grid ColumnDefinitions="*,Auto" >
+        <TextBox Grid.Column="0" Margin="0,0,8,0"
+                 Text="{Binding SaveToFolder, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+        <Button Grid.Column="1" Name="BrowseButton" Classes="App" Click="OnBrowse">
+          <StackPanel Orientation="Horizontal" Spacing="6">
+            <PathIcon Data="{StaticResource IconFolder}" Width="13" Height="13" />
+            <TextBlock Text="Browse" VerticalAlignment="Center" />
+          </StackPanel>
+        </Button>
+      </Grid>
+      <TextBlock Text="{Binding FolderError}"
+                 IsVisible="{Binding FolderError, Converter={x:Static ObjectConverters.IsNotNull}}"
+                 FontSize="11" Foreground="{DynamicResource RedBrush}" />
+    </StackPanel>
+
+    <!-- Segmentation toggle + detection status -->
+    <Grid ColumnDefinitions="Auto,*,Auto" >
+      <CheckBox Grid.Column="0" IsChecked="{Binding UseSegmentation, Mode=TwoWay}"
+                Content="{Binding ConnectionsHint}" Foreground="{DynamicResource TextDimBrush}" FontSize="12" />
+      <TextBlock Grid.Column="2" Text="{Binding DetectionMessage}" VerticalAlignment="Center"
+                 IsVisible="{Binding DetectionMessage, Converter={x:Static ObjectConverters.IsNotNull}}"
+                 FontSize="11.5" Foreground="{DynamicResource TextFaintBrush}" />
+    </Grid>
+
+    <!-- Footer -->
+    <Grid ColumnDefinitions="Auto,*,Auto,Auto" Margin="0,4,0,0">
+      <TextBlock Grid.Column="0" Text="Detecting…" VerticalAlignment="Center"
+                 IsVisible="{Binding IsDetecting}" FontSize="11.5" Foreground="{DynamicResource TextFaintBrush}" />
+      <Button Grid.Column="2" Classes="App" Content="Add paused" Margin="0,0,8,0"
+              Command="{Binding AddPausedCommand}" />
+      <Button Grid.Column="3" Classes="App Accent" Content="Download now"
+              Command="{Binding DownloadNowCommand}" IsDefault="True" />
+    </Grid>
+  </StackPanel>
+</Window>
