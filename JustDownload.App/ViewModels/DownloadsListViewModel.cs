@@ -35,6 +35,12 @@ public sealed partial class DownloadsListViewModel : ViewModelBase, IDisposable
     private DownloadFilter _filter = DownloadFilter.All;
 
     [ObservableProperty]
+    private bool _isLoading;
+
+    [ObservableProperty]
+    private string? _loadError;
+
+    [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(ResumeCommand))]
     [NotifyCanExecuteChangedFor(nameof(PauseCommand))]
     [NotifyCanExecuteChangedFor(nameof(RemoveCommand))]
@@ -78,6 +84,35 @@ public sealed partial class DownloadsListViewModel : ViewModelBase, IDisposable
     /// <summary>Whether any downloads exist at all — drives the empty-state placeholder (filter-independent).</summary>
     public bool HasDownloads => _allRows.Count > 0;
 
+    /// <summary>Show the spinner while the initial load runs.</summary>
+    public bool ShowLoading => IsLoading;
+
+    /// <summary>Show the error state when the load failed.</summary>
+    public bool ShowError => !IsLoading && LoadError is not null;
+
+    /// <summary>Show the first-run empty state (paste/drag hint) when there are no downloads at all.</summary>
+    public bool ShowEmptyState => !IsLoading && LoadError is null && !HasDownloads;
+
+    /// <summary>Show the "nothing in this view" state when a filter hides every download.</summary>
+    public bool ShowFilteredEmpty => !IsLoading && LoadError is null && HasDownloads && Downloads.Count == 0;
+
+    /// <summary>Show the grid only when there are rows to display.</summary>
+    public bool ShowGrid => !IsLoading && LoadError is null && Downloads.Count > 0;
+
+    private void RaiseListStateChanged()
+    {
+        OnPropertyChanged(nameof(HasDownloads));
+        OnPropertyChanged(nameof(ShowLoading));
+        OnPropertyChanged(nameof(ShowError));
+        OnPropertyChanged(nameof(ShowEmptyState));
+        OnPropertyChanged(nameof(ShowFilteredEmpty));
+        OnPropertyChanged(nameof(ShowGrid));
+    }
+
+    partial void OnIsLoadingChanged(bool value) => RaiseListStateChanged();
+
+    partial void OnLoadErrorChanged(string? value) => RaiseListStateChanged();
+
     /// <summary>The current live counts (total / per-category / status), for the sidebar badges (TASK-050).</summary>
     public DownloadCounts Counts { get; private set; } = DownloadCounts.Empty;
 
@@ -98,27 +133,47 @@ public sealed partial class DownloadsListViewModel : ViewModelBase, IDisposable
     /// <summary>Loads the persisted downloads into the list, applying any progress already seen this session.</summary>
     public async Task LoadAsync(CancellationToken cancellationToken = default)
     {
-        IReadOnlyList<Download> records = await _repository.GetAllAsync(cancellationToken).ConfigureAwait(true);
-        DateTimeOffset now = _clock.UtcNow;
-
-        Downloads.Clear();
-        _byId.Clear();
-        _allRows.Clear();
-        foreach (Download record in records)
+        IsLoading = true;
+        LoadError = null;
+        try
         {
-            DownloadRowViewModel row = CreateRow(record, now);
-            if (_manager.GetProgress(record.Id) is { } progress)
+            IReadOnlyList<Download> records = await _repository.GetAllAsync(cancellationToken).ConfigureAwait(true);
+            DateTimeOffset now = _clock.UtcNow;
+
+            Downloads.Clear();
+            _byId.Clear();
+            _allRows.Clear();
+            foreach (Download record in records)
             {
-                row.ApplyProgress(progress);
+                DownloadRowViewModel row = CreateRow(record, now);
+                if (_manager.GetProgress(record.Id) is { } progress)
+                {
+                    row.ApplyProgress(progress);
+                }
+
+                _allRows.Add(row);
+                _byId[record.Id] = row;
             }
 
-            _allRows.Add(row);
-            _byId[record.Id] = row;
+            RebuildVisible();
+            RaiseCounts();
         }
-
-        RebuildVisible();
-        RaiseCounts();
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // Surface a deliberate error state with a retry rather than a blank list (UI bar §7). The message
+            // is shown to the user (not swallowed); _ = ex keeps the analyzer happy without an unused warning.
+            _ = ex;
+            LoadError = "Couldn't load your downloads.";
+        }
+        finally
+        {
+            IsLoading = false;
+        }
     }
+
+    /// <summary>Retries the initial load after a failure (the error state's "Try again").</summary>
+    [RelayCommand]
+    private async Task RetryLoadAsync() => await LoadAsync().ConfigureAwait(true);
 
     private DownloadRowViewModel CreateRow(Download record, DateTimeOffset now)
     {
@@ -172,7 +227,7 @@ public sealed partial class DownloadsListViewModel : ViewModelBase, IDisposable
                 Downloads.Insert(0, row);
             }
 
-            OnPropertyChanged(nameof(HasDownloads));
+            RaiseListStateChanged();
             RaiseCounts();
         });
     }
@@ -260,7 +315,7 @@ public sealed partial class DownloadsListViewModel : ViewModelBase, IDisposable
             SelectedDownload = null;
         }
 
-        OnPropertyChanged(nameof(HasDownloads));
+        RaiseListStateChanged();
         RaiseCounts();
     }
 
@@ -294,7 +349,7 @@ public sealed partial class DownloadsListViewModel : ViewModelBase, IDisposable
             }
         }
 
-        OnPropertyChanged(nameof(HasDownloads));
+        RaiseListStateChanged();
     }
 
     /// <summary>
@@ -308,12 +363,12 @@ public sealed partial class DownloadsListViewModel : ViewModelBase, IDisposable
         if (shouldShow && visibleIndex < 0)
         {
             Downloads.Insert(VisibleInsertIndex(row), row);
-            OnPropertyChanged(nameof(HasDownloads));
+            RaiseListStateChanged();
         }
         else if (!shouldShow && visibleIndex >= 0)
         {
             Downloads.RemoveAt(visibleIndex);
-            OnPropertyChanged(nameof(HasDownloads));
+            RaiseListStateChanged();
         }
     }
 

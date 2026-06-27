@@ -204,7 +204,7 @@
 
           <!-- Downloads list: sortable / reorderable / resizable columns, single-selection, virtualized. -->
           <DataGrid Name="DownloadsGrid"
-                    IsVisible="{Binding Downloads.HasDownloads}"
+                    IsVisible="{Binding Downloads.ShowGrid}"
                     ItemsSource="{Binding Downloads.Downloads}"
                     SelectedItem="{Binding Downloads.SelectedDownload, Mode=TwoWay}">
             <DataGrid.ContextMenu>
@@ -311,7 +311,7 @@
           </DataGrid>
 
           <!-- Empty state -->
-          <StackPanel Name="EmptyState" IsVisible="{Binding !Downloads.HasDownloads}"
+          <StackPanel Name="EmptyState" IsVisible="{Binding Downloads.ShowEmptyState}"
                       HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="340" Spacing="6">
             <Border Width="64" Height="64" CornerRadius="18" HorizontalAlignment="Center" Margin="0,0,0,12"
                     Background="{DynamicResource CardBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1">
@@ -321,12 +321,45 @@
                        Foreground="{DynamicResource TextBrush}" />
             <TextBlock Text="Paste a URL, drag a link here, or use the browser extension to start your first download."
                        TextWrapping="Wrap" TextAlignment="Center" Foreground="{DynamicResource TextFaintBrush}" />
-            <Button Classes="App Accent" HorizontalAlignment="Center" Margin="0,12,0,0">
+            <Button Classes="App Accent" HorizontalAlignment="Center" Margin="0,12,0,0"
+                    Command="{Binding NewDownloadCommand}">
               <StackPanel Orientation="Horizontal" Spacing="7">
                 <PathIcon Data="{StaticResource IconPlus}" Width="12" Height="12" />
                 <TextBlock Text="New URL" VerticalAlignment="Center" />
               </StackPanel>
             </Button>
+          </StackPanel>
+
+          <!-- Loading state -->
+          <StackPanel Name="LoadingState" IsVisible="{Binding Downloads.ShowLoading}"
+                      HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="12">
+            <ProgressBar IsIndeterminate="True" Width="160" />
+            <TextBlock Text="Loading your downloads…" HorizontalAlignment="Center"
+                       Foreground="{DynamicResource TextFaintBrush}" />
+          </StackPanel>
+
+          <!-- Error state -->
+          <StackPanel Name="ErrorState" IsVisible="{Binding Downloads.ShowError}"
+                      HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="340" Spacing="6">
+            <Border Width="64" Height="64" CornerRadius="18" HorizontalAlignment="Center" Margin="0,0,0,12"
+                    Background="{DynamicResource CardBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1">
+              <PathIcon Data="{StaticResource IconInfo}" Width="28" Height="28" Foreground="{DynamicResource RedBrush}" />
+            </Border>
+            <TextBlock Text="Something went wrong" FontSize="16" FontWeight="SemiBold" HorizontalAlignment="Center"
+                       Foreground="{DynamicResource TextBrush}" />
+            <TextBlock Text="{Binding Downloads.LoadError}" TextWrapping="Wrap" TextAlignment="Center"
+                       Foreground="{DynamicResource TextFaintBrush}" />
+            <Button Classes="App" HorizontalAlignment="Center" Margin="0,12,0,0" Content="Try again"
+                    Command="{Binding Downloads.RetryLoadCommand}" />
+          </StackPanel>
+
+          <!-- Filtered-empty state -->
+          <StackPanel Name="FilteredEmptyState" IsVisible="{Binding Downloads.ShowFilteredEmpty}"
+                      HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="320" Spacing="6">
+            <TextBlock Text="Nothing here" FontSize="15" FontWeight="SemiBold" HorizontalAlignment="Center"
+                       Foreground="{DynamicResource TextDimBrush}" />
+            <TextBlock Text="No downloads match this view. Pick another category or add a download."
+                       TextWrapping="Wrap" TextAlignment="Center" Foreground="{DynamicResource TextFaintBrush}" />
           </StackPanel>
         </Panel>
       </Border>
