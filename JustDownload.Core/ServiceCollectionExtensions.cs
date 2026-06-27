@@ -292,6 +292,10 @@ public static class ServiceCollectionExtensions
 
         services.TryAddSingleton<IDownloadManager, DownloadManager>();
 
+        // Live Completed/Incomplete grouping for the list/sidebar (TASK-045, US-8). Singleton so it holds
+        // one shared membership view and subscribes to the single manager's status events.
+        services.TryAddSingleton<IDownloadStatusGroups, DownloadStatusGroupTracker>();
+
         return services;
     }
 
