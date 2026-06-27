@@ -22,6 +22,8 @@
     <PackageReference Include="Avalonia.Diagnostics" Version="11.3.18" Condition="'$(Configuration)' == 'Debug'" />
     <!-- Container builder for the App's provider, built from Core's composition root (§6). -->
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="8.0.1" />
+    <!-- MVVM toolkit (D1): ObservableObject / RelayCommand source generators. -->
+    <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.0" />
   </ItemGroup>
 
   <ItemGroup>

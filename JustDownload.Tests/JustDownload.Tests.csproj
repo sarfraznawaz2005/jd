@@ -25,10 +25,13 @@
     <PackageReference Include="NSubstitute" Version="5.3.0" />
     <!-- Container builder so tests build a provider from Core's composition root (§6). -->
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="8.0.1" />
+    <!-- Headless Avalonia for UI shell/view-model tests (§3). -->
+    <PackageReference Include="Avalonia.Headless.XUnit" Version="11.3.18" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\JustDownload.Core\JustDownload.Core.csproj" />
+    <ProjectReference Include="..\JustDownload.App\JustDownload.App.csproj" />
   </ItemGroup>
 
   <ItemGroup>

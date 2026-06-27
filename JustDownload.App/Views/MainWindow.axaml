@@ -1,14 +1,205 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:JustDownload.App.ViewModels"
         x:Class="JustDownload.App.Views.MainWindow"
+        x:DataType="vm:MainWindowViewModel"
         Title="JustDownload"
-        Width="960" Height="640"
+        Width="1080" Height="700"
         MinWidth="800" MinHeight="600">
 
-  <TextBlock Text="JustDownload"
-             FontSize="28"
-             FontWeight="SemiBold"
-             HorizontalAlignment="Center"
-             VerticalAlignment="Center" />
+  <Window.Resources>
+    <!-- Compact icon set (filled silhouettes for PathIcon). The full category icon set lands with the list view. -->
+    <StreamGeometry x:Key="IconDownload">M7,2 H9 V8 H11.5 L8,11.5 L4.5,8 H7 Z M3.5,13 H12.5 V14.5 H3.5 Z</StreamGeometry>
+    <StreamGeometry x:Key="IconPlus">M7,2.5 H9 V7 H13.5 V9 H9 V13.5 H7 V9 H2.5 V7 H7 Z</StreamGeometry>
+    <StreamGeometry x:Key="IconPlay">M5,3.5 L12.5,8 L5,12.5 Z</StreamGeometry>
+    <StreamGeometry x:Key="IconPause">M4.5,3.5 H6.5 V12.5 H4.5 Z M9.5,3.5 H11.5 V12.5 H9.5 Z</StreamGeometry>
+    <StreamGeometry x:Key="IconStop">M4.5,4.5 H11.5 V11.5 H4.5 Z</StreamGeometry>
+    <StreamGeometry x:Key="IconTrash">M4,4.5 H12 V5.5 H4 Z M5,5.5 H11 L10.3,13.5 H5.7 Z M6.2,3 H9.8 V4.3 H6.2 Z</StreamGeometry>
+    <StreamGeometry x:Key="IconGear">M7,2 H9 V4 H7 Z M7,12 H9 V14 H7 Z M2,7 H4 V9 H2 Z M12,7 H14 V9 H12 Z M8,5 A3,3 0 1 1 7.99,5 Z</StreamGeometry>
+    <StreamGeometry x:Key="IconList">M3,4 H13 V5.3 H3 Z M3,7.3 H13 V8.6 H3 Z M3,10.6 H13 V11.9 H3 Z</StreamGeometry>
+    <StreamGeometry x:Key="IconFile">M4,2.5 H9 L12,5.5 V13.5 H4 Z</StreamGeometry>
+  </Window.Resources>
 
+  <DockPanel>
+
+    <!-- ===== Toolbar ===== -->
+    <Border DockPanel.Dock="Top" Name="Toolbar" Background="{DynamicResource HeaderBrush}"
+            Height="{StaticResource ToolbarHeight}" BorderBrush="{DynamicResource BorderBrush}"
+            BorderThickness="0,0,0,1">
+      <DockPanel LastChildFill="False" Margin="14,0">
+
+        <!-- Brand -->
+        <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" Spacing="9" VerticalAlignment="Center" Margin="0,0,6,0">
+          <Border Width="22" Height="22" CornerRadius="{StaticResource RadiusSm}" Background="{DynamicResource AccentBrush}">
+            <PathIcon Data="{StaticResource IconDownload}" Width="13" Height="13" Foreground="{DynamicResource OnAccentBrush}" />
+          </Border>
+          <TextBlock Text="JustDownload" FontWeight="SemiBold" FontSize="13.5" VerticalAlignment="Center"
+                     Foreground="{DynamicResource TextBrush}" />
+        </StackPanel>
+
+        <!-- Primary action -->
+        <Button DockPanel.Dock="Left" Classes="App Accent" VerticalAlignment="Center" Margin="10,0,0,0">
+          <StackPanel Orientation="Horizontal" Spacing="7">
+            <PathIcon Data="{StaticResource IconPlus}" Width="12" Height="12" />
+            <TextBlock Text="New URL" VerticalAlignment="Center" />
+          </StackPanel>
+        </Button>
+
+        <!-- Transport group -->
+        <Border DockPanel.Dock="Left" VerticalAlignment="Center" Margin="10,0,0,0"
+                Background="{DynamicResource CardBrush}" BorderBrush="{DynamicResource BorderBrush}"
+                BorderThickness="1" CornerRadius="{StaticResource RadiusSm}">
+          <StackPanel Orientation="Horizontal">
+            <Button Classes="App Ghost" Width="34" ToolTip.Tip="Resume">
+              <PathIcon Data="{StaticResource IconPlay}" Width="14" Height="14" />
+            </Button>
+            <Button Classes="App Ghost" Width="34" ToolTip.Tip="Pause">
+              <PathIcon Data="{StaticResource IconPause}" Width="14" Height="14" />
+            </Button>
+            <Button Classes="App Ghost" Width="34" ToolTip.Tip="Stop">
+              <PathIcon Data="{StaticResource IconStop}" Width="14" Height="14" />
+            </Button>
+            <Button Classes="App Ghost" Width="34" ToolTip.Tip="Delete">
+              <PathIcon Data="{StaticResource IconTrash}" Width="14" Height="14" />
+            </Button>
+          </StackPanel>
+        </Border>
+
+        <!-- Right cluster -->
+        <Button DockPanel.Dock="Right" Classes="App Ghost IconOnly" VerticalAlignment="Center"
+                Command="{Binding ToggleThemeCommand}" ToolTip.Tip="Toggle theme">
+          <Ellipse Width="14" Height="14" Stroke="{DynamicResource TextDimBrush}" StrokeThickness="1.6" />
+        </Button>
+        <Button DockPanel.Dock="Right" Classes="App Ghost IconOnly" VerticalAlignment="Center" Margin="2,0" ToolTip.Tip="Settings">
+          <PathIcon Data="{StaticResource IconGear}" Width="15" Height="15" />
+        </Button>
+
+        <!-- Search -->
+        <Border DockPanel.Dock="Right" Width="230" Height="32" VerticalAlignment="Center" Margin="0,0,6,0"
+                Background="{DynamicResource CardBrush}" BorderBrush="{DynamicResource BorderBrush}"
+                BorderThickness="1" CornerRadius="{StaticResource RadiusSm}">
+          <Grid ColumnDefinitions="Auto,*,Auto" Margin="10,0">
+            <Ellipse Grid.Column="0" Width="11" Height="11" Margin="0,0,8,0"
+                     Stroke="{DynamicResource TextFaintBrush}" StrokeThickness="1.6" VerticalAlignment="Center" />
+            <TextBox Grid.Column="1" Watermark="Search downloads" BorderThickness="0" Background="Transparent"
+                     VerticalAlignment="Center" Padding="0" />
+            <Border Grid.Column="2" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1"
+                    CornerRadius="{StaticResource RadiusXs}" Padding="5,1" VerticalAlignment="Center">
+              <TextBlock Text="Ctrl K" FontSize="11" Foreground="{DynamicResource TextFaintBrush}" />
+            </Border>
+          </Grid>
+        </Border>
+      </DockPanel>
+    </Border>
+
+    <!-- ===== Status bar ===== -->
+    <Border DockPanel.Dock="Bottom" Name="StatusBar" Background="{DynamicResource HeaderBrush}"
+            Height="{StaticResource StatusBarHeight}" BorderBrush="{DynamicResource BorderBrush}"
+            BorderThickness="0,1,0,0">
+      <DockPanel Margin="14,0" LastChildFill="False">
+        <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" Spacing="7" VerticalAlignment="Center">
+          <Ellipse Width="7" Height="7" Fill="{DynamicResource GreenBrush}" />
+          <TextBlock Text="0 active" FontSize="11.5" Foreground="{DynamicResource TextDimBrush}" />
+        </StackPanel>
+        <TextBlock DockPanel.Dock="Left" Text="Total speed —" Margin="18,0,0,0" FontSize="11.5"
+                   VerticalAlignment="Center" Foreground="{DynamicResource TextDimBrush}" />
+        <TextBlock DockPanel.Dock="Left" Text="0 connections" Margin="18,0,0,0" FontSize="11.5"
+                   VerticalAlignment="Center" Foreground="{DynamicResource TextDimBrush}" />
+        <TextBlock DockPanel.Dock="Right" Text="Speed limit: Unlimited" FontSize="11.5"
+                   VerticalAlignment="Center" Foreground="{DynamicResource TextDimBrush}" />
+      </DockPanel>
+    </Border>
+
+    <!-- ===== Body: sidebar + content ===== -->
+    <Grid ColumnDefinitions="232,*">
+
+      <!-- Sidebar -->
+      <Border Grid.Column="0" Name="Sidebar" Background="{DynamicResource SidebarBrush}"
+              BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,1,0">
+        <ScrollViewer>
+          <StackPanel Margin="8,12">
+            <TextBlock Classes="NavLabel" Text="LIBRARY" />
+            <Button Classes="Nav Active">
+              <Grid ColumnDefinitions="Auto,*,Auto">
+                <PathIcon Grid.Column="0" Data="{StaticResource IconList}" Width="16" Height="16" Margin="0,0,10,0"
+                          Foreground="{DynamicResource AccentBrush}" />
+                <TextBlock Grid.Column="1" Text="All Downloads" VerticalAlignment="Center" />
+                <Border Grid.Column="2" Classes="CountPill"><TextBlock Text="0" /></Border>
+              </Grid>
+            </Button>
+            <Button Classes="Nav Child">
+              <Grid ColumnDefinitions="Auto,*,Auto">
+                <PathIcon Grid.Column="0" Data="{StaticResource IconFile}" Width="14" Height="14" Margin="0,0,10,0"
+                          Foreground="{DynamicResource TextFaintBrush}" />
+                <TextBlock Grid.Column="1" Text="Video" VerticalAlignment="Center" />
+                <Border Grid.Column="2" Classes="CountPill"><TextBlock Text="0" /></Border>
+              </Grid>
+            </Button>
+            <Button Classes="Nav Child">
+              <Grid ColumnDefinitions="Auto,*,Auto">
+                <PathIcon Grid.Column="0" Data="{StaticResource IconFile}" Width="14" Height="14" Margin="0,0,10,0"
+                          Foreground="{DynamicResource TextFaintBrush}" />
+                <TextBlock Grid.Column="1" Text="Audio" VerticalAlignment="Center" />
+                <Border Grid.Column="2" Classes="CountPill"><TextBlock Text="0" /></Border>
+              </Grid>
+            </Button>
+            <Button Classes="Nav Child">
+              <Grid ColumnDefinitions="Auto,*,Auto">
+                <PathIcon Grid.Column="0" Data="{StaticResource IconFile}" Width="14" Height="14" Margin="0,0,10,0"
+                          Foreground="{DynamicResource TextFaintBrush}" />
+                <TextBlock Grid.Column="1" Text="Documents" VerticalAlignment="Center" />
+                <Border Grid.Column="2" Classes="CountPill"><TextBlock Text="0" /></Border>
+              </Grid>
+            </Button>
+            <Button Classes="Nav Child">
+              <Grid ColumnDefinitions="Auto,*,Auto">
+                <PathIcon Grid.Column="0" Data="{StaticResource IconFile}" Width="14" Height="14" Margin="0,0,10,0"
+                          Foreground="{DynamicResource TextFaintBrush}" />
+                <TextBlock Grid.Column="1" Text="Programs" VerticalAlignment="Center" />
+                <Border Grid.Column="2" Classes="CountPill"><TextBlock Text="0" /></Border>
+              </Grid>
+            </Button>
+
+            <TextBlock Classes="NavLabel" Text="STATUS" Margin="10,16,0,4" />
+            <Button Classes="Nav">
+              <Grid ColumnDefinitions="Auto,*,Auto">
+                <PathIcon Grid.Column="0" Data="{StaticResource IconPlay}" Width="16" Height="16" Margin="0,0,10,0"
+                          Foreground="{DynamicResource TextFaintBrush}" />
+                <TextBlock Grid.Column="1" Text="Incomplete" VerticalAlignment="Center" />
+                <Border Grid.Column="2" Classes="CountPill"><TextBlock Text="0" /></Border>
+              </Grid>
+            </Button>
+            <Button Classes="Nav">
+              <Grid ColumnDefinitions="Auto,*,Auto">
+                <PathIcon Grid.Column="0" Data="{StaticResource IconFile}" Width="16" Height="16" Margin="0,0,10,0"
+                          Foreground="{DynamicResource TextFaintBrush}" />
+                <TextBlock Grid.Column="1" Text="Completed" VerticalAlignment="Center" />
+                <Border Grid.Column="2" Classes="CountPill"><TextBlock Text="0" /></Border>
+              </Grid>
+            </Button>
+          </StackPanel>
+        </ScrollViewer>
+      </Border>
+
+      <!-- Content: empty state (the list/detail bind in via TASK-048/049) -->
+      <Border Grid.Column="1" Background="{DynamicResource BgBrush}">
+        <StackPanel Name="EmptyState" HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="340" Spacing="6">
+          <Border Width="64" Height="64" CornerRadius="18" HorizontalAlignment="Center" Margin="0,0,0,12"
+                  Background="{DynamicResource CardBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1">
+            <PathIcon Data="{StaticResource IconDownload}" Width="28" Height="28" Foreground="{DynamicResource AccentHoverBrush}" />
+          </Border>
+          <TextBlock Text="No downloads yet" FontSize="16" FontWeight="SemiBold" HorizontalAlignment="Center"
+                     Foreground="{DynamicResource TextBrush}" />
+          <TextBlock Text="Paste a URL, drag a link here, or use the browser extension to start your first download."
+                     TextWrapping="Wrap" TextAlignment="Center" Foreground="{DynamicResource TextFaintBrush}" />
+          <Button Classes="App Accent" HorizontalAlignment="Center" Margin="0,12,0,0">
+            <StackPanel Orientation="Horizontal" Spacing="7">
+              <PathIcon Data="{StaticResource IconPlus}" Width="12" Height="12" />
+              <TextBlock Text="New URL" VerticalAlignment="Center" />
+            </StackPanel>
+          </Button>
+        </StackPanel>
+      </Border>
+    </Grid>
+  </DockPanel>
 </Window>

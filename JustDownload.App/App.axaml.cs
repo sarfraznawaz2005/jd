@@ -1,6 +1,8 @@
 using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
+using JustDownload.App.Services;
+using JustDownload.App.ViewModels;
 using JustDownload.App.Views;
 using JustDownload.Core;
 using JustDownload.Core.Diagnostics;
@@ -12,12 +14,14 @@ namespace JustDownload.App;
 public partial class App : Application
 {
     /// <summary>
-    /// The application's service provider, built from Core's single composition root (§6).
-    /// ViewModels resolve their dependencies (Core interfaces) from here.
+    /// The application's service provider: Core's single composition root (§6) plus the App-layer services
+    /// (theme, view-models). ViewModels resolve their Core/App dependencies from here.
     /// </summary>
     public IServiceProvider Services { get; } =
         new ServiceCollection()
             .AddJustDownloadCore()
+            .AddSingleton<IThemeService, ThemeService>()
+            .AddSingleton<MainWindowViewModel>()
             .BuildServiceProvider();
 
     public override void Initialize() => AvaloniaXamlLoader.Load(this);
@@ -29,7 +33,10 @@ public partial class App : Application
 
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
-            desktop.MainWindow = new MainWindow();
+            desktop.MainWindow = new MainWindow
+            {
+                DataContext = Services.GetRequiredService<MainWindowViewModel>(),
+            };
         }
 
         base.OnFrameworkInitializationCompleted();

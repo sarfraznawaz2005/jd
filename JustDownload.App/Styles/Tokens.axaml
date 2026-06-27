@@ -1,0 +1,82 @@
+<ResourceDictionary xmlns="https://github.com/avaloniaui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <!--
+    The single design-token source (TASK-047, UI/UX bar §7). All colours live in theme dictionaries so
+    light/dark swap at runtime; spacing (a 4px grid), radii and type sizes are theme-independent. Views and
+    styles consume the brushes via DynamicResource (theme-aware) and the metrics via StaticResource. Values
+    mirror mockups/styles.css so the app matches the reference exactly.
+  -->
+
+  <!-- Spacing — 4px grid -->
+  <x:Double x:Key="Space1">4</x:Double>
+  <x:Double x:Key="Space2">8</x:Double>
+  <x:Double x:Key="Space3">12</x:Double>
+  <x:Double x:Key="Space4">16</x:Double>
+  <x:Double x:Key="Space5">20</x:Double>
+  <x:Double x:Key="Space6">24</x:Double>
+
+  <!-- Radii -->
+  <CornerRadius x:Key="RadiusXs">4</CornerRadius>
+  <CornerRadius x:Key="RadiusSm">7</CornerRadius>
+  <CornerRadius x:Key="RadiusLg">12</CornerRadius>
+
+  <!-- Type sizes -->
+  <x:Double x:Key="FontXs">11</x:Double>
+  <x:Double x:Key="FontSm">12.5</x:Double>
+  <x:Double x:Key="FontMd">13</x:Double>
+  <x:Double x:Key="FontLg">16</x:Double>
+
+  <!-- Fixed shell metrics -->
+  <x:Double x:Key="ToolbarHeight">52</x:Double>
+  <x:Double x:Key="SidebarWidth">232</x:Double>
+  <x:Double x:Key="StatusBarHeight">30</x:Double>
+
+  <ResourceDictionary.ThemeDictionaries>
+
+    <!-- Light is the product default (UI/UX bar §7). -->
+    <ResourceDictionary x:Key="Light">
+      <SolidColorBrush x:Key="BgBrush" Color="#f4f4f6" />
+      <SolidColorBrush x:Key="SidebarBrush" Color="#efeff2" />
+      <SolidColorBrush x:Key="HeaderBrush" Color="#ffffff" />
+      <SolidColorBrush x:Key="CardBrush" Color="#ffffff" />
+      <SolidColorBrush x:Key="Card2Brush" Color="#f7f7f9" />
+      <SolidColorBrush x:Key="HoverBrush" Color="#f0f0f3" />
+      <SolidColorBrush x:Key="SelBrush" Color="#1F5B67D6" />
+      <SolidColorBrush x:Key="BorderBrush" Color="#e4e4e9" />
+      <SolidColorBrush x:Key="BorderSoftBrush" Color="#ececf0" />
+      <SolidColorBrush x:Key="TextBrush" Color="#17171b" />
+      <SolidColorBrush x:Key="TextDimBrush" Color="#5d5d67" />
+      <SolidColorBrush x:Key="TextFaintBrush" Color="#9a9aa3" />
+      <SolidColorBrush x:Key="AccentBrush" Color="#5b67d6" />
+      <SolidColorBrush x:Key="AccentHoverBrush" Color="#4c58c9" />
+      <SolidColorBrush x:Key="OnAccentBrush" Color="#ffffff" />
+      <SolidColorBrush x:Key="GreenBrush" Color="#1faf57" />
+      <SolidColorBrush x:Key="AmberBrush" Color="#b9770a" />
+      <SolidColorBrush x:Key="RedBrush" Color="#dd3b41" />
+      <SolidColorBrush x:Key="TrackBrush" Color="#e6e6ea" />
+    </ResourceDictionary>
+
+    <ResourceDictionary x:Key="Dark">
+      <SolidColorBrush x:Key="BgBrush" Color="#0c0c0e" />
+      <SolidColorBrush x:Key="SidebarBrush" Color="#0f0f12" />
+      <SolidColorBrush x:Key="HeaderBrush" Color="#121216" />
+      <SolidColorBrush x:Key="CardBrush" Color="#161619" />
+      <SolidColorBrush x:Key="Card2Brush" Color="#1b1b1f" />
+      <SolidColorBrush x:Key="HoverBrush" Color="#1e1e23" />
+      <SolidColorBrush x:Key="SelBrush" Color="#295E6AD2" />
+      <SolidColorBrush x:Key="BorderBrush" Color="#26262c" />
+      <SolidColorBrush x:Key="BorderSoftBrush" Color="#1b1b20" />
+      <SolidColorBrush x:Key="TextBrush" Color="#ececef" />
+      <SolidColorBrush x:Key="TextDimBrush" Color="#9b9ba4" />
+      <SolidColorBrush x:Key="TextFaintBrush" Color="#65656e" />
+      <SolidColorBrush x:Key="AccentBrush" Color="#5e6ad2" />
+      <SolidColorBrush x:Key="AccentHoverBrush" Color="#6f7bea" />
+      <SolidColorBrush x:Key="OnAccentBrush" Color="#ffffff" />
+      <SolidColorBrush x:Key="GreenBrush" Color="#3ecf73" />
+      <SolidColorBrush x:Key="AmberBrush" Color="#e3a008" />
+      <SolidColorBrush x:Key="RedBrush" Color="#f2565b" />
+      <SolidColorBrush x:Key="TrackBrush" Color="#2a2a31" />
+    </ResourceDictionary>
+
+  </ResourceDictionary.ThemeDictionaries>
+</ResourceDictionary>
