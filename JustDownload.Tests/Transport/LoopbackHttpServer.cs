@@ -38,6 +38,13 @@ internal sealed class LoopbackHttpServer : IAsyncDisposable
     /// <summary>Whether the server honours <c>Range</c> and advertises <c>Accept-Ranges: bytes</c>.</summary>
     public bool SupportRanges { get; set; } = true;
 
+    /// <summary>
+    /// When set, the server still answers the 1-byte range probe with <c>206</c> (so a resume is attempted)
+    /// but ignores any multi-byte range, returning the full <c>200</c> body — simulating a server that can no
+    /// longer resume from an offset (US-2 AC3).
+    /// </summary>
+    public bool IgnoreMultiByteRanges { get; set; }
+
     /// <summary>The <c>Content-Disposition</c> header value to send, or <see langword="null"/> for none.</summary>
     public string? ContentDisposition { get; set; }
 
@@ -236,7 +243,11 @@ internal sealed class LoopbackHttpServer : IAsyncDisposable
 
         long servedFrom;
         long servedTo;
-        if (range is { } r && SupportRanges && body.Length > 0)
+        bool isSingleByteProbe = range is { } probe && probe.To == probe.From;
+        bool honourRange = range is not null && SupportRanges && body.Length > 0 &&
+            (!IgnoreMultiByteRanges || isSingleByteProbe);
+
+        if (honourRange && range is { } r)
         {
             long from = Math.Max(0, r.From);
             long to = Math.Min(r.To ?? (body.Length - 1), body.Length - 1);

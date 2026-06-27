@@ -1,5 +1,6 @@
 using JustDownload.Core.Categorization;
 using JustDownload.Core.Data.Migrations;
+using JustDownload.Core.Lifecycle;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace JustDownload.Core;
@@ -35,5 +36,13 @@ public static class ServiceProviderExtensions
         await provider.GetRequiredService<ICategoryRuleService>()
             .ApplyPersistedOverridesAsync(cancellationToken)
             .ConfigureAwait(false);
+
+        // Crash-recovery scan (TASK-029): mark downloads left active by an unclean shutdown as resumable so
+        // the UI can offer to continue them. Their per-segment checkpoints are preserved. Resolved optionally
+        // so a host that wired only part of Core (or a focused test) can still initialise.
+        if (provider.GetService<IDownloadRecovery>() is { } recovery)
+        {
+            await recovery.RecoverInterruptedAsync(cancellationToken).ConfigureAwait(false);
+        }
     }
 }

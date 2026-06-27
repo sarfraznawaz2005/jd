@@ -296,6 +296,10 @@ public static class ServiceCollectionExtensions
         // one shared membership view and subscribes to the single manager's status events.
         services.TryAddSingleton<IDownloadStatusGroups, DownloadStatusGroupTracker>();
 
+        // Startup crash-recovery scan (TASK-029): demote downloads left active by an unclean shutdown to
+        // resumable. Run once via InitializeJustDownloadCoreAsync.
+        services.TryAddSingleton<IDownloadRecovery, DownloadRecoveryService>();
+
         return services;
     }
 

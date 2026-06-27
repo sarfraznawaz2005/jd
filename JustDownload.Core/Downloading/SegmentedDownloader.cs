@@ -238,8 +238,10 @@ internal sealed partial class SegmentedDownloader : ISegmentedDownloader
 
             if (offset > 0 && !response.IsPartialContent)
             {
-                throw new InvalidOperationException(
-                    $"Segment {segment.Index}: server ignored the Range header mid-download.");
+                // The server answered a ranged request with a full body — it can no longer resume from an
+                // offset, so the already-fetched bytes are unusable and the download must restart (US-2 AC3).
+                throw new ResumeNotSupportedException(
+                    $"Segment {segment.Index}: server ignored the Range header (offset {offset}); resume not possible.");
             }
 
             long before = segment.WriteOffset;

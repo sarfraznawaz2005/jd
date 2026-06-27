@@ -138,6 +138,17 @@ internal sealed partial class DownloadManager : IDownloadManager
                 .ConfigureAwait(false);
             throw;
         }
+        catch (ResumeNotSupportedException ex)
+        {
+            // The server rejected the resume offset: the partial bytes are unusable, so drop the checkpoint
+            // (the next start is a clean restart from zero) and surface a restart-required failure.
+            await StopCheckpointLoopAsync(checkpointCts, checkpointLoop).ConfigureAwait(false);
+            await ClearSegmentsAsync(id).ConfigureAwait(false);
+            await TransitionToTerminalAsync(id, active, DownloadStatus.Failed, ex.Message, completedAt: null)
+                .ConfigureAwait(false);
+            LogFailed(_logger, id, ex);
+            throw;
+        }
         catch (Exception ex)
         {
             // A failed download keeps its checkpoint so a retry resumes rather than restarts.
