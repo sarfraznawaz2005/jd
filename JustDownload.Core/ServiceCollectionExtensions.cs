@@ -7,6 +7,7 @@ using JustDownload.Core.Diagnostics;
 using JustDownload.Core.Logging;
 using JustDownload.Core.Security;
 using JustDownload.Core.Settings;
+using JustDownload.Core.Storage;
 using JustDownload.Core.Transport;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -49,6 +50,7 @@ public static class ServiceCollectionExtensions
         services.AddJustDownloadSecrets();
         services.AddJustDownloadCategorization();
         services.AddJustDownloadTransport();
+        services.AddJustDownloadStorage();
 
         // Typed settings store over the settings repository (TASK-021): sane defaults, change
         // notifications, and persistence across restarts. Singleton so the cached snapshot and the
@@ -219,6 +221,23 @@ public static class ServiceCollectionExtensions
 
         // Range-capability probe (TASK-024): decides segmented vs single-connection downloads.
         services.TryAddSingleton<IResourceProbe, ResourceProbe>();
+
+        return services;
+    }
+
+    /// <summary>
+    /// Registers the download storage layer (TASK-025): the segment checkpointer that persists per-
+    /// segment offsets as the resume checkpoint. Transient because one instance coalesces the segments of
+    /// a single download — the engine resolves one per active download. The pre-allocated output file
+    /// (<see cref="PreallocatedFile"/>) is created on demand by the engine, not from the container.
+    /// </summary>
+    /// <param name="services">The service collection to populate.</param>
+    /// <returns>The same <paramref name="services"/> instance, for chaining.</returns>
+    public static IServiceCollection AddJustDownloadStorage(this IServiceCollection services)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+
+        services.TryAddTransient<ISegmentCheckpointer, SegmentCheckpointer>();
 
         return services;
     }

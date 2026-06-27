@@ -8,6 +8,12 @@
   <PropertyGroup>
     <RootNamespace>JustDownload.Core</RootNamespace>
     <AssemblyName>JustDownload.Core</AssemblyName>
+    <!--
+      Required by the source-generated P/Invokes ([LibraryImport]) used for the sparse-file +
+      flush-to-disk interop in Storage/NativeFile.cs (TASK-025). This only permits the generator's
+      marshalling stubs; we author no unsafe code ourselves (CLAUDE.md §1).
+    -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
   <ItemGroup>
