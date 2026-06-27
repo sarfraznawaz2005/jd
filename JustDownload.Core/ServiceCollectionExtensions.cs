@@ -7,6 +7,7 @@ using JustDownload.Core.Diagnostics;
 using JustDownload.Core.Downloading;
 using JustDownload.Core.Logging;
 using JustDownload.Core.Media;
+using JustDownload.Core.NativeMessaging;
 using JustDownload.Core.Security;
 using JustDownload.Core.Settings;
 using JustDownload.Core.Storage;
@@ -56,6 +57,7 @@ public static class ServiceCollectionExtensions
         services.AddJustDownloadStorage();
         services.AddJustDownloadDownloading();
         services.AddJustDownloadMedia();
+        services.AddJustDownloadNativeMessaging();
 
         // Typed settings store over the settings repository (TASK-021): sane defaults, change
         // notifications, and persistence across restarts. Singleton so the cached snapshot and the
@@ -287,6 +289,24 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton(new FfmpegOptions());
         services.TryAddSingleton<IFfmpegLocator, FfmpegLocator>();
         services.TryAddSingleton<IFfmpegRunner, FfmpegRunner>();
+
+        return services;
+    }
+
+    /// <summary>
+    /// Registers the Native Messaging Host (TASK-064, D8): options (the extension allowlist), the message
+    /// handler, and the stdio host loop. The browser extension talks to the app through this — over
+    /// stdin/stdout, with no listening socket.
+    /// </summary>
+    /// <param name="services">The service collection to populate.</param>
+    /// <returns>The same <paramref name="services"/> instance, for chaining.</returns>
+    public static IServiceCollection AddJustDownloadNativeMessaging(this IServiceCollection services)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+
+        services.TryAddSingleton(new NativeHostOptions());
+        services.TryAddSingleton<INativeMessageHandler, PingNativeMessageHandler>();
+        services.TryAddSingleton<NativeMessageHost>();
 
         return services;
     }
