@@ -1,4 +1,5 @@
 using JustDownload.Core.Abstractions;
+using JustDownload.Core.Categorization;
 using JustDownload.Core.Data;
 using JustDownload.Core.Data.Migrations;
 using JustDownload.Core.Data.Repositories;
@@ -45,6 +46,7 @@ public static class ServiceCollectionExtensions
         services.AddJustDownloadLogging(configureLogging);
         services.AddJustDownloadData();
         services.AddJustDownloadSecrets();
+        services.AddJustDownloadCategorization();
 
         // Typed settings store over the settings repository (TASK-021): sane defaults, change
         // notifications, and persistence across restarts. Singleton so the cached snapshot and the
@@ -164,6 +166,26 @@ public static class ServiceCollectionExtensions
         {
             services.TryAddSingleton<ISecretStore, UnsupportedSecretStore>();
         }
+
+        return services;
+    }
+
+    /// <summary>
+    /// Registers file-type categorization (TASK-044, PRD US-8): the user-editable rule set seeded with
+    /// the product's comprehensive extension/MIME defaults, and the pure <see cref="IFileCategorizer"/>
+    /// that resolves a file into one of the PRD categories from its extension and/or content type. Both
+    /// are singletons (categorization is stateless); the shared <see cref="CategorizationRules"/> is
+    /// registered as a concrete so a host can resolve and edit it at runtime. Uses <c>TryAdd</c> so a
+    /// test or host can pre-register its own rules or categorizer and have it win.
+    /// </summary>
+    /// <param name="services">The service collection to populate.</param>
+    /// <returns>The same <paramref name="services"/> instance, for chaining.</returns>
+    public static IServiceCollection AddJustDownloadCategorization(this IServiceCollection services)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+
+        services.TryAddSingleton(CategorizationRules.CreateDefault());
+        services.TryAddSingleton<IFileCategorizer, FileCategorizer>();
 
         return services;
     }
