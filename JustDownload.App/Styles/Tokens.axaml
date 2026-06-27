@@ -46,13 +46,13 @@
       <SolidColorBrush x:Key="BorderSoftBrush" Color="#ececf0" />
       <SolidColorBrush x:Key="TextBrush" Color="#17171b" />
       <SolidColorBrush x:Key="TextDimBrush" Color="#5d5d67" />
-      <SolidColorBrush x:Key="TextFaintBrush" Color="#9a9aa3" />
+      <SolidColorBrush x:Key="TextFaintBrush" Color="#6a6a74" />
       <SolidColorBrush x:Key="AccentBrush" Color="#5b67d6" />
       <SolidColorBrush x:Key="AccentHoverBrush" Color="#4c58c9" />
       <SolidColorBrush x:Key="OnAccentBrush" Color="#ffffff" />
-      <SolidColorBrush x:Key="GreenBrush" Color="#1faf57" />
-      <SolidColorBrush x:Key="AmberBrush" Color="#b9770a" />
-      <SolidColorBrush x:Key="RedBrush" Color="#dd3b41" />
+      <SolidColorBrush x:Key="GreenBrush" Color="#1a7a40" />
+      <SolidColorBrush x:Key="AmberBrush" Color="#8f5e00" />
+      <SolidColorBrush x:Key="RedBrush" Color="#cc2f35" />
       <SolidColorBrush x:Key="TrackBrush" Color="#e6e6ea" />
     </ResourceDictionary>
 
@@ -68,7 +68,7 @@
       <SolidColorBrush x:Key="BorderSoftBrush" Color="#1b1b20" />
       <SolidColorBrush x:Key="TextBrush" Color="#ececef" />
       <SolidColorBrush x:Key="TextDimBrush" Color="#9b9ba4" />
-      <SolidColorBrush x:Key="TextFaintBrush" Color="#65656e" />
+      <SolidColorBrush x:Key="TextFaintBrush" Color="#7c7c87" />
       <SolidColorBrush x:Key="AccentBrush" Color="#5e6ad2" />
       <SolidColorBrush x:Key="AccentHoverBrush" Color="#6f7bea" />
       <SolidColorBrush x:Key="OnAccentBrush" Color="#ffffff" />

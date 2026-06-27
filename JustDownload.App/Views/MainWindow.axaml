@@ -24,6 +24,13 @@
     <StreamGeometry x:Key="IconInfo">M8,1.5 A6.5,6.5 0 1 1 7.99,1.5 Z M7.1,6.6 H8.9 V12 H7.1 Z M7,4 H9 V5.8 H7 Z</StreamGeometry>
   </Window.Resources>
 
+  <!-- Keyboard shortcuts for the primary flows (TASK-059 AC0). -->
+  <Window.KeyBindings>
+    <KeyBinding Gesture="Ctrl+N" Command="{Binding NewDownloadCommand}" />
+    <KeyBinding Gesture="Delete" Command="{Binding Downloads.RemoveCommand}" />
+    <KeyBinding Gesture="Ctrl+OemComma" Command="{Binding OpenSettingsCommand}" />
+  </Window.KeyBindings>
+
   <DockPanel>
 
     <!-- ===== Toolbar ===== -->
@@ -34,7 +41,7 @@
 
         <!-- Sidebar toggle -->
         <Button DockPanel.Dock="Left" Classes="App Ghost IconOnly" VerticalAlignment="Center" Margin="0,0,6,0"
-                Command="{Binding ToggleSidebarCommand}" ToolTip.Tip="Toggle sidebar">
+                Command="{Binding ToggleSidebarCommand}" AutomationProperties.Name="Toggle sidebar" ToolTip.Tip="Toggle sidebar">
           <PathIcon Data="{StaticResource IconList}" Width="15" Height="15" />
         </Button>
 
@@ -49,7 +56,7 @@
 
         <!-- Primary action -->
         <Button DockPanel.Dock="Left" Classes="App Accent" VerticalAlignment="Center" Margin="10,0,0,0"
-                Command="{Binding NewDownloadCommand}" ToolTip.Tip="New download (Ctrl+N)">
+                Command="{Binding NewDownloadCommand}" AutomationProperties.Name="New download (Ctrl+N)" ToolTip.Tip="New download (Ctrl+N)">
           <StackPanel Orientation="Horizontal" Spacing="7">
             <PathIcon Data="{StaticResource IconPlus}" Width="12" Height="12" />
             <TextBlock Text="New URL" VerticalAlignment="Center" />
@@ -61,16 +68,16 @@
                 Background="{DynamicResource CardBrush}" BorderBrush="{DynamicResource BorderBrush}"
                 BorderThickness="1" CornerRadius="{StaticResource RadiusSm}">
           <StackPanel Orientation="Horizontal">
-            <Button Classes="App Ghost" Width="34" ToolTip.Tip="Resume" Command="{Binding Downloads.ResumeCommand}">
+            <Button Classes="App Ghost" Width="34" AutomationProperties.Name="Resume" ToolTip.Tip="Resume" Command="{Binding Downloads.ResumeCommand}">
               <PathIcon Data="{StaticResource IconPlay}" Width="14" Height="14" />
             </Button>
-            <Button Classes="App Ghost" Width="34" ToolTip.Tip="Pause" Command="{Binding Downloads.PauseCommand}">
+            <Button Classes="App Ghost" Width="34" AutomationProperties.Name="Pause" ToolTip.Tip="Pause" Command="{Binding Downloads.PauseCommand}">
               <PathIcon Data="{StaticResource IconPause}" Width="14" Height="14" />
             </Button>
-            <Button Classes="App Ghost" Width="34" ToolTip.Tip="Stop all" Command="{Binding Downloads.StopAllCommand}">
+            <Button Classes="App Ghost" Width="34" AutomationProperties.Name="Stop all" ToolTip.Tip="Stop all" Command="{Binding Downloads.StopAllCommand}">
               <PathIcon Data="{StaticResource IconStop}" Width="14" Height="14" />
             </Button>
-            <Button Classes="App Ghost Danger" Width="34" ToolTip.Tip="Remove" Command="{Binding Downloads.RemoveCommand}">
+            <Button Classes="App Ghost Danger" Width="34" AutomationProperties.Name="Remove" ToolTip.Tip="Remove" Command="{Binding Downloads.RemoveCommand}">
               <PathIcon Data="{StaticResource IconTrash}" Width="14" Height="14" />
             </Button>
           </StackPanel>
@@ -78,10 +85,10 @@
 
         <!-- Right cluster -->
         <Button DockPanel.Dock="Right" Classes="App Ghost IconOnly" VerticalAlignment="Center"
-                Command="{Binding ToggleThemeCommand}" ToolTip.Tip="Toggle theme">
+                Command="{Binding ToggleThemeCommand}" AutomationProperties.Name="Toggle theme" ToolTip.Tip="Toggle theme">
           <Ellipse Width="14" Height="14" Stroke="{DynamicResource TextDimBrush}" StrokeThickness="1.6" />
         </Button>
-        <Button DockPanel.Dock="Right" Classes="App Ghost IconOnly" VerticalAlignment="Center" ToolTip.Tip="About JustDownload">
+        <Button DockPanel.Dock="Right" Classes="App Ghost IconOnly" VerticalAlignment="Center" AutomationProperties.Name="About JustDownload" ToolTip.Tip="About JustDownload">
           <PathIcon Data="{StaticResource IconInfo}" Width="15" Height="15" />
           <Button.Flyout>
             <Flyout Placement="BottomEdgeAlignedRight">
@@ -105,11 +112,11 @@
           </Button.Flyout>
         </Button>
         <Button DockPanel.Dock="Right" Classes="App Ghost IconOnly" VerticalAlignment="Center" Margin="2,0"
-                Command="{Binding OpenSettingsCommand}" ToolTip.Tip="Settings">
+                Command="{Binding OpenSettingsCommand}" AutomationProperties.Name="Settings" ToolTip.Tip="Settings">
           <PathIcon Data="{StaticResource IconGear}" Width="15" Height="15" />
         </Button>
         <Button DockPanel.Dock="Right" Classes="App Ghost IconOnly" VerticalAlignment="Center"
-                Command="{Binding ShowBrowsersCommand}" ToolTip.Tip="Browsers">
+                Command="{Binding ShowBrowsersCommand}" AutomationProperties.Name="Browsers" ToolTip.Tip="Browsers">
           <PathIcon Data="{StaticResource IconGlobe}" Width="15" Height="15" />
         </Button>
 
@@ -235,7 +242,7 @@
                                   Foreground="{Binding Category, Converter={x:Static conv:CategoryResourceConverter.Instance}, ConverterParameter=foreground}" />
                       </Border>
                       <StackPanel VerticalAlignment="Center" MinWidth="0">
-                        <TextBlock Classes="FileName" Text="{Binding FileName}" ToolTip.Tip="{Binding FileName}" />
+                        <TextBlock Classes="FileName" Text="{Binding FileName}" AutomationProperties.Name="{Binding FileName}" ToolTip.Tip="{Binding FileName}" />
                         <TextBlock Classes="FileSub" Text="{Binding SubLine}" />
                       </StackPanel>
                     </StackPanel>
