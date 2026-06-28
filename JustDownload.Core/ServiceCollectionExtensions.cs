@@ -323,6 +323,11 @@ public static class ServiceCollectionExtensions
         // queued downloads through the manager as slots free up. Singleton so one queue owns scheduling.
         services.TryAddSingleton<IDownloadQueueService, DownloadQueueService>();
 
+        // Scheduler (TASK-073, US-16): timed start/stop of the queue and an opt-in shutdown/sleep when the
+        // queue drains. The power controller is only reached on explicit user opt-in.
+        services.TryAddSingleton<ISystemPowerController, SystemPowerController>();
+        services.TryAddSingleton<IDownloadScheduler, DownloadScheduler>();
+
         // Live Completed/Incomplete grouping for the list/sidebar (TASK-045, US-8). Singleton so it holds
         // one shared membership view and subscribes to the single manager's status events.
         services.TryAddSingleton<IDownloadStatusGroups, DownloadStatusGroupTracker>();
