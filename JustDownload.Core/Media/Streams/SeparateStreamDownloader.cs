@@ -57,6 +57,7 @@ internal sealed partial class SeparateStreamDownloader : ISeparateStreamDownload
                 request.Progress,
                 request.Received,
                 request.ConnectionProgress,
+                connections: null,
                 cancellationToken).ConfigureAwait(false);
 
             return new StreamOutcome

@@ -29,6 +29,13 @@
     -->
     <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="8.0.2" />
     <!--
+      FTP/FTPS transport (TASK-033, US-5). FluentFTP is the popular, actively-maintained MIT-licensed
+      FTP client (passive mode, REST resume, explicit/implicit FTPS, listings). Pure managed, no native
+      payload, and only loaded when a download targets ftp(s):// — within the §4 allow-list and the
+      light-&-fast budget. Recorded in docs/THIRD-PARTY-NOTICES.md.
+    -->
+    <PackageReference Include="FluentFTP" Version="54.2.0" />
+    <!--
       Logging + global error handling (TASK-016). The concrete Microsoft.Extensions.Logging is
       needed here (not just its Abstractions) because Core owns the composition root (TASK-017) and
       must build the LoggerFactory, set the configurable minimum level, and wrap every logger with

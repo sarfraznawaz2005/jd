@@ -276,7 +276,6 @@ internal sealed partial class SegmentedDownloader : ISegmentedDownloader
 
             try
             {
-                int activeSnapshot;
                 lock (_gate)
                 {
                     // Every initial segment must get a worker — leaving one unworked would let it be stolen
@@ -288,10 +287,9 @@ internal sealed partial class SegmentedDownloader : ISegmentedDownloader
                         SpawnLocked(seg);
                     }
 
-                    activeSnapshot = _active;
+                    // Reported under the lock so concurrent count changes are observed in a consistent order.
+                    _controller?.ReportActiveConnections(_active);
                 }
-
-                _controller?.ReportActiveConnections(activeSnapshot);
 
                 // If the desired count already exceeds the initial split, spawn stealers up front.
                 Reconcile();
@@ -342,8 +340,6 @@ internal sealed partial class SegmentedDownloader : ISegmentedDownloader
 
         private void Reconcile()
         {
-            bool changed = false;
-            int activeSnapshot;
             lock (_gate)
             {
                 if (_failureCts.IsCancellationRequested)
@@ -351,6 +347,7 @@ internal sealed partial class SegmentedDownloader : ISegmentedDownloader
                     return;
                 }
 
+                bool changed = false;
                 while (_active < Desired)
                 {
                     WorkerSegment? seg = _state.TrySteal(_minStealSize);
@@ -364,53 +361,35 @@ internal sealed partial class SegmentedDownloader : ISegmentedDownloader
                     SpawnLocked(seg);
                 }
 
-                activeSnapshot = _active;
-            }
-
-            if (changed)
-            {
-                _controller?.ReportActiveConnections(activeSnapshot);
+                if (changed)
+                {
+                    _controller?.ReportActiveConnections(_active);
+                }
             }
         }
 
         private WorkerSegment? NextAssignment()
         {
-            WorkerSegment? result;
-            bool retired = false;
-            int activeSnapshot;
             lock (_gate)
             {
                 if (_active > Desired)
                 {
                     // The desired count dropped — this connection drains cleanly at the boundary.
                     _active--;
-                    retired = true;
-                    result = null;
+                    _controller?.ReportActiveConnections(_active);
+                    return null;
                 }
-                else
+
+                WorkerSegment? seg = _state.TrySteal(_minStealSize);
+                if (seg is null)
                 {
-                    WorkerSegment? seg = _state.TrySteal(_minStealSize);
-                    if (seg is null)
-                    {
-                        _active--;
-                        retired = true;
-                        result = null;
-                    }
-                    else
-                    {
-                        result = seg; // Keep this connection alive on the stolen tail.
-                    }
+                    _active--;
+                    _controller?.ReportActiveConnections(_active);
+                    return null;
                 }
 
-                activeSnapshot = _active;
+                return seg; // Keep this connection alive on the stolen tail.
             }
-
-            if (retired)
-            {
-                _controller?.ReportActiveConnections(activeSnapshot);
-            }
-
-            return result;
         }
 
         private async Task WorkerLoopAsync(WorkerSegment segment, int connectionId)
@@ -442,14 +421,12 @@ internal sealed partial class SegmentedDownloader : ISegmentedDownloader
             }
             catch
             {
-                int activeSnapshot;
                 lock (_gate)
                 {
                     _active = Math.Max(0, _active - 1);
-                    activeSnapshot = _active;
+                    _controller?.ReportActiveConnections(_active);
                 }
 
-                _controller?.ReportActiveConnections(activeSnapshot);
                 await _failureCts.CancelAsync().ConfigureAwait(false);
                 throw;
             }

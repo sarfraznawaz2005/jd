@@ -18,6 +18,7 @@ using JustDownload.Core.Settings;
 using JustDownload.Core.Storage;
 using JustDownload.Core.Throttling;
 using JustDownload.Core.Transport;
+using JustDownload.Core.Transport.Ftp;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
@@ -234,7 +235,13 @@ public static class ServiceCollectionExtensions
 
         services.TryAddSingleton(new TransportOptions());
         services.TryAddSingleton<ISharedHttpHandlerProvider, SharedHttpHandlerProvider>();
-        services.TryAddSingleton<ITransport, HttpTransport>();
+
+        // Scheme-routed transport (TASK-033): HTTP(S) → HttpTransport, FTP(S) → FtpTransport. The concrete
+        // transports are registered so the router can compose them; the engine depends only on ITransport.
+        services.TryAddSingleton<HttpTransport>();
+        services.TryAddSingleton<IFtpConnectionFactory, FluentFtpConnectionFactory>();
+        services.TryAddSingleton<FtpTransport>();
+        services.TryAddSingleton<ITransport, SchemeRoutingTransport>();
 
         // Range-capability probe (TASK-024): decides segmented vs single-connection downloads.
         services.TryAddSingleton<IResourceProbe, ResourceProbe>();

@@ -155,6 +155,7 @@ public sealed class MediaExtractorRegistryTests
     {
         var services = new ServiceCollection();
         services.AddLogging();
+        services.AddJustDownloadTransport(); // HLS/DASH extractors depend on ITransport
         services.AddJustDownloadMedia();
         using ServiceProvider provider = services.BuildServiceProvider();
 

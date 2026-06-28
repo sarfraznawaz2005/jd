@@ -19,6 +19,11 @@ each project for full license text.
 | Microsoft.Extensions.Logging | 8.0.1 | MIT |
 | Microsoft.Data.Sqlite | 8.0.10 | MIT |
 | System.Security.Cryptography.ProtectedData | 8.0.0 | MIT |
+| FluentFTP | 54.2.0 | MIT |
+
+`FluentFTP` (MIT) is the FTP/FTPS client for the FTP transport (TASK-033): passive mode, REST resume,
+explicit/implicit FTPS, and directory listings. It is pure managed code with no native payload and is only
+loaded when a download targets an `ftp(s)://` URL.
 
 `Microsoft.Data.Sqlite` embeds the **SQLite** engine (public domain) via **SQLitePCLRaw**
 (Apache-2.0 / MIT). `System.Security.Cryptography.ProtectedData` (MIT) wraps Windows DPAPI and is only
