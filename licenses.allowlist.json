@@ -1,0 +1,35 @@
+{
+  "$comment": "Machine-readable dependency license allowlist (TASK-014, CLAUDE.md §4). Every PackageReference in the solution must appear in 'packages' with a license from 'allowedLicenses'. The CI gate (LicenseAllowlistTests) fails if a package is referenced but not listed here, or listed with a non-permissive license, or listed here but no longer referenced. Keep in sync with docs/THIRD-PARTY-NOTICES.md (the human-readable notices).",
+  "allowedLicenses": [
+    "MIT",
+    "Apache-2.0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "MS-PL",
+    "CC0-1.0"
+  ],
+  "packages": {
+    "Avalonia": "MIT",
+    "Avalonia.Controls.DataGrid": "MIT",
+    "Avalonia.Desktop": "MIT",
+    "Avalonia.Diagnostics": "MIT",
+    "Avalonia.Fonts.Inter": "MIT",
+    "Avalonia.Headless.XUnit": "MIT",
+    "Avalonia.Themes.Fluent": "MIT",
+    "CommunityToolkit.Mvvm": "MIT",
+    "FluentAssertions": "Apache-2.0",
+    "FluentFTP": "MIT",
+    "Microsoft.Data.Sqlite": "MIT",
+    "Microsoft.Extensions.DependencyInjection": "MIT",
+    "Microsoft.Extensions.DependencyInjection.Abstractions": "MIT",
+    "Microsoft.Extensions.Logging": "MIT",
+    "Microsoft.NET.Test.Sdk": "MIT",
+    "Microsoft.Win32.Registry": "MIT",
+    "NSubstitute": "BSD-3-Clause",
+    "System.Security.Cryptography.ProtectedData": "MIT",
+    "coverlet.collector": "MIT",
+    "xunit": "Apache-2.0",
+    "xunit.runner.visualstudio": "MIT"
+  }
+}
