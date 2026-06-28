@@ -8,6 +8,7 @@ using JustDownload.Core.Downloading;
 using JustDownload.Core.Lifecycle;
 using JustDownload.Core.Logging;
 using JustDownload.Core.Media;
+using JustDownload.Core.Media.Extraction;
 using JustDownload.Core.NativeMessaging;
 using JustDownload.Core.Security;
 using JustDownload.Core.Settings;
@@ -318,6 +319,13 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<IFfmpegLocator, FfmpegLocator>();
         services.TryAddSingleton<IFfmpegRunner, FfmpegRunner>();
         services.TryAddSingleton<IMediaConverter, MediaConverter>();
+
+        // Pluggable extractor registry (TASK-036, D3): generic extractors register at startup and are tried
+        // in priority order; the registry degrades gracefully when nothing recognises a URL. Specific
+        // extractors (HLS/DASH) are appended by their own tasks.
+        services.TryAddEnumerable(
+            ServiceDescriptor.Singleton<IMediaExtractor, ProgressiveMediaExtractor>());
+        services.TryAddSingleton<IMediaExtractorRegistry, MediaExtractorRegistry>();
 
         return services;
     }
