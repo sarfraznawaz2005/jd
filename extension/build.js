@@ -27,7 +27,7 @@ const TARGETS = ["chrome", "edge", "firefox"];
 const ICON_SIZES = [16, 32, 48, 128];
 
 // Shared assets copied verbatim into every browser bundle.
-const SHARED_ASSETS = ["background.js", "content.js", "popup.html", "popup.css", "popup.js"];
+const SHARED_ASSETS = ["jdcore.js", "background.js", "content.js", "popup.html", "popup.css", "popup.js"];
 
 /* ---------------------------------------------------------------- helpers */
 

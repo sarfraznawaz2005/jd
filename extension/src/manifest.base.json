@@ -22,7 +22,9 @@
     "contextMenus",
     "storage",
     "downloads",
-    "nativeMessaging"
+    "nativeMessaging",
+    "cookies",
+    "webRequest"
   ],
   "host_permissions": [
     "<all_urls>"
@@ -30,7 +32,7 @@
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
-      "js": ["content.js"],
+      "js": ["jdcore.js", "content.js"],
       "run_at": "document_idle"
     }
   ]
