@@ -112,6 +112,17 @@ internal sealed class SegmentRepository : ISegmentRepository
         return rows > 0;
     }
 
+    public async Task<int> DeleteByDownloadAsync(long downloadId, CancellationToken cancellationToken = default)
+    {
+        await using SqliteConnection connection =
+            await _connectionFactory.CreateOpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await using SqliteCommand command = connection.CreateCommand();
+        command.CommandText = "DELETE FROM segments WHERE download_id = $download_id;";
+        command.Parameters.AddWithValue("$download_id", downloadId);
+
+        return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+    }
+
     private static void BindWritableColumns(SqliteCommand command, DownloadSegment segment)
     {
         command.Parameters.AddWithValue("$download_id", segment.DownloadId);

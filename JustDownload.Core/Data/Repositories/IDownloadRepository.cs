@@ -39,4 +39,21 @@ public interface IDownloadRepository
 
     /// <summary>Sets just the queue <c>priority</c> for a download (TASK-072). Returns whether a row matched.</summary>
     Task<bool> SetPriorityAsync(long id, int priority, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Sets the queue <c>priority</c> of many downloads in one statement (TASK-106). A no-op for an empty list.
+    /// </summary>
+    Task SetPrioritiesAsync(
+        IReadOnlyList<DownloadPriority> priorities, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Moves every download in <paramref name="fromStatus"/> to <paramref name="toStatus"/> in one statement
+    /// (TASK-105, e.g. demoting active → paused on crash recovery). Returns the number of rows changed.
+    /// </summary>
+    Task<int> MarkAllAsync(string fromStatus, string toStatus, CancellationToken cancellationToken = default);
 }
+
+/// <summary>A download id paired with the queue priority to set for it (TASK-106).</summary>
+/// <param name="Id">The download id.</param>
+/// <param name="Priority">The new priority (higher runs sooner).</param>
+public sealed record DownloadPriority(long Id, int Priority);

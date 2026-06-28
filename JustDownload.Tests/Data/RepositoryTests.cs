@@ -189,6 +189,84 @@ public sealed class RepositoryTests : IDisposable
     }
 
     [Fact]
+    public async Task DownloadRepository_SetPrioritiesAsync_BatchUpdatesEach()
+    {
+        var repo = _provider.GetRequiredService<IDownloadRepository>();
+        long a = await repo.AddAsync(SampleDownload());
+        long b = await repo.AddAsync(SampleDownload());
+        long c = await repo.AddAsync(SampleDownload());
+
+        await repo.SetPrioritiesAsync(new[]
+        {
+            new DownloadPriority(a, 30),
+            new DownloadPriority(b, 20),
+            new DownloadPriority(c, 10),
+        });
+
+        (await repo.GetAsync(a))!.Priority.Should().Be(30);
+        (await repo.GetAsync(b))!.Priority.Should().Be(20);
+        (await repo.GetAsync(c))!.Priority.Should().Be(10);
+
+        // An empty batch is a no-op (does not throw, changes nothing).
+        await repo.SetPrioritiesAsync(Array.Empty<DownloadPriority>());
+        (await repo.GetAsync(a))!.Priority.Should().Be(30);
+    }
+
+    [Fact]
+    public async Task DownloadRepository_MarkAllAsync_MovesOnlyMatchingStatus()
+    {
+        var repo = _provider.GetRequiredService<IDownloadRepository>();
+        long a1 = await repo.AddAsync(SampleDownload() with { Status = "active" });
+        long a2 = await repo.AddAsync(SampleDownload() with { Status = "active" });
+        long p = await repo.AddAsync(SampleDownload() with { Status = "paused" });
+
+        int changed = await repo.MarkAllAsync("active", "paused");
+
+        changed.Should().Be(2);
+        (await repo.GetAsync(a1))!.Status.Should().Be("paused");
+        (await repo.GetAsync(a2))!.Status.Should().Be("paused");
+        (await repo.GetAsync(p))!.Status.Should().Be("paused", "it was already paused and untouched");
+    }
+
+    [Fact]
+    public async Task SegmentRepository_DeleteByDownloadAsync_RemovesOnlyThatDownloadsSegments()
+    {
+        var downloads = _provider.GetRequiredService<IDownloadRepository>();
+        var segments = _provider.GetRequiredService<ISegmentRepository>();
+        long d1 = await downloads.AddAsync(SampleDownload());
+        long d2 = await downloads.AddAsync(SampleDownload());
+
+        for (int i = 0; i < 3; i++)
+        {
+            await segments.AddAsync(new DownloadSegment
+            {
+                DownloadId = d1,
+                Index = i,
+                Start = i * 512,
+                End = (i * 512) + 511,
+                Downloaded = 0,
+                State = "pending",
+            });
+        }
+
+        await segments.AddAsync(new DownloadSegment
+        {
+            DownloadId = d2,
+            Index = 0,
+            Start = 0,
+            End = 511,
+            Downloaded = 0,
+            State = "pending",
+        });
+
+        int removed = await segments.DeleteByDownloadAsync(d1);
+
+        removed.Should().Be(3);
+        (await segments.GetByDownloadAsync(d1)).Should().BeEmpty();
+        (await segments.GetByDownloadAsync(d2)).Should().ContainSingle("the other download's segments are untouched");
+    }
+
+    [Fact]
     public async Task SettingsRepository_RoundTrips_CreateReadUpdateDelete()
     {
         var settings = _provider.GetRequiredService<ISettingsRepository>();

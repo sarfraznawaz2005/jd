@@ -27,4 +27,7 @@ public interface ISegmentRepository
 
     /// <summary>Deletes a segment by id. Returns <see langword="true"/> when a row was removed.</summary>
     Task<bool> DeleteAsync(long id, CancellationToken cancellationToken = default);
+
+    /// <summary>Deletes every segment for a download in one statement. Returns the number removed.</summary>
+    Task<int> DeleteByDownloadAsync(long downloadId, CancellationToken cancellationToken = default);
 }

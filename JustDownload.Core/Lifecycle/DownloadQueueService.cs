@@ -91,14 +91,16 @@ internal sealed partial class DownloadQueueService : IDownloadQueueService, IDis
         ArgumentNullException.ThrowIfNull(orderedIdsHighestFirst);
 
         // Strictly descending priorities (spaced so a later single insert can slot between two) — the first
-        // id gets the highest, so it runs soonest.
+        // id gets the highest, so it runs soonest. Persisted in one batched UPDATE (TASK-106).
+        var priorities = new List<DownloadPriority>(orderedIdsHighestFirst.Count);
         int priority = orderedIdsHighestFirst.Count * 10;
         foreach (long id in orderedIdsHighestFirst)
         {
-            await _repository.SetPriorityAsync(id, priority, cancellationToken).ConfigureAwait(false);
+            priorities.Add(new DownloadPriority(id, priority));
             priority -= 10;
         }
 
+        await _repository.SetPrioritiesAsync(priorities, cancellationToken).ConfigureAwait(false);
         await PumpAsync(cancellationToken).ConfigureAwait(false);
     }
 

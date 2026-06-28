@@ -202,4 +202,51 @@ internal sealed class DownloadRepository : IDownloadRepository
         int rows = await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         return rows > 0;
     }
+
+    public async Task SetPrioritiesAsync(
+        IReadOnlyList<DownloadPriority> priorities, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(priorities);
+        if (priorities.Count == 0)
+        {
+            return;
+        }
+
+        await using SqliteConnection connection =
+            await _connectionFactory.CreateOpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await using SqliteCommand command = connection.CreateCommand();
+
+        // One UPDATE with a CASE so the whole reorder is a single round-trip. Fully parameterized; the only
+        // interpolated text is the parameter indices (plain integers), never any value.
+        var cases = new System.Text.StringBuilder("UPDATE downloads SET priority = CASE id");
+        var ids = new List<string>(priorities.Count);
+        for (int i = 0; i < priorities.Count; i++)
+        {
+            cases.Append(" WHEN $id").Append(i).Append(" THEN $p").Append(i);
+            command.Parameters.AddWithValue("$id" + i, priorities[i].Id);
+            command.Parameters.AddWithValue("$p" + i, priorities[i].Priority);
+            ids.Add("$id" + i);
+        }
+
+        cases.Append(" END WHERE id IN (").AppendJoin(", ", ids).Append(");");
+        command.CommandText = cases.ToString();
+
+        await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<int> MarkAllAsync(
+        string fromStatus, string toStatus, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(fromStatus);
+        ArgumentException.ThrowIfNullOrEmpty(toStatus);
+
+        await using SqliteConnection connection =
+            await _connectionFactory.CreateOpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await using SqliteCommand command = connection.CreateCommand();
+        command.CommandText = "UPDATE downloads SET status = $to WHERE status = $from;";
+        command.Parameters.AddWithValue("$to", toStatus);
+        command.Parameters.AddWithValue("$from", fromStatus);
+
+        return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+    }
 }

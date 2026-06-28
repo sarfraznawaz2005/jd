@@ -415,15 +415,8 @@ internal sealed partial class DownloadManager : IDownloadManager
         }
     }
 
-    private async Task ClearSegmentsAsync(long id)
-    {
-        IReadOnlyList<DownloadSegment> existing =
-            await _segments.GetByDownloadAsync(id, CancellationToken.None).ConfigureAwait(false);
-        foreach (DownloadSegment row in existing)
-        {
-            await _segments.DeleteAsync(row.Id, CancellationToken.None).ConfigureAwait(false);
-        }
-    }
+    private async Task ClearSegmentsAsync(long id) =>
+        await _segments.DeleteByDownloadAsync(id, CancellationToken.None).ConfigureAwait(false);
 
     private async Task CheckpointLoopAsync(long id, ReceivedRanges received, CancellationToken token)
     {

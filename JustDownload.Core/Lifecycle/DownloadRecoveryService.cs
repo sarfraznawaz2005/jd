@@ -25,27 +25,23 @@ internal sealed partial class DownloadRecoveryService : IDownloadRecovery
 
     public async Task<IReadOnlyList<long>> RecoverInterruptedAsync(CancellationToken cancellationToken = default)
     {
-        IReadOnlyList<Download> all = await _downloads.GetAllAsync(cancellationToken).ConfigureAwait(false);
-
-        var recovered = new List<long>();
-        foreach (Download record in all)
+        IReadOnlyList<Download> active = await _downloads
+            .GetByStatusOrderedByPriorityAsync(DownloadStatusCodes.Active, cancellationToken)
+            .ConfigureAwait(false);
+        if (active.Count == 0)
         {
-            if (DownloadStatusCodes.Parse(record.Status) != DownloadStatus.Active)
-            {
-                continue;
-            }
-
-            DownloadStateMachine.EnsureCanTransition(DownloadStatus.Active, DownloadStatus.Paused);
-            Download paused = record with { Status = DownloadStatusCodes.Paused };
-            await _downloads.UpdateAsync(paused, cancellationToken).ConfigureAwait(false);
-            recovered.Add(record.Id);
+            return [];
         }
 
-        if (recovered.Count > 0)
-        {
-            LogRecovered(_logger, recovered.Count);
-        }
+        // Active → Paused is the only recovery transition; assert the invariant once, then demote every
+        // interrupted download in a single UPDATE rather than one per row (TASK-105).
+        DownloadStateMachine.EnsureCanTransition(DownloadStatus.Active, DownloadStatus.Paused);
+        await _downloads
+            .MarkAllAsync(DownloadStatusCodes.Active, DownloadStatusCodes.Paused, cancellationToken)
+            .ConfigureAwait(false);
 
+        var recovered = active.Select(record => record.Id).ToList();
+        LogRecovered(_logger, recovered.Count);
         return recovered;
     }
 

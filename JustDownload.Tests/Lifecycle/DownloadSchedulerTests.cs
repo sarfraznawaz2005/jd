@@ -81,6 +81,8 @@ public sealed class DownloadSchedulerTests
         public Task<bool> UpdateAsync(Download d, CancellationToken ct = default) => throw new NotSupportedException();
         public Task<bool> DeleteAsync(long id, CancellationToken ct = default) => throw new NotSupportedException();
         public Task<bool> SetPriorityAsync(long id, int priority, CancellationToken ct = default) => throw new NotSupportedException();
+        public Task SetPrioritiesAsync(IReadOnlyList<DownloadPriority> priorities, CancellationToken ct = default) => throw new NotSupportedException();
+        public Task<int> MarkAllAsync(string fromStatus, string toStatus, CancellationToken ct = default) => throw new NotSupportedException();
     }
 
     private sealed class FakePower : ISystemPowerController
