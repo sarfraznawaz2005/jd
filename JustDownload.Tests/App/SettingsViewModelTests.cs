@@ -85,6 +85,29 @@ public sealed class SettingsViewModelTests
     }
 
     [Fact]
+    public void General_TrayTogglesPersist()
+    {
+        ISettingsService settings = Settings();
+        var vm = new GeneralSettingsViewModel(settings, Substitute.For<IThemeService>());
+
+        vm.StartMinimizedToTray = true;
+        Persisted(settings, new AppSettings()).StartMinimizedToTray.Should().BeTrue();
+
+        vm.CloseToTray = true;
+        Persisted(settings, new AppSettings()).CloseToTray.Should().BeTrue();
+    }
+
+    [Fact]
+    public void General_HydratesTrayTogglesFromExistingSettings()
+    {
+        var current = new AppSettings { StartMinimizedToTray = true, CloseToTray = true };
+        var vm = new GeneralSettingsViewModel(Settings(current), Substitute.For<IThemeService>());
+
+        vm.StartMinimizedToTray.Should().BeTrue();
+        vm.CloseToTray.Should().BeTrue();
+    }
+
+    [Fact]
     public void Connections_PersistConnectionsConcurrencyAndSpeed()
     {
         ISettingsService settings = Settings();

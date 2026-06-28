@@ -28,6 +28,12 @@ public sealed partial class GeneralSettingsViewModel : ViewModelBase
     [ObservableProperty]
     private MediaContainer _defaultContainer;
 
+    [ObservableProperty]
+    private bool _startMinimizedToTray;
+
+    [ObservableProperty]
+    private bool _closeToTray;
+
     public GeneralSettingsViewModel(ISettingsService settings, IThemeService theme)
     {
         ArgumentNullException.ThrowIfNull(settings);
@@ -41,6 +47,8 @@ public sealed partial class GeneralSettingsViewModel : ViewModelBase
         _density = current.Density;
         _defaultVideoQuality = current.DefaultVideoQuality;
         _defaultContainer = current.DefaultContainer;
+        _startMinimizedToTray = current.StartMinimizedToTray;
+        _closeToTray = current.CloseToTray;
         _suppress = false;
     }
 
@@ -90,6 +98,22 @@ public sealed partial class GeneralSettingsViewModel : ViewModelBase
         if (!_suppress)
         {
             _ = _settings.UpdateAsync(s => s with { DefaultContainer = value });
+        }
+    }
+
+    partial void OnStartMinimizedToTrayChanged(bool value)
+    {
+        if (!_suppress)
+        {
+            _ = _settings.UpdateAsync(s => s with { StartMinimizedToTray = value });
+        }
+    }
+
+    partial void OnCloseToTrayChanged(bool value)
+    {
+        if (!_suppress)
+        {
+            _ = _settings.UpdateAsync(s => s with { CloseToTray = value });
         }
     }
 }

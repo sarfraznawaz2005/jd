@@ -46,4 +46,28 @@ public sealed class SettingsSerializerOrganizeTests
 
         SettingsSerializer.FromStorage(stored, NullLogger.Instance).OrganizedRootDirectory.Should().BeNull();
     }
+
+    [Fact]
+    public void RoundTrips_TraySettings()
+    {
+        var settings = new AppSettings { StartMinimizedToTray = true, CloseToTray = true };
+
+        IReadOnlyDictionary<string, string> stored = SettingsSerializer.ToStorage(settings);
+        AppSettings restored = SettingsSerializer.FromStorage(
+            stored.ToDictionary(kv => kv.Key, kv => (string?)kv.Value),
+            NullLogger.Instance);
+
+        restored.StartMinimizedToTray.Should().BeTrue();
+        restored.CloseToTray.Should().BeTrue();
+    }
+
+    [Fact]
+    public void TrayDefaultsAreOff_WhenStorageEmpty()
+    {
+        AppSettings restored = SettingsSerializer.FromStorage(
+            new Dictionary<string, string?>(), NullLogger.Instance);
+
+        restored.StartMinimizedToTray.Should().BeFalse();
+        restored.CloseToTray.Should().BeFalse();
+    }
 }

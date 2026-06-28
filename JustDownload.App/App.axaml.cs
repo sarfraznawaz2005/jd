@@ -10,6 +10,7 @@ using JustDownload.App.ViewModels;
 using JustDownload.App.Views;
 using JustDownload.Core;
 using JustDownload.Core.Diagnostics;
+using JustDownload.Core.Settings;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace JustDownload.App;
@@ -45,6 +46,12 @@ public partial class App : Application
     /// <summary>The single-instance coordinator owned by this process (set by <c>Program</c>), if any.</summary>
     public static ISingleInstanceCoordinator? InstanceCoordinator { get; set; }
 
+    /// <summary>
+    /// Set once the app is genuinely quitting (tray "Quit", or the window closed with close-to-tray off) so
+    /// the close-to-tray handler lets the close through instead of hiding the window again.
+    /// </summary>
+    private bool _isExplicitShutdown;
+
     public override void Initialize() => AvaloniaXamlLoader.Load(this);
 
     public override void OnFrameworkInitializationCompleted()
@@ -54,9 +61,13 @@ public partial class App : Application
 
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
+            // The tray means the app outlives its window: it may start hidden and keep running after the
+            // window is closed to tray. We own the lifetime explicitly (tray "Quit" / window-close decide
+            // when to exit) so hiding the last window never quits the process out from under us.
+            desktop.ShutdownMode = ShutdownMode.OnExplicitShutdown;
+
             MainWindowViewModel mainViewModel = Services.GetRequiredService<MainWindowViewModel>();
             var window = new MainWindow { DataContext = mainViewModel };
-            desktop.MainWindow = window;
 
             // The toolbar/command-palette "New URL" intent opens the dialog over the main window (TASK-052/053).
             mainViewModel.NewDownloadRequested += (_, _) => _ = ShowNewDownloadDialogAsync(window);
@@ -71,17 +82,57 @@ public partial class App : Application
             // new-download dialog prefilled.
             mainViewModel.DownloadUrlRequested += (_, url) => _ = ShowNewDownloadDialogAsync(window, url);
 
+            WireCloseToTray(desktop, window);
+
             // Notify on completion/error, add a tray icon, and accept URLs forwarded by a second launch (TASK-061).
             Services.GetRequiredService<DownloadNotifier>().Start();
             InstallTrayIcon(desktop, window, mainViewModel);
             WireForwardedArguments(window, mainViewModel);
 
-            // Bring the schema up to date, then load the persisted downloads into the list — off the
-            // initialisation path so the window paints immediately and never blocks on I/O (§6).
-            Dispatcher.UIThread.Post(async () => await InitializeAndLoadAsync(), DispatcherPriority.Background);
+            // Bring the schema up to date and load settings, then show the window (unless the user opted to
+            // start hidden in the tray) and load the persisted downloads — off the startup path so we never
+            // block, and so the window is shown only once we know whether it should be (no taskbar flash).
+            Dispatcher.UIThread.Post(
+                async () => await InitializeAndLoadAsync(desktop, window), DispatcherPriority.Background);
         }
 
         base.OnFrameworkInitializationCompleted();
+    }
+
+    /// <summary>
+    /// Routes the title-bar close: when "close to tray" is on, a user close hides the window instead of
+    /// quitting; otherwise closing the window quits the app (we run in <see cref="ShutdownMode.OnExplicitShutdown"/>).
+    /// </summary>
+    private void WireCloseToTray(IClassicDesktopStyleApplicationLifetime desktop, Window window)
+    {
+        window.Closing += (_, e) =>
+        {
+            if (_isExplicitShutdown)
+            {
+                return; // genuinely quitting — let the close proceed
+            }
+
+            if (Services.GetRequiredService<ISettingsService>().Current.CloseToTray)
+            {
+                e.Cancel = true;
+                window.Hide();
+            }
+        };
+
+        // A close we didn't cancel (close-to-tray off) means the user wants out — exit the app.
+        window.Closed += (_, _) =>
+        {
+            if (!_isExplicitShutdown)
+            {
+                Quit(desktop);
+            }
+        };
+    }
+
+    private void Quit(IClassicDesktopStyleApplicationLifetime desktop)
+    {
+        _isExplicitShutdown = true;
+        desktop.Shutdown();
     }
 
     private void InstallTrayIcon(
@@ -89,8 +140,12 @@ public partial class App : Application
     {
         NativeMenu menu = TrayMenuFactory.Create(
             show: () => BringToFront(window),
-            newDownload: () => mainViewModel.NewDownloadCommand.Execute(null),
-            quit: () => desktop.Shutdown());
+            newDownload: () =>
+            {
+                BringToFront(window); // ensure a visible owner for the dialog, even when started hidden
+                mainViewModel.NewDownloadCommand.Execute(null);
+            },
+            quit: () => Quit(desktop));
 
         var tray = new TrayIcon
         {
@@ -162,11 +217,46 @@ public partial class App : Application
         window.Show(owner);
     }
 
-    private async Task InitializeAndLoadAsync()
+    private async Task InitializeAndLoadAsync(IClassicDesktopStyleApplicationLifetime desktop, MainWindow window)
     {
-        await Services.InitializeJustDownloadCoreAsync().ConfigureAwait(true);
-        await Services.GetRequiredService<DownloadsListViewModel>().LoadAsync().ConfigureAwait(true);
-        await DeliverPendingLinksAsync().ConfigureAwait(true);
+        bool shown = false;
+        try
+        {
+            // Schema must be current before settings (and the rest of Core) read it.
+            await Services.InitializeJustDownloadCoreAsync().ConfigureAwait(true);
+            await Services.GetRequiredService<ISettingsService>().LoadAsync().ConfigureAwait(true);
+
+            bool startMinimized = Services.GetRequiredService<ISettingsService>().Current.StartMinimizedToTray;
+            ShowMainWindow(desktop, window, startMinimized);
+            shown = true;
+
+            await Services.GetRequiredService<DownloadsListViewModel>().LoadAsync().ConfigureAwait(true);
+            await DeliverPendingLinksAsync().ConfigureAwait(true);
+        }
+        finally
+        {
+            // If initialisation failed before we decided visibility, still show the window so the app is
+            // usable — the global error handler surfaces whatever went wrong.
+            if (!shown)
+            {
+                ShowMainWindow(desktop, window, startMinimized: false);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Adopts the window as the main window and shows it, unless the user opted to start hidden in the tray.
+    /// Done after the main loop is running so assigning <see cref="IClassicDesktopStyleApplicationLifetime.MainWindow"/>
+    /// doesn't re-trigger the framework's startup auto-show.
+    /// </summary>
+    private static void ShowMainWindow(
+        IClassicDesktopStyleApplicationLifetime desktop, Window window, bool startMinimized)
+    {
+        desktop.MainWindow = window;
+        if (!startMinimized)
+        {
+            window.Show();
+        }
     }
 
     /// <summary>Delivers links the extension handed off while the app was closed (TASK-070 AC1).</summary>

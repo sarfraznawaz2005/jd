@@ -48,4 +48,16 @@ public sealed record AppSettings
     /// file was downloaded to" (organize in place). Default <see langword="null"/>.
     /// </summary>
     public string? OrganizedRootDirectory { get; init; }
+
+    /// <summary>
+    /// Whether the app launches hidden to the system tray (no window, no taskbar entry) instead of
+    /// showing the main window. The tray icon restores it. Default <see langword="false"/>.
+    /// </summary>
+    public bool StartMinimizedToTray { get; init; }
+
+    /// <summary>
+    /// Whether closing the main window (the title-bar X) hides it to the system tray instead of quitting;
+    /// the app keeps running and only the tray "Quit" exits. Default <see langword="false"/>.
+    /// </summary>
+    public bool CloseToTray { get; init; }
 }

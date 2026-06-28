@@ -20,6 +20,8 @@ internal static partial class SettingsSerializer
     internal const string ThemeKey = "ui.theme";
     internal const string OrganizeByCategoryKey = "organize.by_category";
     internal const string OrganizedRootDirectoryKey = "organize.root_directory";
+    internal const string StartMinimizedToTrayKey = "tray.start_minimized";
+    internal const string CloseToTrayKey = "tray.close_to_tray";
 
     /// <summary>
     /// Serializes every setting to its storage representation. The result always contains all keys so
@@ -45,6 +47,9 @@ internal static partial class SettingsSerializer
             [OrganizeByCategoryKey] =
                 settings.OrganizeByCategory.ToString(CultureInfo.InvariantCulture),
             [OrganizedRootDirectoryKey] = settings.OrganizedRootDirectory ?? string.Empty,
+            [StartMinimizedToTrayKey] =
+                settings.StartMinimizedToTray.ToString(CultureInfo.InvariantCulture),
+            [CloseToTrayKey] = settings.CloseToTray.ToString(CultureInfo.InvariantCulture),
         };
     }
 
@@ -80,6 +85,9 @@ internal static partial class SettingsSerializer
                 ParseBool(stored, OrganizeByCategoryKey, defaults.OrganizeByCategory, logger),
             OrganizedRootDirectory =
                 ParseOptionalString(stored, OrganizedRootDirectoryKey, defaults.OrganizedRootDirectory),
+            StartMinimizedToTray =
+                ParseBool(stored, StartMinimizedToTrayKey, defaults.StartMinimizedToTray, logger),
+            CloseToTray = ParseBool(stored, CloseToTrayKey, defaults.CloseToTray, logger),
         };
     }
 

@@ -32,6 +32,21 @@
           <TextBlock Text="Default output container" Classes="StatKey" />
           <ComboBox ItemsSource="{Binding Containers}" SelectedItem="{Binding DefaultContainer, Mode=TwoWay}" Width="200" HorizontalAlignment="Left" />
         </StackPanel>
+        <StackPanel Spacing="10">
+          <TextBlock Text="Startup &amp; tray" Classes="StatKey" />
+          <StackPanel Orientation="Horizontal" Spacing="12">
+            <ToggleSwitch IsChecked="{Binding StartMinimizedToTray, Mode=TwoWay}" />
+            <TextBlock Text="Start minimized in the system tray" VerticalAlignment="Center"
+                       Foreground="{DynamicResource TextBrush}" />
+          </StackPanel>
+          <StackPanel Orientation="Horizontal" Spacing="12">
+            <ToggleSwitch IsChecked="{Binding CloseToTray, Mode=TwoWay}" />
+            <TextBlock Text="Close to tray instead of quitting" VerticalAlignment="Center"
+                       Foreground="{DynamicResource TextBrush}" />
+          </StackPanel>
+          <TextBlock Text="The tray icon keeps JustDownload running; choose Quit from its menu to exit."
+                     Classes="SettingsHint" />
+        </StackPanel>
       </StackPanel>
     </DataTemplate>
 
