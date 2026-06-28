@@ -13,7 +13,7 @@ internal sealed class DownloadRepository : IDownloadRepository
 {
     private const string Columns =
         "id, url, referrer, filename, dir, total_bytes, status, category_type, category_status, " +
-        "etag, last_modified, created_at, completed_at, error, max_connections, speed_limit";
+        "etag, last_modified, created_at, completed_at, error, max_connections, speed_limit, priority";
 
     private readonly IDbConnectionFactory _connectionFactory;
 
@@ -34,10 +34,11 @@ internal sealed class DownloadRepository : IDownloadRepository
             """
             INSERT INTO downloads
                 (url, referrer, filename, dir, total_bytes, status, category_type, category_status,
-                 etag, last_modified, created_at, completed_at, error, max_connections, speed_limit)
+                 etag, last_modified, created_at, completed_at, error, max_connections, speed_limit, priority)
             VALUES
                 ($url, $referrer, $filename, $dir, $total_bytes, $status, $category_type, $category_status,
-                 $etag, $last_modified, $created_at, $completed_at, $error, $max_connections, $speed_limit);
+                 $etag, $last_modified, $created_at, $completed_at, $error, $max_connections, $speed_limit,
+                 $priority);
             SELECT last_insert_rowid();
             """;
         BindWritableColumns(command, download);
@@ -96,7 +97,7 @@ internal sealed class DownloadRepository : IDownloadRepository
                 total_bytes = $total_bytes, status = $status, category_type = $category_type,
                 category_status = $category_status, etag = $etag, last_modified = $last_modified,
                 created_at = $created_at, completed_at = $completed_at, error = $error,
-                max_connections = $max_connections, speed_limit = $speed_limit
+                max_connections = $max_connections, speed_limit = $speed_limit, priority = $priority
             WHERE id = $id;
             """;
         BindWritableColumns(command, download);
@@ -136,6 +137,7 @@ internal sealed class DownloadRepository : IDownloadRepository
         command.Parameters.AddWithValue("$error", (object?)download.Error ?? DBNull.Value);
         command.Parameters.AddWithValue("$max_connections", (object?)download.MaxConnections ?? DBNull.Value);
         command.Parameters.AddWithValue("$speed_limit", (object?)download.SpeedLimit ?? DBNull.Value);
+        command.Parameters.AddWithValue("$priority", download.Priority);
     }
 
     private static Download Map(SqliteDataReader reader) => new()
@@ -156,5 +158,43 @@ internal sealed class DownloadRepository : IDownloadRepository
         Error = reader.GetNullableString(13),
         MaxConnections = reader.GetNullableInt32(14),
         SpeedLimit = reader.GetNullableInt64(15),
+        Priority = reader.GetInt32(16),
     };
+
+    public async Task<IReadOnlyList<Download>> GetByStatusOrderedByPriorityAsync(
+        string statusCode, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(statusCode);
+
+        await using SqliteConnection connection =
+            await _connectionFactory.CreateOpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await using SqliteCommand command = connection.CreateCommand();
+        command.CommandText =
+            $"SELECT {Columns} FROM downloads WHERE status = $status " +
+            "ORDER BY priority DESC, created_at ASC, id ASC;";
+        command.Parameters.AddWithValue("$status", statusCode);
+
+        var results = new List<Download>();
+        await using SqliteDataReader reader =
+            await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            results.Add(Map(reader));
+        }
+
+        return results;
+    }
+
+    public async Task<bool> SetPriorityAsync(long id, int priority, CancellationToken cancellationToken = default)
+    {
+        await using SqliteConnection connection =
+            await _connectionFactory.CreateOpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await using SqliteCommand command = connection.CreateCommand();
+        command.CommandText = "UPDATE downloads SET priority = $priority WHERE id = $id;";
+        command.Parameters.AddWithValue("$priority", priority);
+        command.Parameters.AddWithValue("$id", id);
+
+        int rows = await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        return rows > 0;
+    }
 }

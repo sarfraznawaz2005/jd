@@ -59,4 +59,10 @@ public sealed record Download
 
     /// <summary>Per-download speed cap in bytes/sec; <see langword="null"/> or <c>0</c> means unlimited.</summary>
     public long? SpeedLimit { get; init; }
+
+    /// <summary>
+    /// Queue priority (TASK-072, US-16): higher runs sooner; ties break on <see cref="CreatedAt"/>. Default
+    /// <c>0</c>. The drag-to-reorder UI persists new values here so the order survives a restart.
+    /// </summary>
+    public int Priority { get; init; }
 }

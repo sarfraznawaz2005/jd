@@ -138,6 +138,7 @@ public static class ServiceCollectionExtensions
         // later tasks append new ones without touching the runner; the runner applies any whose
         // version exceeds the database's current user_version, idempotently.
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IMigration, InitialSchemaMigration>());
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IMigration, AddDownloadPriorityMigration>());
         services.TryAddSingleton<IMigrationRunner, MigrationRunner>();
 
         // Repositories (TASK-020) — the centralized data-access seam. Stateless over the shared
@@ -317,6 +318,10 @@ public static class ServiceCollectionExtensions
         ArgumentNullException.ThrowIfNull(services);
 
         services.TryAddSingleton<IDownloadManager, DownloadManager>();
+
+        // Download queue (TASK-072, US-16): enforces the max-concurrent limit and priority order, starting
+        // queued downloads through the manager as slots free up. Singleton so one queue owns scheduling.
+        services.TryAddSingleton<IDownloadQueueService, DownloadQueueService>();
 
         // Live Completed/Incomplete grouping for the list/sidebar (TASK-045, US-8). Singleton so it holds
         // one shared membership view and subscribes to the single manager's status events.

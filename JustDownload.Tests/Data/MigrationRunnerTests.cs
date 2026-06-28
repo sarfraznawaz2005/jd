@@ -59,7 +59,7 @@ public sealed class MigrationRunnerTests : IDisposable
 
         int version = runner.Migrate();
 
-        version.Should().Be(1);
+        version.Should().Be(2, "the migration head is version 2 after TASK-072");
         GetTableNames(factory).Should().Contain(ExpectedTables);
     }
 
@@ -75,7 +75,7 @@ public sealed class MigrationRunnerTests : IDisposable
         using SqliteConnection connection = factory.CreateOpenConnection();
         using SqliteCommand cmd = connection.CreateCommand();
         cmd.CommandText = "PRAGMA user_version;";
-        Convert.ToInt32(cmd.ExecuteScalar(), CultureInfo.InvariantCulture).Should().Be(1);
+        Convert.ToInt32(cmd.ExecuteScalar(), CultureInfo.InvariantCulture).Should().Be(2);
     }
 
     [Fact]
@@ -93,8 +93,8 @@ public sealed class MigrationRunnerTests : IDisposable
 
         int second = runner.Migrate();
 
-        first.Should().Be(1);
-        second.Should().Be(1);
+        first.Should().Be(2);
+        second.Should().Be(2);
         GetTableNames(factory).Should().Contain(ExpectedTables);
     }
 
@@ -108,8 +108,8 @@ public sealed class MigrationRunnerTests : IDisposable
         int first = await runner.MigrateAsync();
         int second = await runner.MigrateAsync();
 
-        first.Should().Be(1);
-        second.Should().Be(1);
+        first.Should().Be(2);
+        second.Should().Be(2);
         GetTableNames(factory).Should().Contain(ExpectedTables);
     }
 

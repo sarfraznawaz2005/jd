@@ -29,4 +29,14 @@ public interface IDownloadRepository
     /// <see langword="true"/> when a row was removed.
     /// </summary>
     Task<bool> DeleteAsync(long id, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Gets downloads in the given lifecycle <paramref name="statusCode"/>, ordered by queue priority
+    /// (highest first, then oldest first) — the order the queue starts them in (TASK-072, US-16).
+    /// </summary>
+    Task<IReadOnlyList<Download>> GetByStatusOrderedByPriorityAsync(
+        string statusCode, CancellationToken cancellationToken = default);
+
+    /// <summary>Sets just the queue <c>priority</c> for a download (TASK-072). Returns whether a row matched.</summary>
+    Task<bool> SetPriorityAsync(long id, int priority, CancellationToken cancellationToken = default);
 }
