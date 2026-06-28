@@ -127,6 +127,29 @@ public sealed class AuthTests : IDisposable
     }
 
     [Fact]
+    public async Task AuthenticatedProxy_Digest_WithCredentials_RoutesTraffic()
+    {
+        byte[] body = Bytes(16_000);
+        await using var origin = new LoopbackHttpServer { Body = body, SupportRanges = true };
+        await using var proxy = new LoopbackHttpProxy { RequiredDigestAuth = "puser:ppass" };
+        using ServiceProvider provider = BuildProvider();
+        var downloader = provider.GetRequiredService<ISegmentedDownloader>();
+        string dest = Path.Combine(_dir, "proxy-digest.bin");
+
+        await downloader.DownloadAsync(new DownloadRequest
+        {
+            Url = origin.Url("f.bin"),
+            DestinationPath = dest,
+            Connections = 1,
+            Proxy = new ProxyConfiguration(
+                ProxyKind.Http, "127.0.0.1", proxy.Port, new NetworkCredentials("puser", "ppass")),
+        });
+
+        (await File.ReadAllBytesAsync(dest)).Should().Equal(body);
+        proxy.RequestedUrls.Should().NotBeEmpty("the Digest-authenticated proxy routed the traffic");
+    }
+
+    [Fact]
     public async Task AuthenticatedProxy_WithoutCredentials_ThrowsAuthRequired_ForProxy()
     {
         await using var origin = new LoopbackHttpServer { Body = Bytes(100), SupportRanges = true };

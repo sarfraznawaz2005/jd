@@ -38,8 +38,14 @@ internal sealed class LoopbackHttpProxy : IAsyncDisposable
     /// <summary>The proxy's listening port on loopback.</summary>
     public int Port { get; }
 
+    private const string DigestRealm = "proxy";
+    private const string DigestNonce = "cafef00dproxy";
+
     /// <summary>When set to <c>user:pass</c>, the proxy demands Basic <c>Proxy-Authorization</c> (407) first.</summary>
     public string? RequiredBasicAuth { get; set; }
+
+    /// <summary>When set to <c>user:pass</c>, the proxy demands Digest <c>Proxy-Authorization</c> (407, RFC 7616).</summary>
+    public string? RequiredDigestAuth { get; set; }
 
     /// <summary>The absolute URLs the proxy was asked to fetch (proves routing through the proxy).</summary>
     public IReadOnlyList<string> RequestedUrls
@@ -89,9 +95,17 @@ internal sealed class LoopbackHttpProxy : IAsyncDisposable
                     return;
                 }
 
-                if (RequiredBasicAuth is { } required && !IsProxyAuthValid(proxyAuth, required))
+                if (RequiredBasicAuth is { } basic && !IsBasicValid(proxyAuth, basic))
                 {
-                    await WriteProxyChallengeAsync(stream, ct).ConfigureAwait(false);
+                    await WriteProxyChallengeAsync(stream, "Basic realm=\"proxy\"", ct).ConfigureAwait(false);
+                    return;
+                }
+
+                if (RequiredDigestAuth is { } digest && !IsDigestValid(proxyAuth, digest))
+                {
+                    await WriteProxyChallengeAsync(
+                        stream, $"Digest realm=\"{DigestRealm}\", qop=\"auth\", nonce=\"{DigestNonce}\"", ct)
+                        .ConfigureAwait(false);
                     return;
                 }
 
@@ -121,7 +135,7 @@ internal sealed class LoopbackHttpProxy : IAsyncDisposable
         }
     }
 
-    private static bool IsProxyAuthValid(string? proxyAuth, string required)
+    private static bool IsBasicValid(string? proxyAuth, string required)
     {
         const string prefix = "Basic ";
         if (proxyAuth is null || !proxyAuth.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
@@ -133,11 +147,61 @@ internal sealed class LoopbackHttpProxy : IAsyncDisposable
         return decoded == required;
     }
 
-    private static async Task WriteProxyChallengeAsync(NetworkStream stream, CancellationToken ct)
+    private static bool IsDigestValid(string? proxyAuth, string required)
+    {
+        const string prefix = "Digest ";
+        if (proxyAuth is null || !proxyAuth.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        string[] credential = required.Split(':', 2);
+        string user = credential[0];
+        string password = credential.Length > 1 ? credential[1] : string.Empty;
+
+        Dictionary<string, string> p = ParseDigest(proxyAuth[prefix.Length..]);
+        if (p.GetValueOrDefault("username") != user ||
+            !p.TryGetValue("uri", out string? uri) ||
+            !p.TryGetValue("response", out string? response) ||
+            !p.TryGetValue("nc", out string? nc) ||
+            !p.TryGetValue("cnonce", out string? cnonce))
+        {
+            return false;
+        }
+
+        string qop = p.GetValueOrDefault("qop", "auth");
+        string ha1 = Md5($"{user}:{DigestRealm}:{password}");
+        string ha2 = Md5($"GET:{uri}");
+        string expected = Md5($"{ha1}:{DigestNonce}:{nc}:{cnonce}:{qop}:{ha2}");
+        return string.Equals(expected, response, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static Dictionary<string, string> ParseDigest(string value)
+    {
+        var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (string part in value.Split(','))
+        {
+            int eq = part.IndexOf('=', StringComparison.Ordinal);
+            if (eq > 0)
+            {
+                result[part[..eq].Trim()] = part[(eq + 1)..].Trim().Trim('"');
+            }
+        }
+
+        return result;
+    }
+
+    // HTTP Digest (RFC 7616) mandates MD5 for H(); this is protocol interop in a test fixture, not security.
+#pragma warning disable CA5351
+    private static string Md5(string input) =>
+        Convert.ToHexString(System.Security.Cryptography.MD5.HashData(Encoding.ASCII.GetBytes(input))).ToLowerInvariant();
+#pragma warning restore CA5351
+
+    private static async Task WriteProxyChallengeAsync(NetworkStream stream, string challenge, CancellationToken ct)
     {
         byte[] head = Encoding.ASCII.GetBytes(
             "HTTP/1.1 407 Proxy Authentication Required\r\n" +
-            "Proxy-Authenticate: Basic realm=\"proxy\"\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+            $"Proxy-Authenticate: {challenge}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
         await stream.WriteAsync(head, ct).ConfigureAwait(false);
         await stream.FlushAsync(ct).ConfigureAwait(false);
     }
