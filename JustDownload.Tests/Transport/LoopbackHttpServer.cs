@@ -20,6 +20,7 @@ internal sealed class LoopbackHttpServer : IAsyncDisposable
     private readonly Task _loop;
     private readonly object _servedGate = new();
     private readonly List<(long From, long To)> _served = [];
+    private readonly List<string> _receivedHeaderLines = [];
     private int _currentConnections;
     private int _maxConnections;
 
@@ -114,6 +115,18 @@ internal sealed class LoopbackHttpServer : IAsyncDisposable
         }
     }
 
+    /// <summary>Every request header line (<c>Name: value</c>) seen across all requests, in arrival order.</summary>
+    public IReadOnlyList<string> ReceivedHeaderLines
+    {
+        get
+        {
+            lock (_servedGate)
+            {
+                return _receivedHeaderLines.ToArray();
+            }
+        }
+    }
+
     /// <summary>The server's base URL (loopback, ephemeral port).</summary>
     public Uri BaseUri { get; }
 
@@ -182,7 +195,7 @@ internal sealed class LoopbackHttpServer : IAsyncDisposable
         while (Interlocked.CompareExchange(ref _maxConnections, candidate, max) != max);
     }
 
-    private static async Task<(string Method, (long From, long? To)? Range)> ReadRequestAsync(
+    private async Task<(string Method, (long From, long? To)? Range)> ReadRequestAsync(
         NetworkStream stream, CancellationToken ct)
     {
         var buffer = new byte[8192];
@@ -200,6 +213,20 @@ internal sealed class LoopbackHttpServer : IAsyncDisposable
 
         string[] lines = text.ToString().Split("\r\n");
         string method = lines.Length > 0 ? lines[0].Split(' ').FirstOrDefault() ?? "GET" : "GET";
+
+        // Record header lines (everything after the request line, up to the blank line) for assertions.
+        lock (_servedGate)
+        {
+            foreach (string line in lines.Skip(1))
+            {
+                if (line.Length == 0)
+                {
+                    break;
+                }
+
+                _receivedHeaderLines.Add(line);
+            }
+        }
 
         (long, long?)? range = null;
         foreach (string line in lines)

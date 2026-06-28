@@ -1,6 +1,8 @@
 using System.Collections.Concurrent;
+using JustDownload.Core.Data.Models;
 using JustDownload.Core.Data.Repositories;
 using JustDownload.Core.Lifecycle;
+using JustDownload.Core.Security;
 using Microsoft.Extensions.Logging;
 
 namespace JustDownload.App.Services;
@@ -16,19 +18,23 @@ public sealed partial class DownloadActionsService : IDownloadActions, IDisposab
 {
     private readonly IDownloadManager _manager;
     private readonly IDownloadRepository _repository;
+    private readonly ISecretStore _secretStore;
     private readonly ILogger<DownloadActionsService> _logger;
     private readonly ConcurrentDictionary<long, CancellationTokenSource> _running = new();
 
     public DownloadActionsService(
         IDownloadManager manager,
         IDownloadRepository repository,
+        ISecretStore secretStore,
         ILogger<DownloadActionsService> logger)
     {
         ArgumentNullException.ThrowIfNull(manager);
         ArgumentNullException.ThrowIfNull(repository);
+        ArgumentNullException.ThrowIfNull(secretStore);
         ArgumentNullException.ThrowIfNull(logger);
         _manager = manager;
         _repository = repository;
+        _secretStore = secretStore;
         _logger = logger;
     }
 
@@ -83,6 +89,15 @@ public sealed partial class DownloadActionsService : IDownloadActions, IDisposab
     public async Task RemoveAsync(long id, CancellationToken cancellationToken = default)
     {
         Pause(id);
+
+        // Remove any keychain-stored cookies for this download before its row goes, so no secret is orphaned
+        // in the OS vault (§5, TASK-091).
+        Download? record = await _repository.GetAsync(id, cancellationToken).ConfigureAwait(false);
+        if (record?.CookieSecretRef is { Length: > 0 } cookieRef)
+        {
+            await _secretStore.DeleteAsync(cookieRef, cancellationToken).ConfigureAwait(false);
+        }
+
         await _repository.DeleteAsync(id, cancellationToken).ConfigureAwait(false);
     }
 

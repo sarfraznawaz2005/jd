@@ -13,7 +13,8 @@ internal sealed class DownloadRepository : IDownloadRepository
 {
     private const string Columns =
         "id, url, referrer, filename, dir, total_bytes, status, category_type, category_status, " +
-        "etag, last_modified, created_at, completed_at, error, max_connections, speed_limit, priority";
+        "etag, last_modified, created_at, completed_at, error, max_connections, speed_limit, priority, " +
+        "cookie_secret_ref";
 
     private readonly IDbConnectionFactory _connectionFactory;
 
@@ -34,11 +35,12 @@ internal sealed class DownloadRepository : IDownloadRepository
             """
             INSERT INTO downloads
                 (url, referrer, filename, dir, total_bytes, status, category_type, category_status,
-                 etag, last_modified, created_at, completed_at, error, max_connections, speed_limit, priority)
+                 etag, last_modified, created_at, completed_at, error, max_connections, speed_limit, priority,
+                 cookie_secret_ref)
             VALUES
                 ($url, $referrer, $filename, $dir, $total_bytes, $status, $category_type, $category_status,
                  $etag, $last_modified, $created_at, $completed_at, $error, $max_connections, $speed_limit,
-                 $priority);
+                 $priority, $cookie_secret_ref);
             SELECT last_insert_rowid();
             """;
         BindWritableColumns(command, download);
@@ -97,7 +99,8 @@ internal sealed class DownloadRepository : IDownloadRepository
                 total_bytes = $total_bytes, status = $status, category_type = $category_type,
                 category_status = $category_status, etag = $etag, last_modified = $last_modified,
                 created_at = $created_at, completed_at = $completed_at, error = $error,
-                max_connections = $max_connections, speed_limit = $speed_limit, priority = $priority
+                max_connections = $max_connections, speed_limit = $speed_limit, priority = $priority,
+                cookie_secret_ref = $cookie_secret_ref
             WHERE id = $id;
             """;
         BindWritableColumns(command, download);
@@ -138,6 +141,7 @@ internal sealed class DownloadRepository : IDownloadRepository
         command.Parameters.AddWithValue("$max_connections", (object?)download.MaxConnections ?? DBNull.Value);
         command.Parameters.AddWithValue("$speed_limit", (object?)download.SpeedLimit ?? DBNull.Value);
         command.Parameters.AddWithValue("$priority", download.Priority);
+        command.Parameters.AddWithValue("$cookie_secret_ref", (object?)download.CookieSecretRef ?? DBNull.Value);
     }
 
     private static Download Map(SqliteDataReader reader) => new()
@@ -159,6 +163,7 @@ internal sealed class DownloadRepository : IDownloadRepository
         MaxConnections = reader.GetNullableInt32(14),
         SpeedLimit = reader.GetNullableInt64(15),
         Priority = reader.GetInt32(16),
+        CookieSecretRef = reader.GetNullableString(17),
     };
 
     public async Task<IReadOnlyList<Download>> GetByStatusOrderedByPriorityAsync(

@@ -144,6 +144,7 @@ public static class ServiceCollectionExtensions
         // version exceeds the database's current user_version, idempotently.
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IMigration, InitialSchemaMigration>());
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IMigration, AddDownloadPriorityMigration>());
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IMigration, AddDownloadCookieSecretRefMigration>());
         services.TryAddSingleton<IMigrationRunner, MigrationRunner>();
 
         // Repositories (TASK-020) — the centralized data-access seam. Stateless over the shared
@@ -172,6 +173,9 @@ public static class ServiceCollectionExtensions
     {
         ArgumentNullException.ThrowIfNull(services);
 
+        // SecretStorePathProvider needs app info for its vault path; ensure it's available so this module is
+        // self-contained (idempotent — the composition root registers it too).
+        services.TryAddSingleton<IAppInfoProvider, AppInfoProvider>();
         services.TryAddSingleton<ISecretStorePathProvider, SecretStorePathProvider>();
 
         // Each branch is guarded by the matching OperatingSystem check so the platform-availability
@@ -321,6 +325,10 @@ public static class ServiceCollectionExtensions
     public static IServiceCollection AddJustDownloadLifecycle(this IServiceCollection services)
     {
         ArgumentNullException.ThrowIfNull(services);
+
+        // The manager resolves cookies from the OS keychain (TASK-091), so ensure the secret store is
+        // registered wherever lifecycle is (idempotent — full AddJustDownloadCore already adds it).
+        services.AddJustDownloadSecrets();
 
         services.TryAddSingleton<IDownloadManager, DownloadManager>();
 

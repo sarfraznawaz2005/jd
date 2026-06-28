@@ -130,6 +130,22 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         }
     }
 
+    /// <summary>
+    /// Raised for a browser-extension hand-off (TASK-091): the shell opens the new-download dialog prefilled
+    /// with the URL and the captured referrer/cookies so an authenticated download succeeds.
+    /// </summary>
+    public event EventHandler<BrowserLinkHandoff>? DownloadHandoffRequested;
+
+    /// <summary>Asks the shell to start a download for a browser hand-off, preserving its auth context.</summary>
+    public void RequestDownloadHandoff(BrowserLinkHandoff handoff)
+    {
+        ArgumentNullException.ThrowIfNull(handoff);
+        if (!string.IsNullOrWhiteSpace(handoff.Url))
+        {
+            DownloadHandoffRequested?.Invoke(this, handoff);
+        }
+    }
+
     /// <summary>Raised when the user opens Settings — the shell shows the settings screens (TASK-057).</summary>
     public event EventHandler? SettingsRequested;
 

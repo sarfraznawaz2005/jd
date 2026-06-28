@@ -84,6 +84,10 @@ public partial class App : Application
             // new-download dialog prefilled.
             mainViewModel.DownloadUrlRequested += (_, url) => _ = ShowNewDownloadDialogAsync(window, url);
 
+            // A browser-extension hand-off (TASK-091) opens the dialog prefilled and carries the captured
+            // referrer/cookies into the download so authenticated/signed links succeed.
+            mainViewModel.DownloadHandoffRequested += (_, handoff) => _ = ShowNewDownloadDialogAsync(window, handoff);
+
             WireCloseToTray(desktop, window);
 
             // Notify on completion/error, add a tray icon, and accept URLs forwarded by a second launch (TASK-061).
@@ -205,6 +209,16 @@ public partial class App : Application
         await dialog.ShowDialog(owner);
     }
 
+    private async Task ShowNewDownloadDialogAsync(Window owner, BrowserLinkHandoff handoff)
+    {
+        var viewModel = Services.GetRequiredService<NewDownloadViewModel>();
+        viewModel.Url = handoff.Url;
+        viewModel.SetAuthContext(handoff.Referrer, handoff.Cookies);
+
+        var dialog = new NewDownloadWindow { DataContext = viewModel };
+        await dialog.ShowDialog(owner);
+    }
+
     private async Task ShowSettingsDialogAsync(Window owner)
     {
         var dialog = new SettingsWindow
@@ -296,7 +310,8 @@ public partial class App : Application
         MainWindowViewModel mainViewModel = Services.GetRequiredService<MainWindowViewModel>();
         foreach (JustDownload.Core.NativeMessaging.PendingLink link in pending)
         {
-            mainViewModel.RequestDownloadForUrl(link.Url);
+            // Carry the captured referrer/cookies through so authenticated/signed hand-offs succeed (TASK-091).
+            mainViewModel.RequestDownloadHandoff(new BrowserLinkHandoff(link.Url, link.Referrer, link.Cookies));
         }
     }
 

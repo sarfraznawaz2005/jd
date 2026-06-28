@@ -35,6 +35,10 @@ public sealed partial class NewDownloadViewModel : ViewModelBase
     private long? _detectedSize;
     private CancellationTokenSource? _detectCts;
 
+    // Auth context from a browser-extension hand-off (TASK-091); applied to the enqueue, never shown.
+    private string? _referrer;
+    private string? _cookies;
+
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(DownloadNowCommand))]
     [NotifyCanExecuteChangedFor(nameof(AddPausedCommand))]
@@ -205,6 +209,17 @@ public sealed partial class NewDownloadViewModel : ViewModelBase
             : resumable ? "Size unknown · resumable" : "Size unknown · no resume";
     }
 
+    /// <summary>
+    /// Applies the auth context from a browser-extension hand-off (TASK-091) so the enqueued download carries
+    /// the captured referrer and cookies. The cookies are passed to the engine (which stores them in the OS
+    /// keychain) and are not displayed in the dialog.
+    /// </summary>
+    public void SetAuthContext(string? referrer, string? cookies)
+    {
+        _referrer = referrer;
+        _cookies = cookies;
+    }
+
     /// <summary>Enqueues the download and starts it immediately ("Download now").</summary>
     [RelayCommand(CanExecute = nameof(CanSubmit))]
     private async Task DownloadNowAsync() => await SubmitAsync(startImmediately: true).ConfigureAwait(true);
@@ -234,6 +249,8 @@ public sealed partial class NewDownloadViewModel : ViewModelBase
             CategoryType = category.ToString(),
             MaxConnections = UseSegmentation ? _settings.Current.ConnectionsPerDownload : 1,
             SpeedLimit = null,
+            Referrer = _referrer,
+            Cookies = _cookies,
         };
 
         long id = await _manager.EnqueueAsync(request).ConfigureAwait(true);

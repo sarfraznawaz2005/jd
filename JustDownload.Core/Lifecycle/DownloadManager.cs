@@ -3,6 +3,7 @@ using JustDownload.Core.Abstractions;
 using JustDownload.Core.Data.Models;
 using JustDownload.Core.Data.Repositories;
 using JustDownload.Core.Downloading;
+using JustDownload.Core.Security;
 using JustDownload.Core.Transport;
 using Microsoft.Extensions.Logging;
 
@@ -26,6 +27,7 @@ internal sealed partial class DownloadManager : IDownloadManager
     private readonly ISegmentedDownloader _downloader;
     private readonly IResourceProbe _probe;
     private readonly SegmentationOptions _segmentationOptions;
+    private readonly ISecretStore _secretStore;
     private readonly IClock _clock;
     private readonly ILogger<DownloadManager> _logger;
     private readonly ConcurrentDictionary<long, DownloadProgress> _latest = new();
@@ -37,6 +39,7 @@ internal sealed partial class DownloadManager : IDownloadManager
         ISegmentedDownloader downloader,
         IResourceProbe probe,
         SegmentationOptions segmentationOptions,
+        ISecretStore secretStore,
         IClock clock,
         ILogger<DownloadManager> logger)
     {
@@ -45,6 +48,7 @@ internal sealed partial class DownloadManager : IDownloadManager
         ArgumentNullException.ThrowIfNull(downloader);
         ArgumentNullException.ThrowIfNull(probe);
         ArgumentNullException.ThrowIfNull(segmentationOptions);
+        ArgumentNullException.ThrowIfNull(secretStore);
         ArgumentNullException.ThrowIfNull(clock);
         ArgumentNullException.ThrowIfNull(logger);
         _repository = repository;
@@ -52,6 +56,7 @@ internal sealed partial class DownloadManager : IDownloadManager
         _downloader = downloader;
         _probe = probe;
         _segmentationOptions = segmentationOptions;
+        _secretStore = secretStore;
         _clock = clock;
         _logger = logger;
     }
@@ -73,6 +78,13 @@ internal sealed partial class DownloadManager : IDownloadManager
         ArgumentException.ThrowIfNullOrEmpty(request.DestinationDirectory);
         ArgumentException.ThrowIfNullOrEmpty(request.FileName);
 
+        // Cookies are secrets (§5): keep them in the OS keychain and persist only the opaque reference.
+        string? cookieSecretRef = null;
+        if (request.Cookies is { Length: > 0 } cookies)
+        {
+            cookieSecretRef = await _secretStore.StoreAsync(cookies, cancellationToken).ConfigureAwait(false);
+        }
+
         var record = new Download
         {
             Url = request.Url.ToString(),
@@ -86,6 +98,7 @@ internal sealed partial class DownloadManager : IDownloadManager
             CreatedAt = _clock.UtcNow,
             MaxConnections = request.MaxConnections,
             SpeedLimit = request.SpeedLimit,
+            CookieSecretRef = cookieSecretRef,
         };
 
         long id = await _repository.AddAsync(record, cancellationToken).ConfigureAwait(false);
@@ -115,7 +128,8 @@ internal sealed partial class DownloadManager : IDownloadManager
         // Seed the resume checkpoint from any persisted segments so this run fetches only the missing gaps.
         ReceivedRanges received = await LoadReceivedAsync(id, cancellationToken).ConfigureAwait(false);
 
-        IReadOnlyList<KeyValuePair<string, string>> headers = BuildHeaders(record);
+        IReadOnlyList<KeyValuePair<string, string>> headers =
+            await BuildHeadersAsync(record, cancellationToken).ConfigureAwait(false);
         var downloadRequest = new DownloadRequest
         {
             Url = new Uri(record.Url),
@@ -258,7 +272,9 @@ internal sealed partial class DownloadManager : IDownloadManager
         ResourceProbeResult probe;
         try
         {
-            probe = await _probe.ProbeAsync(newUrl, BuildHeaders(record), cancellationToken).ConfigureAwait(false);
+            IReadOnlyList<KeyValuePair<string, string>> renewHeaders =
+                await BuildHeadersAsync(record, cancellationToken).ConfigureAwait(false);
+            probe = await _probe.ProbeAsync(newUrl, renewHeaders, cancellationToken).ConfigureAwait(false);
         }
         catch (ResourceProbeException ex) when (ExpiryDetection.IsExpiryStatusCode(ex.StatusCode))
         {
@@ -327,10 +343,31 @@ internal sealed partial class DownloadManager : IDownloadManager
         }
     }
 
-    private static IReadOnlyList<KeyValuePair<string, string>> BuildHeaders(Download record) =>
-        record.Referrer is { Length: > 0 } referrer
-            ? [new KeyValuePair<string, string>("Referer", referrer)]
-            : [];
+    /// <summary>
+    /// Builds the per-download request headers: the <c>Referer</c> (from the persisted referrer) and, when the
+    /// download carries captured cookies, a <c>Cookie</c> header resolved from the OS keychain (TASK-091).
+    /// Resolving on every start/resume keeps the cookies out of SQLite while still authenticating the request.
+    /// </summary>
+    private async Task<IReadOnlyList<KeyValuePair<string, string>>> BuildHeadersAsync(
+        Download record, CancellationToken cancellationToken)
+    {
+        var headers = new List<KeyValuePair<string, string>>(capacity: 2);
+        if (record.Referrer is { Length: > 0 } referrer)
+        {
+            headers.Add(new KeyValuePair<string, string>("Referer", referrer));
+        }
+
+        if (record.CookieSecretRef is { Length: > 0 } cookieRef)
+        {
+            string? cookies = await _secretStore.RetrieveAsync(cookieRef, cancellationToken).ConfigureAwait(false);
+            if (cookies is { Length: > 0 })
+            {
+                headers.Add(new KeyValuePair<string, string>("Cookie", cookies));
+            }
+        }
+
+        return headers;
+    }
 
     /// <summary>Rebuilds the resume checkpoint from persisted segment rows (empty for a fresh download).</summary>
     private async Task<ReceivedRanges> LoadReceivedAsync(long id, CancellationToken cancellationToken)

@@ -22,6 +22,13 @@ public sealed record EnqueueDownloadRequest
     /// <summary>The referring page URL, sent as <c>Referer</c> and used by renew flows.</summary>
     public string? Referrer { get; init; }
 
+    /// <summary>
+    /// Request cookies captured by the browser extension for an authenticated/signed download (TASK-091),
+    /// as a <c>Cookie</c> header value. Persisted only in the OS keychain (never SQLite), so a cookie-gated
+    /// hand-off succeeds. <see langword="null"/> for ordinary downloads.
+    /// </summary>
+    public string? Cookies { get; init; }
+
     /// <summary>The file-type category code (Video, Document, …) for auto-organization.</summary>
     public string? CategoryType { get; init; }
 

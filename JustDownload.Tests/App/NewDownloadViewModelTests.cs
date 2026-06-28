@@ -187,6 +187,28 @@ public sealed class NewDownloadViewModelTests
     }
 
     [Fact]
+    public async Task SetAuthContext_FlowsReferrerAndCookies_IntoEnqueue()
+    {
+        // A browser hand-off (TASK-091) carries the captured referrer/cookies into the enqueue so an
+        // authenticated download succeeds; cookies are handed to the engine (which keychains them).
+        var h = new Harness();
+        h.Manager.EnqueueAsync(Arg.Any<EnqueueDownloadRequest>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(11L));
+        var vm = h.Build();
+        vm.Url = "https://host.example/clip.mp4";
+        vm.FileName = "clip.mp4";
+        vm.SaveToFolder = @"C:\Dest";
+        vm.SetAuthContext("https://host.example/watch", "session=abc123");
+
+        await vm.DownloadNowCommand.ExecuteAsync(null);
+
+        await h.Manager.Received(1).EnqueueAsync(
+            Arg.Is<EnqueueDownloadRequest>(r =>
+                r.Referrer == "https://host.example/watch" && r.Cookies == "session=abc123"),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
     public async Task AddPaused_EnqueuesWithoutStarting()
     {
         var h = new Harness();

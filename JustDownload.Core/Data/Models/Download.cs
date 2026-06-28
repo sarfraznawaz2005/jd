@@ -65,4 +65,12 @@ public sealed record Download
     /// <c>0</c>. The drag-to-reorder UI persists new values here so the order survives a restart.
     /// </summary>
     public int Priority { get; init; }
+
+    /// <summary>
+    /// Opaque <c>secret_ref</c> (TASK-091, §5) for the request cookies captured by the browser extension, if
+    /// any. The cookies themselves live only in the OS keychain; this reference is the <b>only</b> thing
+    /// persisted here and discloses nothing on its own. Resolved on download/resume to send a <c>Cookie</c>
+    /// header so authenticated/signed media downloads succeed.
+    /// </summary>
+    public string? CookieSecretRef { get; init; }
 }
