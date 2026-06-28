@@ -333,6 +333,9 @@ public static class ServiceCollectionExtensions
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IMediaExtractor, HlsMediaExtractor>());
         services.TryAddSingleton<IHlsDownloader, HlsDownloader>();
 
+        // HLS concat (TASK-038): byte-exact append of downloaded segments into one .ts.
+        services.TryAddSingleton<IHlsConcatenator, HlsConcatenator>();
+
         services.TryAddSingleton<IMediaExtractorRegistry, MediaExtractorRegistry>();
 
         return services;
