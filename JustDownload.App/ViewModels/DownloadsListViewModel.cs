@@ -205,7 +205,22 @@ public sealed partial class DownloadsListViewModel : ViewModelBase, IDisposable
 
     private async Task AddNewlyEnqueuedAsync(long id)
     {
-        Download? record = await _repository.GetAsync(id).ConfigureAwait(true);
+        Download? record;
+        try
+        {
+            record = await _repository.GetAsync(id).ConfigureAwait(true);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // This is a fire-and-forget continuation of a manager event; a failure here would otherwise be an
+            // unobserved exception that silently drops the new row. Surface it via the list's error state
+            // (mirrors LoadAsync) instead (no silent failures, §1). Marshal to the UI thread — the manager
+            // raises StatusChanged off the UI thread.
+            _ = ex;
+            Dispatcher.UIThread.Post(() => LoadError = "Couldn't load a new download.");
+            return;
+        }
+
         if (record is null)
         {
             return;

@@ -90,6 +90,25 @@ public sealed class DownloadsListViewModelTests
     }
 
     [AvaloniaFact]
+    public async Task EnqueueEvent_RepositoryFailure_SurfacesError()
+    {
+        // The enqueue row-add is a fire-and-forget continuation of a manager event; if the repository read
+        // fails it must surface, not silently drop the row (TASK-119).
+        var h = new Harness();
+        var vm = h.Build();
+        await vm.LoadAsync();
+        h.Repository.GetAsync(5, Arg.Any<CancellationToken>())
+            .Returns<Task<Download?>>(_ => throw new InvalidOperationException("db unavailable"));
+
+        h.Manager.StatusChanged += Raise.Event<EventHandler<DownloadStatusChangedEventArgs>>(
+            h.Manager, new DownloadStatusChangedEventArgs(5, null, DownloadStatus.Queued));
+        Dispatcher.UIThread.RunJobs();
+
+        vm.LoadError.Should().NotBeNull("a failed enqueue load surfaces an error instead of silently dropping");
+        vm.ShowError.Should().BeTrue();
+    }
+
+    [AvaloniaFact]
     public async Task ProgressEvent_UpdatesTheMatchingRow()
     {
         var h = new Harness();
