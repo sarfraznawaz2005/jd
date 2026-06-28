@@ -56,6 +56,7 @@ public sealed class SeparateStreamDownloaderTests : IDisposable
             IProgress<long>? progress = null,
             ReceivedRanges? received = null,
             IProgress<ConnectionProgress>? connectionProgress = null,
+            ConnectionController? connections = null,
             CancellationToken cancellationToken = default)
         {
             lock (Requests)

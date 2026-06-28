@@ -26,11 +26,18 @@ public interface ISegmentedDownloader
     /// Optional sink for per-connection progress (TASK-054): each worker reports its current segment and
     /// cursor as it writes, so the UI can show live per-connection stats. Ignored if <see langword="null"/>.
     /// </param>
+    /// <param name="connections">
+    /// Optional live connection-count controller (TASK-027, US-4): raising its desired count spawns extra
+    /// connections via work-stealing, lowering drains connections at segment boundaries, and the engine
+    /// writes back the active count. Ignored for a single-connection (range-less/unknown-size) transfer,
+    /// which cannot be parallelised. When <see langword="null"/> the connection count is fixed.
+    /// </param>
     /// <param name="cancellationToken">Cancels the download (honored promptly for pause/cancel).</param>
     Task<DownloadResult> DownloadAsync(
         DownloadRequest request,
         IProgress<long>? progress = null,
         ReceivedRanges? received = null,
         IProgress<ConnectionProgress>? connectionProgress = null,
+        ConnectionController? connections = null,
         CancellationToken cancellationToken = default);
 }

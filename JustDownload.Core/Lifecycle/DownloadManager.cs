@@ -142,7 +142,8 @@ internal sealed partial class DownloadManager : IDownloadManager
             var sink = new ProgressSink(this, id, estimator, active.TotalBytes, active.TotalBytes is > 0, connections);
             var connectionSink = new ConnectionProgressSink(this, id);
 
-            result = await _downloader.DownloadAsync(downloadRequest, sink, received, connectionSink, cancellationToken)
+            result = await _downloader.DownloadAsync(
+                downloadRequest, sink, received, connectionSink, connections: null, cancellationToken)
                 .ConfigureAwait(false);
         }
         catch (OperationCanceledException)

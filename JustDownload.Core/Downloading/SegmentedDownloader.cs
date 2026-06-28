@@ -73,6 +73,7 @@ internal sealed partial class SegmentedDownloader : ISegmentedDownloader
         IProgress<long>? progress = null,
         ReceivedRanges? received = null,
         IProgress<ConnectionProgress>? connectionProgress = null,
+        ConnectionController? connections = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
@@ -82,18 +83,19 @@ internal sealed partial class SegmentedDownloader : ISegmentedDownloader
             .ConfigureAwait(false);
 
         int requested = request.Connections ?? _options.DefaultConnections;
-        int connections = probe.PlanConnectionCount(requested);
+        int connectionCount = probe.PlanConnectionCount(requested);
         IRateLimiter limiter = CreateLimiter(request);
 
-        if (connections <= 1 || probe.TotalLength is not > 0)
+        if (connectionCount <= 1 || probe.TotalLength is not > 0)
         {
-            return await DownloadSingleAsync(request, probe, limiter, progress, connectionProgress, cancellationToken)
+            return await DownloadSingleAsync(
+                request, probe, limiter, progress, connectionProgress, connections, cancellationToken)
                 .ConfigureAwait(false);
         }
 
         return await DownloadSegmentedAsync(
-            request, probe, probe.TotalLength.Value, connections, limiter, progress, received, connectionProgress,
-            cancellationToken)
+            request, probe, probe.TotalLength.Value, connectionCount, limiter, progress, received,
+            connectionProgress, connections, cancellationToken)
             .ConfigureAwait(false);
     }
 
@@ -103,8 +105,12 @@ internal sealed partial class SegmentedDownloader : ISegmentedDownloader
         IRateLimiter limiter,
         IProgress<long>? progress,
         IProgress<ConnectionProgress>? connectionProgress,
+        ConnectionController? connections,
         CancellationToken cancellationToken)
     {
+        // A single-connection transfer cannot be parallelised; live connection control is a no-op here
+        // beyond reflecting the one active connection (AC2).
+        connections?.ReportActiveConnections(1);
         long totalLength = probe.TotalLength is > 0 ? probe.TotalLength.Value : 0;
         await using var file = PreallocatedFile.Create(request.DestinationPath, totalLength);
 
@@ -133,6 +139,7 @@ internal sealed partial class SegmentedDownloader : ISegmentedDownloader
             IsComplete = true,
         });
 
+        connections?.ReportActiveConnections(0);
         LogSingleConnection(_logger, bytes, probe.FinalUri);
 
         return new DownloadResult
@@ -150,11 +157,12 @@ internal sealed partial class SegmentedDownloader : ISegmentedDownloader
         DownloadRequest request,
         ResourceProbeResult probe,
         long totalLength,
-        int connections,
+        int connectionCount,
         IRateLimiter limiter,
         IProgress<long>? progress,
         ReceivedRanges? received,
         IProgress<ConnectionProgress>? connectionProgress,
+        ConnectionController? connections,
         CancellationToken cancellationToken)
     {
         await using var file = PreallocatedFile.Create(request.DestinationPath, totalLength);
@@ -162,8 +170,8 @@ internal sealed partial class SegmentedDownloader : ISegmentedDownloader
         // Resume: only the gaps not already on disk are fetched; a fresh download covers the whole span.
         long baseBytes = received?.TotalReceived ?? 0;
         IReadOnlyList<SegmentRange> ranges = baseBytes > 0
-            ? Segmentation.SplitRanges(received!.Gaps(totalLength), connections, _options.MinSegmentSize)
-            : Segmentation.Split(totalLength, connections, _options.MinSegmentSize);
+            ? Segmentation.SplitRanges(received!.Gaps(totalLength), connectionCount, _options.MinSegmentSize)
+            : Segmentation.Split(totalLength, connectionCount, _options.MinSegmentSize);
 
         if (ranges.Count == 0)
         {
@@ -174,16 +182,12 @@ internal sealed partial class SegmentedDownloader : ISegmentedDownloader
         }
 
         var state = new DownloadState(ranges, baseBytes);
+        var pool = new WorkerPool(
+            this, state, file, probe.FinalUri, request.Headers, limiter, progress, received, connectionProgress,
+            connections, connectionCount, Math.Max(_options.MinStealSize, PreallocatedFile.CopyBufferSize),
+            cancellationToken);
 
-        Task[] workers = state.InitialSegments
-            .Select(seg => Task.Run(
-                () => RunWorkerAsync(
-                    seg, seg.Index, state, file, probe.FinalUri, request.Headers, limiter, progress, received,
-                    connectionProgress, cancellationToken),
-                cancellationToken))
-            .ToArray();
-
-        await Task.WhenAll(workers).ConfigureAwait(false);
+        await pool.RunAsync().ConfigureAwait(false);
         await file.FlushToDiskAsync(cancellationToken).ConfigureAwait(false);
 
         LogSegmented(_logger, state.BytesWritten, probe.FinalUri, ranges.Count, state.Steals);
@@ -202,44 +206,254 @@ internal sealed partial class SegmentedDownloader : ISegmentedDownloader
             Steals = steals,
         };
 
-    private async Task RunWorkerAsync(
-        WorkerSegment segment,
-        int connectionId,
-        DownloadState state,
-        PreallocatedFile file,
-        Uri uri,
-        IReadOnlyList<KeyValuePair<string, string>> headers,
-        IRateLimiter limiter,
-        IProgress<long>? progress,
-        ReceivedRanges? received,
-        IProgress<ConnectionProgress>? connectionProgress,
-        CancellationToken cancellationToken)
+    /// <summary>
+    /// The dynamic pool of download workers for one segmented transfer (TASK-027). It spawns one worker per
+    /// initial segment, then honours a live <see cref="ConnectionController"/>: <see cref="Reconcile"/>
+    /// spawns extra workers (each starting on a stolen tail) when the desired count rises, and each worker
+    /// retires at a segment boundary when the desired count has dropped below the active count — a clean
+    /// drain that never abandons in-flight bytes. The active count is written back to the controller. When
+    /// no controller is supplied the count is fixed at the planned connection count and behaviour matches
+    /// the original static pool. A worker fault cancels its siblings and propagates.
+    /// </summary>
+    private sealed class WorkerPool
     {
-        // A steal must leave the victim at least one copy buffer of headroom before the split point, so a
-        // read already in flight against the old end can never reach (and overlap) the stolen tail. With
-        // the default 1 MiB MinStealSize this is a no-op; it only matters for tiny configured values.
-        long minStealSize = Math.Max(_options.MinStealSize, PreallocatedFile.CopyBufferSize);
+        private readonly object _gate = new();
+        private readonly List<Task> _workers = [];
+        private readonly CancellationTokenSource _failureCts;
+        private readonly SegmentedDownloader _owner;
+        private readonly DownloadState _state;
+        private readonly PreallocatedFile _file;
+        private readonly Uri _uri;
+        private readonly IReadOnlyList<KeyValuePair<string, string>> _headers;
+        private readonly IRateLimiter _limiter;
+        private readonly IProgress<long>? _progress;
+        private readonly ReceivedRanges? _received;
+        private readonly IProgress<ConnectionProgress>? _connectionProgress;
+        private readonly ConnectionController? _controller;
+        private readonly int _baseDesired;
+        private readonly long _minStealSize;
+        private int _active;
+        private int _nextConnectionId;
 
-        WorkerSegment? current = segment;
-        while (current is not null)
+        public WorkerPool(
+            SegmentedDownloader owner,
+            DownloadState state,
+            PreallocatedFile file,
+            Uri uri,
+            IReadOnlyList<KeyValuePair<string, string>> headers,
+            IRateLimiter limiter,
+            IProgress<long>? progress,
+            ReceivedRanges? received,
+            IProgress<ConnectionProgress>? connectionProgress,
+            ConnectionController? controller,
+            int baseDesired,
+            long minStealSize,
+            CancellationToken cancellationToken)
         {
-            await DownloadSegmentAsync(
-                current, connectionId, state, file, uri, headers, limiter, progress, received, connectionProgress,
-                cancellationToken).ConfigureAwait(false);
-            current.Complete();
-            current = state.TrySteal(minStealSize);
+            _owner = owner;
+            _state = state;
+            _file = file;
+            _uri = uri;
+            _headers = headers;
+            _limiter = limiter;
+            _progress = progress;
+            _received = received;
+            _connectionProgress = connectionProgress;
+            _controller = controller;
+            _baseDesired = baseDesired;
+            _minStealSize = minStealSize;
+            _failureCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         }
 
-        // This connection has no more work — report it idle so the UI can retire its live row.
-        connectionProgress?.Report(new ConnectionProgress
+        private int Desired => _controller?.DesiredConnections ?? _baseDesired;
+
+        public async Task RunAsync()
         {
-            ConnectionId = connectionId,
-            SegmentIndex = segment.Index,
-            Start = segment.Start,
-            End = segment.EndInclusive,
-            Position = segment.WriteOffset,
-            IsComplete = true,
-        });
+            if (_controller is not null)
+            {
+                _controller.DesiredChanged += OnDesiredChanged;
+            }
+
+            try
+            {
+                int activeSnapshot;
+                lock (_gate)
+                {
+                    // Every initial segment must get a worker — leaving one unworked would let it be stolen
+                    // (truncated) yet never downloaded. A lower desired count is honoured by draining at
+                    // boundaries, not by skipping initial segments.
+                    foreach (WorkerSegment seg in _state.InitialSegments)
+                    {
+                        _active++;
+                        SpawnLocked(seg);
+                    }
+
+                    activeSnapshot = _active;
+                }
+
+                _controller?.ReportActiveConnections(activeSnapshot);
+
+                // If the desired count already exceeds the initial split, spawn stealers up front.
+                Reconcile();
+
+                while (true)
+                {
+                    Task[] snapshot;
+                    lock (_gate)
+                    {
+                        snapshot = _workers.ToArray();
+                    }
+
+                    if (snapshot.Length == 0)
+                    {
+                        break;
+                    }
+
+                    await Task.WhenAll(snapshot).ConfigureAwait(false);
+
+                    lock (_gate)
+                    {
+                        _workers.RemoveAll(t => t.IsCompleted);
+                        if (_workers.Count == 0)
+                        {
+                            break;
+                        }
+                    }
+                }
+            }
+            finally
+            {
+                if (_controller is not null)
+                {
+                    _controller.DesiredChanged -= OnDesiredChanged;
+                }
+
+                _failureCts.Dispose();
+            }
+        }
+
+        private void OnDesiredChanged() => Reconcile();
+
+        private void SpawnLocked(WorkerSegment seg)
+        {
+            int connectionId = _nextConnectionId++;
+            _workers.Add(Task.Run(() => WorkerLoopAsync(seg, connectionId), _failureCts.Token));
+        }
+
+        private void Reconcile()
+        {
+            bool changed = false;
+            int activeSnapshot;
+            lock (_gate)
+            {
+                if (_failureCts.IsCancellationRequested)
+                {
+                    return;
+                }
+
+                while (_active < Desired)
+                {
+                    WorkerSegment? seg = _state.TrySteal(_minStealSize);
+                    if (seg is null)
+                    {
+                        break; // No splittable work to hand a new connection.
+                    }
+
+                    _active++;
+                    changed = true;
+                    SpawnLocked(seg);
+                }
+
+                activeSnapshot = _active;
+            }
+
+            if (changed)
+            {
+                _controller?.ReportActiveConnections(activeSnapshot);
+            }
+        }
+
+        private WorkerSegment? NextAssignment()
+        {
+            WorkerSegment? result;
+            bool retired = false;
+            int activeSnapshot;
+            lock (_gate)
+            {
+                if (_active > Desired)
+                {
+                    // The desired count dropped — this connection drains cleanly at the boundary.
+                    _active--;
+                    retired = true;
+                    result = null;
+                }
+                else
+                {
+                    WorkerSegment? seg = _state.TrySteal(_minStealSize);
+                    if (seg is null)
+                    {
+                        _active--;
+                        retired = true;
+                        result = null;
+                    }
+                    else
+                    {
+                        result = seg; // Keep this connection alive on the stolen tail.
+                    }
+                }
+
+                activeSnapshot = _active;
+            }
+
+            if (retired)
+            {
+                _controller?.ReportActiveConnections(activeSnapshot);
+            }
+
+            return result;
+        }
+
+        private async Task WorkerLoopAsync(WorkerSegment segment, int connectionId)
+        {
+            WorkerSegment last = segment;
+            WorkerSegment? current = segment;
+            try
+            {
+                while (current is not null)
+                {
+                    last = current;
+                    await _owner.DownloadSegmentAsync(
+                        current, connectionId, _state, _file, _uri, _headers, _limiter, _progress, _received,
+                        _connectionProgress, _failureCts.Token).ConfigureAwait(false);
+                    current.Complete();
+                    current = NextAssignment();
+                }
+
+                // This connection has no more work — report it idle so the UI can retire its live row.
+                _connectionProgress?.Report(new ConnectionProgress
+                {
+                    ConnectionId = connectionId,
+                    SegmentIndex = last.Index,
+                    Start = last.Start,
+                    End = last.EndInclusive,
+                    Position = last.WriteOffset,
+                    IsComplete = true,
+                });
+            }
+            catch
+            {
+                int activeSnapshot;
+                lock (_gate)
+                {
+                    _active = Math.Max(0, _active - 1);
+                    activeSnapshot = _active;
+                }
+
+                _controller?.ReportActiveConnections(activeSnapshot);
+                await _failureCts.CancelAsync().ConfigureAwait(false);
+                throw;
+            }
+        }
     }
 
     private async Task DownloadSegmentAsync(
