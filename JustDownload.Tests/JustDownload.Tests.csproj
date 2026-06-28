@@ -39,6 +39,9 @@
     <ProjectReference Include="..\JustDownload.App\JustDownload.App.csproj" />
     <!-- Perf-budget gate logic is unit-tested here (TASK-015). -->
     <ProjectReference Include="..\JustDownload.Perf\JustDownload.Perf.csproj" />
+    <!-- Built (not referenced) so the host-process e2e (TASK-092) can spawn the real host exe. -->
+    <ProjectReference Include="..\JustDownload.NativeHost\JustDownload.NativeHost.csproj"
+                      ReferenceOutputAssembly="false" Private="false" />
   </ItemGroup>
 
   <ItemGroup>

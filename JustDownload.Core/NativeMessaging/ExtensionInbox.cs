@@ -34,13 +34,11 @@ public sealed class ExtensionInbox : IExtensionInbox, IDisposable
         _path = filePath;
     }
 
-    /// <summary>Creates an inbox under <c>%APPDATA%/&lt;app&gt;/extension-inbox.json</c> (the DI default).</summary>
+    /// <summary>Creates an inbox under the engine data directory (the DI default; honors JUSTDOWNLOAD_DATA_DIR).</summary>
     public ExtensionInbox(IAppInfoProvider appInfo)
     {
         ArgumentNullException.ThrowIfNull(appInfo);
-        string appData = Environment.GetFolderPath(
-            Environment.SpecialFolder.ApplicationData, Environment.SpecialFolderOption.Create);
-        _path = Path.Combine(appData, appInfo.Name, "extension-inbox.json");
+        _path = Path.Combine(AppDataPaths.Directory(appInfo), "extension-inbox.json");
     }
 
     public async Task EnqueueAsync(PendingLink link, CancellationToken cancellationToken = default)

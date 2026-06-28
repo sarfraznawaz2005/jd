@@ -17,13 +17,9 @@ internal sealed class DatabasePathProvider : IDatabasePathProvider
     {
         ArgumentNullException.ThrowIfNull(appInfo);
 
-        // SpecialFolderOption.Create ensures the OS base directory exists; the per-app subfolder
-        // itself is created lazily by the connection factory before the first open.
-        string appData = Environment.GetFolderPath(
-            Environment.SpecialFolder.ApplicationData,
-            Environment.SpecialFolderOption.Create);
-
-        DatabaseDirectory = Path.Combine(appData, appInfo.Name);
+        // Honors JUSTDOWNLOAD_DATA_DIR; otherwise the per-OS app-data folder under the app name. The
+        // directory is created lazily by the connection factory before the first open.
+        DatabaseDirectory = AppDataPaths.Directory(appInfo);
         DatabasePath = Path.Combine(DatabaseDirectory, FileName);
     }
 
