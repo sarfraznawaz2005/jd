@@ -142,7 +142,24 @@ internal sealed partial class DownloadScheduler : IDownloadScheduler
         if (e.Current is DownloadStatus.Completed or DownloadStatus.Failed or DownloadStatus.Expired
             or DownloadStatus.Paused)
         {
-            _ = MaybeRunCompletionActionAsync();
+            _ = RunCompletionActionGuardedAsync();
+        }
+    }
+
+    /// <summary>
+    /// Runs the completion action as a guarded fire-and-forget: any failure (e.g. the power controller
+    /// throwing) is logged at error level immediately rather than becoming an unobserved task exception
+    /// surfaced unpredictably at GC (no silent failures, §1).
+    /// </summary>
+    private async Task RunCompletionActionGuardedAsync()
+    {
+        try
+        {
+            await MaybeRunCompletionActionAsync().ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            LogCompletionActionFailed(_logger, ex);
         }
     }
 
@@ -208,4 +225,7 @@ internal sealed partial class DownloadScheduler : IDownloadScheduler
 
     [LoggerMessage(EventId = 4, Level = LogLevel.Error, Message = "A scheduled queue action failed.")]
     private static partial void LogScheduleFailed(ILogger logger, Exception exception);
+
+    [LoggerMessage(EventId = 5, Level = LogLevel.Error, Message = "The queue completion action failed.")]
+    private static partial void LogCompletionActionFailed(ILogger logger, Exception exception);
 }

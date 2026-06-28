@@ -4,6 +4,7 @@ using JustDownload.Core.Data.Repositories;
 using JustDownload.Core.Downloading;
 using JustDownload.Core.Lifecycle;
 using JustDownload.Tests.Fakes;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
@@ -97,6 +98,37 @@ public sealed class DownloadSchedulerTests
         {
             Interlocked.Increment(ref Sleeps);
             return Task.CompletedTask;
+        }
+    }
+
+    private sealed class ThrowingPower : ISystemPowerController
+    {
+        public Task ShutdownAsync(CancellationToken ct = default) =>
+            throw new InvalidOperationException("no permission to power off");
+
+        public Task SleepAsync(CancellationToken ct = default) =>
+            throw new InvalidOperationException("no permission to sleep");
+    }
+
+    private sealed class RecordingLogger<T> : ILogger<T>
+    {
+        public List<LogLevel> Levels { get; } = [];
+
+        public IDisposable BeginScope<TState>(TState state) where TState : notnull => NullScope.Instance;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(
+            LogLevel logLevel, EventId eventId, TState state, Exception? exception,
+            Func<TState, Exception?, string> formatter) => Levels.Add(logLevel);
+
+        private sealed class NullScope : IDisposable
+        {
+            public static readonly NullScope Instance = new();
+
+            public void Dispose()
+            {
+            }
         }
     }
 
@@ -206,6 +238,24 @@ public sealed class DownloadSchedulerTests
         await Task.Delay(150);
 
         h.Power.Shutdowns.Should().Be(0, "the queue is not drained while work remains");
+    }
+
+    [Fact]
+    public async Task CompletionActionFailure_IsCaughtAndLogged()
+    {
+        var queue = new FakeQueue();
+        var manager = new FakeManager();
+        var repo = new FakeRepo();
+        var power = new ThrowingPower();
+        var logger = new RecordingLogger<DownloadScheduler>();
+        using var scheduler = new DownloadScheduler(queue, manager, repo, power, new TestClock(), logger);
+        scheduler.CompletionAction = QueueCompletionAction.Shutdown; // queue is empty, so it will try to power off
+
+        manager.Raise(DownloadStatus.Completed);
+        await WaitUntilAsync(() => logger.Levels.Contains(LogLevel.Error), TimeSpan.FromSeconds(2));
+
+        logger.Levels.Should().Contain(LogLevel.Error,
+            "a failing completion action is caught and surfaced, not left as an unobserved exception");
     }
 
     [Fact]
