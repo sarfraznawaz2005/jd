@@ -328,6 +328,9 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<ISystemPowerController, SystemPowerController>();
         services.TryAddSingleton<IDownloadScheduler, DownloadScheduler>();
 
+        // Batch add (TASK-074, US-16): expand pasted URLs (incl. [a-b] patterns) and enqueue them.
+        services.TryAddSingleton<IBatchEnqueuer, BatchEnqueuer>();
+
         // Live Completed/Incomplete grouping for the list/sidebar (TASK-045, US-8). Singleton so it holds
         // one shared membership view and subscribes to the single manager's status events.
         services.TryAddSingleton<IDownloadStatusGroups, DownloadStatusGroupTracker>();
