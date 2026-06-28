@@ -31,8 +31,12 @@
     <KeyBinding Gesture="Delete" Command="{Binding Downloads.RemoveCommand}" />
     <KeyBinding Gesture="Ctrl+OemComma" Command="{Binding OpenSettingsCommand}" />
     <KeyBinding Gesture="Ctrl+Shift+C" Command="{Binding ToggleDensityCommand}" />
+    <!-- Command palette: Ctrl+K (Win/Linux) and Cmd+K (macOS). -->
+    <KeyBinding Gesture="Ctrl+K" Command="{Binding OpenPaletteCommand}" />
+    <KeyBinding Gesture="Meta+K" Command="{Binding OpenPaletteCommand}" />
   </Window.KeyBindings>
 
+  <Panel>
   <DockPanel>
 
     <!-- ===== Toolbar ===== -->
@@ -377,4 +381,31 @@
       </Border>
     </Grid>
   </DockPanel>
+
+  <!-- ===== Command palette overlay (TASK-056) ===== -->
+  <Border Name="PaletteOverlay" DataContext="{Binding Palette}" x:DataType="vm:CommandPaletteViewModel"
+          IsVisible="{Binding IsOpen}" Background="#66000000">
+    <Border Width="560" MaxHeight="420" VerticalAlignment="Top" Margin="0,120,0,0"
+            HorizontalAlignment="Center" Background="{DynamicResource CardBrush}"
+            BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1"
+            CornerRadius="{StaticResource RadiusMd}" BoxShadow="0 18 50 0 #40000000">
+      <DockPanel Margin="12">
+        <TextBox DockPanel.Dock="Top" Name="PaletteSearch" Watermark="Type a command…"
+                 Text="{Binding Query, Mode=TwoWay}" FontSize="14" Margin="0,0,0,8" />
+        <ListBox Name="PaletteResults" ItemsSource="{Binding Results}" SelectedItem="{Binding Selected, Mode=TwoWay}"
+                 MaxHeight="320" Background="Transparent">
+          <ListBox.ItemTemplate>
+            <DataTemplate x:DataType="vm:PaletteCommand">
+              <DockPanel>
+                <TextBlock DockPanel.Dock="Right" Text="{Binding Group}" Foreground="{DynamicResource TextFaintBrush}"
+                           FontSize="11" VerticalAlignment="Center" Margin="8,0,0,0" />
+                <TextBlock Text="{Binding Title}" Foreground="{DynamicResource TextBrush}" VerticalAlignment="Center" />
+              </DockPanel>
+            </DataTemplate>
+          </ListBox.ItemTemplate>
+        </ListBox>
+      </DockPanel>
+    </Border>
+  </Border>
+</Panel>
 </Window>

@@ -53,7 +53,12 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
         // Re-apply the compact style class whenever density changes (here or via the settings screen).
         _density.Changed += (_, _) => OnPropertyChanged(nameof(IsCompact));
+
+        Palette = new CommandPaletteViewModel(BuildPaletteCommands());
     }
+
+    /// <summary>The Ctrl/Cmd+K command palette over the shell's core commands (TASK-056).</summary>
+    public CommandPaletteViewModel Palette { get; }
 
     /// <summary>Whether the list/detail use the compact (power-user) density (TASK-063). Drives the shell style.</summary>
     public bool IsCompact => _density.IsCompact;
@@ -139,4 +144,43 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <summary>Opens the connected-browsers panel.</summary>
     [RelayCommand]
     private void ShowBrowsers() => BrowsersRequested?.Invoke(this, EventArgs.Empty);
+
+    /// <summary>Opens the command palette (Ctrl/Cmd+K).</summary>
+    [RelayCommand]
+    private void OpenPalette() => Palette.Open();
+
+    /// <summary>
+    /// Builds the palette's command set (TASK-056): the core actions plus a "Go to …" entry for every sidebar
+    /// category and status node so the user can jump the list filter from the keyboard.
+    /// </summary>
+    private List<PaletteCommand> BuildPaletteCommands()
+    {
+        var commands = new List<PaletteCommand>
+        {
+            new("New URL…", "Actions", () => NewDownloadRequested?.Invoke(this, EventArgs.Empty),
+                "new", "add", "download", "url", "link"),
+            new("Toggle theme", "Actions", () => _theme.Toggle(),
+                "theme", "dark", "light", "appearance"),
+            new("Toggle density", "Actions", () => _density.Toggle(),
+                "density", "compact", "comfortable", "layout"),
+            new("Change limits…", "Actions", () => SettingsRequested?.Invoke(this, EventArgs.Empty),
+                "settings", "preferences", "limit", "speed", "connections", "concurrent"),
+        };
+
+        foreach (SidebarNodeViewModel node in Sidebar.Nodes)
+        {
+            SidebarNodeViewModel target = node;
+            commands.Add(new PaletteCommand(
+                $"Go to {target.Label}", "Jump to", () => Sidebar.SelectCommand.Execute(target), "category", "filter"));
+        }
+
+        foreach (SidebarNodeViewModel node in Sidebar.StatusNodes)
+        {
+            SidebarNodeViewModel target = node;
+            commands.Add(new PaletteCommand(
+                $"Go to {target.Label}", "Jump to", () => Sidebar.SelectCommand.Execute(target), "status", "filter"));
+        }
+
+        return commands;
+    }
 }

@@ -24,6 +24,52 @@ public partial class MainWindow : Window
 
         // Drive the responsive layout (sidebar auto-hide) from the window width (TASK-048).
         this.GetObservable(ClientSizeProperty).Subscribe(new AnonymousObserver<Size>(OnClientSizeChanged));
+
+        // Command palette (TASK-056): focus the search box when it opens, and handle its keys (tunnel so the
+        // palette wins over the TextBox/ListBox for Enter/Escape/arrows).
+        PaletteOverlay.AddHandler(KeyDownEvent, OnPaletteKeyDown, RoutingStrategies.Tunnel);
+        PaletteResults.DoubleTapped += (_, _) => Palette()?.ExecuteCommand.Execute(null);
+        PaletteOverlay.PropertyChanged += (_, e) =>
+        {
+            if (e.Property == IsVisibleProperty && PaletteOverlay.IsVisible)
+            {
+                PaletteSearch.Focus();
+                PaletteSearch.SelectAll();
+            }
+        };
+    }
+
+    private ViewModels.CommandPaletteViewModel? Palette() =>
+        (DataContext as ViewModels.MainWindowViewModel)?.Palette;
+
+    private void OnPaletteKeyDown(object? sender, KeyEventArgs e)
+    {
+        if (Palette() is not { } palette)
+        {
+            return;
+        }
+
+        switch (e.Key)
+        {
+            case Key.Escape:
+                palette.Close();
+                e.Handled = true;
+                break;
+            case Key.Enter:
+                palette.ExecuteCommand.Execute(null);
+                e.Handled = true;
+                break;
+            case Key.Down:
+                palette.MoveSelection(1);
+                e.Handled = true;
+                break;
+            case Key.Up:
+                palette.MoveSelection(-1);
+                e.Handled = true;
+                break;
+            default:
+                break;
+        }
     }
 
     private void OnClientSizeChanged(Size size)
