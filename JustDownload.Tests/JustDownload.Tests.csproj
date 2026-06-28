@@ -37,6 +37,8 @@
   <ItemGroup>
     <ProjectReference Include="..\JustDownload.Core\JustDownload.Core.csproj" />
     <ProjectReference Include="..\JustDownload.App\JustDownload.App.csproj" />
+    <!-- Perf-budget gate logic is unit-tested here (TASK-015). -->
+    <ProjectReference Include="..\JustDownload.Perf\JustDownload.Perf.csproj" />
   </ItemGroup>
 
   <ItemGroup>

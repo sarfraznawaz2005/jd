@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    JustDownload.Perf — the performance-budget probe (TASK-015). It measures the engine cold-start time,
+    idle working-set RAM, and the published bundle size, compares them to perf-budget.json, and fails the
+    process when a *gated* KPI regresses (the bundle size). Startup/RAM are recorded/tracked, not gated,
+    because a GUI app's cold-start and RAM can't be measured reliably on a headless CI runner. No NuGet
+    dependencies (BCL + Core only).
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>JustDownload.Perf</RootNamespace>
+    <AssemblyName>JustDownload.Perf</AssemblyName>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\JustDownload.Core\JustDownload.Core.csproj" />
+  </ItemGroup>
+
+</Project>

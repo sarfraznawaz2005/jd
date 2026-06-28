@@ -11,6 +11,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "JustDownload.NativeHost", "
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "JustDownload.Tests", "JustDownload.Tests\JustDownload.Tests.csproj", "{29C0A0C7-8D4F-4751-B438-E7A4AE37E1B0}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "JustDownload.Perf", "JustDownload.Perf\JustDownload.Perf.csproj", "{B413BD43-6619-4756-B1B0-473204D67BFA}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -36,5 +38,9 @@ Global
 		{29C0A0C7-8D4F-4751-B438-E7A4AE37E1B0}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{29C0A0C7-8D4F-4751-B438-E7A4AE37E1B0}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{29C0A0C7-8D4F-4751-B438-E7A4AE37E1B0}.Release|Any CPU.Build.0 = Release|Any CPU
+		{B413BD43-6619-4756-B1B0-473204D67BFA}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{B413BD43-6619-4756-B1B0-473204D67BFA}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{B413BD43-6619-4756-B1B0-473204D67BFA}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{B413BD43-6619-4756-B1B0-473204D67BFA}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal

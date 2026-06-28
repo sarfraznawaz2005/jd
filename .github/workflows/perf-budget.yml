@@ -1,0 +1,43 @@
+name: Performance budget
+
+# Performance-budget gate (TASK-015, PRD KPIs). Publishes the app (framework-dependent, single-RID) and
+# runs the JustDownload.Perf probe, which hard-fails only on a *bundle-size* regression (≤ 40 MB). Cold-start
+# and idle RAM are measured and printed as baselines but not gated — a GUI app's startup/RAM can't be
+# measured reliably on a shared CI runner (no display, runner variance), so gating them would only add flake.
+on:
+  schedule:
+    # 04:00 UTC daily.
+    - cron: "0 4 * * *"
+  workflow_dispatch: {} # allow manual runs
+
+permissions:
+  contents: read
+
+jobs:
+  perf-budget:
+    name: bundle-size gate
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Restore
+        run: dotnet restore JustDownload.sln
+
+      - name: Build the perf probe (Release)
+        run: dotnet build JustDownload.Perf/JustDownload.Perf.csproj -c Release --no-restore
+
+      - name: Publish the app (framework-dependent, single-RID)
+        run: >-
+          dotnet publish JustDownload.App/JustDownload.App.csproj -c Release
+          -r win-x64 --self-contained false -o ${{ runner.temp }}/jd-pub
+
+      - name: Evaluate performance budget (gates bundle size)
+        run: >-
+          dotnet run --project JustDownload.Perf -c Release --no-build
+          -- --bundle ${{ runner.temp }}/jd-pub
