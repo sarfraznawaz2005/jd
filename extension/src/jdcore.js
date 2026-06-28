@@ -127,6 +127,58 @@
     };
   }
 
+  /**
+   * Whether the in-page floating download button should be shown (TASK-068 AC1):
+   * only when media was detected on the page and the site is not blacklisted (TASK-069 AC0).
+   */
+  function shouldShowFloatingButton(mediaCount, url, blacklist) {
+    return mediaCount > 0 && !isBlacklisted(url, blacklist);
+  }
+
+  /**
+   * An in-memory store of media detected per browser tab (TASK-068). Deduplicates by URL and bounds the
+   * list so a long-lived tab cannot grow without limit. Pure data structure — no browser APIs.
+   */
+  function createMediaStore(maxPerTab = 50) {
+    const byTab = new Map();
+
+    return {
+      /** Records a detected media item for a tab; returns true if it was new. */
+      add(tabId, item) {
+        if (typeof tabId !== "number" || !item || typeof item.url !== "string") {
+          return false;
+        }
+        let list = byTab.get(tabId);
+        if (!list) {
+          list = [];
+          byTab.set(tabId, list);
+        }
+        if (list.some((m) => m.url === item.url)) {
+          return false;
+        }
+        list.push(item);
+        if (list.length > maxPerTab) {
+          list.shift();
+        }
+        return true;
+      },
+      /** The media detected for a tab (a copy), or an empty array. */
+      get(tabId) {
+        const list = byTab.get(tabId);
+        return list ? list.slice() : [];
+      },
+      /** The number of media items detected for a tab. */
+      count(tabId) {
+        const list = byTab.get(tabId);
+        return list ? list.length : 0;
+      },
+      /** Forgets a tab's media (e.g. on navigation or tab close). */
+      clear(tabId) {
+        byTab.delete(tabId);
+      },
+    };
+  }
+
   /** Serializes an array of {name,value} cookies into a Cookie header value. */
   function formatCookieHeader(cookies) {
     if (!Array.isArray(cookies)) {
@@ -149,6 +201,8 @@
     pickContextUrl,
     buildDownloadMessage,
     formatCookieHeader,
+    shouldShowFloatingButton,
+    createMediaStore,
     MEDIA_KINDS,
   };
 

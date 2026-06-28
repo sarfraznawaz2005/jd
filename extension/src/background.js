@@ -17,6 +17,67 @@ const NATIVE_HOST = "app.justdownload.host";
 
 const MENU_ROOT = "jd-download";
 
+// Media detected per tab via the network sniffer + content-script DOM scan (TASK-068).
+const mediaStore = JD.createMediaStore();
+
+/** The user's per-site blacklist (TASK-069), read from sync storage (default empty). */
+async function getBlacklist() {
+  try {
+    const stored = await api.storage.sync.get("blacklist");
+    return Array.isArray(stored?.blacklist) ? stored.blacklist : [];
+  } catch {
+    return [];
+  }
+}
+
+// Sniff the network for media requests (HLS/DASH/MP4/audio) so a page with a
+// playing video offers a download even when the URL never appears as a link.
+api.webRequest.onBeforeRequest.addListener(
+  (details) => {
+    if (details.tabId < 0) {
+      return; // not tied to a tab (e.g. the worker itself)
+    }
+    const kind = JD.classifyMedia(details.url);
+    if (kind && mediaStore.add(details.tabId, { url: details.url, kind })) {
+      void onMediaDetected(details.tabId);
+    }
+  },
+  { urls: ["<all_urls>"] },
+);
+
+/** Updates the badge and tells the tab's content script whether to show the button. */
+async function onMediaDetected(tabId) {
+  const count = mediaStore.count(tabId);
+  let pageUrl = "";
+  try {
+    pageUrl = (await api.tabs.get(tabId))?.url ?? "";
+  } catch {
+    pageUrl = "";
+  }
+
+  const show = JD.shouldShowFloatingButton(count, pageUrl, await getBlacklist());
+  try {
+    await api.action.setBadgeText({ tabId, text: show && count > 0 ? String(count) : "" });
+  } catch {
+    /* the action API may be unavailable on some pages */
+  }
+
+  if (show) {
+    api.tabs.sendMessage(tabId, { type: "SHOW_MEDIA_BUTTON", count }).catch(() => {
+      // The content script may not be injected on this page; ignore.
+    });
+  }
+}
+
+// Forget a tab's media when it navigates away or closes.
+api.tabs.onUpdated.addListener((tabId, changeInfo) => {
+  if (changeInfo.status === "loading" && changeInfo.url) {
+    mediaStore.clear(tabId);
+    api.action.setBadgeText({ tabId, text: "" }).catch(() => {});
+  }
+});
+api.tabs.onRemoved.addListener((tabId) => mediaStore.clear(tabId));
+
 api.runtime.onInstalled.addListener(() => {
   api.contextMenus.removeAll(() => {
     // One entry that appears on links and media elements (TASK-067 AC0).
@@ -107,6 +168,40 @@ api.runtime.onMessage.addListener((message, sender, sendResponse) => {
         message.mediaKind,
       ).then((forwarded) => sendResponse({ ok: true, forwarded }));
       return true; // async response
+
+    case "MEDIA_DETECTED": {
+      // A media element the content script found in the DOM (TASK-068 AC0).
+      const tabId = sender?.tab?.id;
+      const kind = JD.classifyMedia(message.url) ?? "video";
+      if (typeof tabId === "number" && message.url && mediaStore.add(tabId, { url: message.url, kind })) {
+        void onMediaDetected(tabId);
+      }
+      sendResponse({ ok: true });
+      break;
+    }
+
+    case "GET_TAB_MEDIA": {
+      // The popup / floating button asks what was detected for a tab (TASK-068/071).
+      const tabId = message.tabId ?? sender?.tab?.id;
+      sendResponse({ ok: true, media: typeof tabId === "number" ? mediaStore.get(tabId) : [] });
+      break;
+    }
+
+    case "DOWNLOAD_DETECTED_MEDIA": {
+      // The floating button / popup asks to download the media detected for a tab (TASK-068 AC2).
+      const tabId = message.tabId ?? sender?.tab?.id;
+      const tab = sender?.tab;
+      const items = typeof tabId === "number" ? mediaStore.get(tabId) : [];
+      const target = message.url ? items.find((m) => m.url === message.url) ?? items[0] : items[0];
+      if (target) {
+        void sendDownload(target.url, tab, tab?.url || null, target.kind).then((forwarded) =>
+          sendResponse({ ok: true, forwarded }),
+        );
+        return true;
+      }
+      sendResponse({ ok: false, error: "no_media" });
+      break;
+    }
 
     default:
       sendResponse({ ok: false, error: "unknown_message_type" });

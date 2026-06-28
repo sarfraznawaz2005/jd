@@ -60,6 +60,35 @@ test("buildDownloadMessage carries auth context (TASK-067 AC1)", () => {
   assert.deepEqual(msg.headers, { Authorization: "Bearer x" });
 });
 
+test("shouldShowFloatingButton needs media and a non-blacklisted site (TASK-068 AC1 / 069 AC0)", () => {
+  assert.equal(JD.shouldShowFloatingButton(2, "https://ok.com/v", []), true);
+  assert.equal(JD.shouldShowFloatingButton(0, "https://ok.com/v", []), false, "no media → no button");
+  assert.equal(
+    JD.shouldShowFloatingButton(2, "https://blocked.com/v", ["blocked.com"]),
+    false,
+    "blacklisted site → no button",
+  );
+});
+
+test("createMediaStore dedupes and is per-tab (TASK-068)", () => {
+  const store = JD.createMediaStore();
+  assert.equal(store.add(1, { url: "https://a/x.m3u8", kind: "hls" }), true);
+  assert.equal(store.add(1, { url: "https://a/x.m3u8", kind: "hls" }), false, "duplicate URL ignored");
+  assert.equal(store.add(1, { url: "https://a/y.mp4", kind: "video" }), true);
+  assert.equal(store.count(1), 2);
+  assert.equal(store.count(2), 0, "other tabs are isolated");
+  store.clear(1);
+  assert.equal(store.count(1), 0);
+});
+
+test("createMediaStore bounds the list per tab (TASK-068)", () => {
+  const store = JD.createMediaStore(3);
+  for (let i = 0; i < 10; i++) {
+    store.add(1, { url: `https://a/${i}.mp4`, kind: "video" });
+  }
+  assert.equal(store.count(1), 3, "the list is capped");
+});
+
 test("formatCookieHeader serializes name=value pairs (TASK-067 AC1)", () => {
   const header = JD.formatCookieHeader([
     { name: "sid", value: "abc" },
