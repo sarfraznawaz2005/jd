@@ -35,6 +35,7 @@ public partial class App : Application
             .AddSingleton<SidebarViewModel>()
             .AddSingleton<MainWindowViewModel>()
             .AddTransient<NewDownloadViewModel>()
+            .AddTransient<MediaVariantPickerViewModel>()
             .AddTransient<JustDownload.App.ViewModels.Settings.SettingsViewModel>()
             .BuildServiceProvider();
 
