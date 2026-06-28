@@ -11,6 +11,7 @@ using JustDownload.App.Views;
 using JustDownload.Core;
 using JustDownload.Core.Diagnostics;
 using JustDownload.Core.Settings;
+using JustDownload.Core.Throttling;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace JustDownload.App;
@@ -226,6 +227,10 @@ public partial class App : Application
             await Services.InitializeJustDownloadCoreAsync().ConfigureAwait(true);
             await Services.GetRequiredService<ISettingsService>().LoadAsync().ConfigureAwait(true);
 
+            // Apply preferences that are only honored at startup, before the window paints (so a restart
+            // opens in the saved theme with no flash) and so the global speed cap is enforced from the start.
+            ApplyPersistedPreferences();
+
             bool startMinimized = Services.GetRequiredService<ISettingsService>().Current.StartMinimizedToTray;
             ShowMainWindow(desktop, window, startMinimized);
             shown = true;
@@ -242,6 +247,19 @@ public partial class App : Application
                 ShowMainWindow(desktop, window, startMinimized: false);
             }
         }
+    }
+
+    /// <summary>
+    /// Re-applies preferences that the rest of the app doesn't poll: the saved theme (which otherwise stays
+    /// at the <see cref="ThemeService"/> default of Light on every launch) and the global speed limit (fed
+    /// into the shared rate limiter, which is also kept in sync on later changes by the controller).
+    /// </summary>
+    private void ApplyPersistedPreferences()
+    {
+        AppSettings current = Services.GetRequiredService<ISettingsService>().Current;
+        Services.GetRequiredService<IThemeService>()
+            .SetMode(current.Theme == AppTheme.Dark ? ThemeMode.Dark : ThemeMode.Light);
+        Services.GetRequiredService<GlobalSpeedLimitController>().ApplyCurrent();
     }
 
     /// <summary>
