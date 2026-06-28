@@ -2,6 +2,7 @@ using FluentAssertions;
 using JustDownload.Core;
 using JustDownload.Core.Downloading;
 using JustDownload.Core.Transport;
+using JustDownload.Core.Transport.Auth;
 using JustDownload.Core.Transport.Proxy;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
@@ -76,11 +77,11 @@ public sealed class ProxyTests : IDisposable
         using var shared = new SharedHttpHandlerProvider(options);
         using var provider = new HttpClientProvider(shared, options);
 
-        var http = new ProxyConfiguration(ProxyKind.Http, "127.0.0.1", 8080);
+        var http = new ConnectionProfile(new ProxyConfiguration(ProxyKind.Http, "127.0.0.1", 8080));
 
-        provider.GetClient(ProxyConfiguration.None).Should().BeSameAs(provider.GetClient(ProxyConfiguration.None));
-        provider.GetClient(http).Should().BeSameAs(provider.GetClient(http), "same config reuses one client");
-        provider.GetClient(http).Should().NotBeSameAs(provider.GetClient(ProxyConfiguration.None));
+        provider.GetClient(ConnectionProfile.Direct).Should().BeSameAs(provider.GetClient(ConnectionProfile.Direct));
+        provider.GetClient(http).Should().BeSameAs(provider.GetClient(http), "same profile reuses one client");
+        provider.GetClient(http).Should().NotBeSameAs(provider.GetClient(ConnectionProfile.Direct));
     }
 
     private static ServiceProvider BuildProvider()

@@ -3,6 +3,7 @@ using JustDownload.Core.Abstractions;
 using JustDownload.Core.Storage;
 using JustDownload.Core.Throttling;
 using JustDownload.Core.Transport;
+using JustDownload.Core.Transport.Auth;
 using JustDownload.Core.Transport.Proxy;
 using Microsoft.Extensions.Logging;
 
@@ -24,6 +25,7 @@ internal sealed partial class SegmentedDownloader : ISegmentedDownloader
     private readonly IClock _clock;
     private readonly IRateLimiter _globalRateLimiter;
     private readonly IProxyService _proxy;
+    private readonly ICredentialContext _credentials;
     private readonly ILogger<SegmentedDownloader> _logger;
 
     public SegmentedDownloader(
@@ -33,6 +35,7 @@ internal sealed partial class SegmentedDownloader : ISegmentedDownloader
         IClock clock,
         IRateLimiter globalRateLimiter,
         IProxyService proxy,
+        ICredentialContext credentials,
         ILogger<SegmentedDownloader> logger)
     {
         ArgumentNullException.ThrowIfNull(transport);
@@ -41,6 +44,7 @@ internal sealed partial class SegmentedDownloader : ISegmentedDownloader
         ArgumentNullException.ThrowIfNull(clock);
         ArgumentNullException.ThrowIfNull(globalRateLimiter);
         ArgumentNullException.ThrowIfNull(proxy);
+        ArgumentNullException.ThrowIfNull(credentials);
         ArgumentNullException.ThrowIfNull(logger);
         _transport = transport;
         _probe = probe;
@@ -48,6 +52,7 @@ internal sealed partial class SegmentedDownloader : ISegmentedDownloader
         _clock = clock;
         _globalRateLimiter = globalRateLimiter;
         _proxy = proxy;
+        _credentials = credentials;
         _logger = logger;
     }
 
@@ -59,6 +64,17 @@ internal sealed partial class SegmentedDownloader : ISegmentedDownloader
         request.SpeedLimit is > 0
             ? new CompositeRateLimiter(_globalRateLimiter, new TokenBucket(_clock, request.SpeedLimit.Value))
             : _globalRateLimiter;
+
+    // A 401 (origin) / 407 (proxy) that survived .NET's challenge-response means credentials are missing or
+    // wrong; surface it so the manager can (re-)prompt and retry rather than reporting a generic failure
+    // (TASK-035 AC2, US-7).
+    private static void ThrowIfAuthRequired(int statusCode)
+    {
+        if (statusCode is 401 or 407)
+        {
+            throw new AuthenticationRequiredException(statusCode, isProxy: statusCode == 407);
+        }
+    }
 
     // A 403/410 mid-download conventionally means a time-limited/signed link has lapsed; surface it as an
     // expiry so the manager can offer a renew rather than reporting a generic failure (TASK-032, US-13).
@@ -83,9 +99,10 @@ internal sealed partial class SegmentedDownloader : ISegmentedDownloader
     {
         ArgumentNullException.ThrowIfNull(request);
 
-        // Install this download's proxy override for the whole operation; it flows (via AsyncLocal) to the
-        // probe and every segment worker, then is cleared on completion. A null override uses the global proxy.
+        // Install this download's proxy override and credentials for the whole operation; both flow (via
+        // AsyncLocal) to the probe and every segment worker, then are cleared on completion.
         using IDisposable proxyScope = _proxy.BeginDownloadScope(request.Proxy);
+        using IDisposable credentialScope = _credentials.BeginScope(request.Credentials);
 
         ResourceProbeResult probe = await _probe
             .ProbeAsync(request.Url, request.Headers, cancellationToken)
@@ -129,6 +146,7 @@ internal sealed partial class SegmentedDownloader : ISegmentedDownloader
 
         if (!response.IsSuccessStatusCode)
         {
+            ThrowIfAuthRequired(response.StatusCode);
             ThrowIfExpired(response.StatusCode);
             throw new IOException($"Download failed: server returned status {response.StatusCode}.");
         }
@@ -477,6 +495,7 @@ internal sealed partial class SegmentedDownloader : ISegmentedDownloader
 
             if (!response.IsSuccessStatusCode)
             {
+                ThrowIfAuthRequired(response.StatusCode);
                 ThrowIfExpired(response.StatusCode);
                 throw new IOException(
                     $"Segment {segment.Index} failed: server returned status {response.StatusCode}.");

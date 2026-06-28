@@ -1,3 +1,5 @@
+using JustDownload.Core.Transport.Auth;
+
 namespace JustDownload.Core.Transport;
 
 /// <summary>
@@ -54,6 +56,12 @@ internal sealed class ResourceProbe : IResourceProbe
 
         if (!plain.IsSuccessStatusCode)
         {
+            // Surface an auth challenge distinctly so the caller can (re-)prompt for credentials (TASK-035).
+            if (plain.StatusCode is 401 or 407)
+            {
+                throw new AuthenticationRequiredException(plain.StatusCode, isProxy: plain.StatusCode == 407);
+            }
+
             throw new ResourceProbeException(url, plain.StatusCode);
         }
 

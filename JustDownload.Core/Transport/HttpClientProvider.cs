@@ -1,21 +1,22 @@
 using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Http;
+using JustDownload.Core.Transport.Auth;
 using JustDownload.Core.Transport.Proxy;
 
 namespace JustDownload.Core.Transport;
 
 /// <summary>
-/// Default <see cref="IHttpClientProvider"/> (TASK-034). The direct client wraps the shared
-/// <see cref="SocketsHttpHandler"/> (one connection pool for the common no-proxy case, TASK-023). For a
-/// proxy it lazily creates a dedicated handler — cloning the shared tuning and setting an
-/// <see cref="IWebProxy"/> built from the configuration's URI (HTTP or SOCKS) — and caches the resulting
-/// client by configuration, so repeated downloads through the same proxy reuse one pool. All created
-/// handlers/clients are disposed with the provider.
+/// Default <see cref="IHttpClientProvider"/> (TASK-034/035). The direct, unauthenticated profile wraps the
+/// shared <see cref="SocketsHttpHandler"/> (one connection pool for the common case, TASK-023). Any profile
+/// involving a proxy or credentials gets a dedicated handler — cloning the shared tuning, setting an
+/// <see cref="IWebProxy"/> (with proxy credentials for 407) and the origin <see cref="ICredentials"/> that
+/// .NET uses to answer Basic/Digest/NTLM challenges — cached by profile so repeated downloads with the same
+/// profile reuse one pool. All created handlers/clients are disposed with the provider.
 /// </summary>
 internal sealed class HttpClientProvider : IHttpClientProvider, IDisposable
 {
-    private readonly ConcurrentDictionary<ProxyConfiguration, HttpClient> _clients = new();
+    private readonly ConcurrentDictionary<ConnectionProfile, HttpClient> _clients = new();
     private readonly List<SocketsHttpHandler> _ownedHandlers = [];
     private readonly object _ownedGate = new();
     private readonly ISharedHttpHandlerProvider _sharedHandler;
@@ -30,18 +31,18 @@ internal sealed class HttpClientProvider : IHttpClientProvider, IDisposable
         _options = options;
     }
 
-    public HttpClient GetClient(ProxyConfiguration proxy)
+    public HttpClient GetClient(ConnectionProfile profile)
     {
-        ArgumentNullException.ThrowIfNull(proxy);
+        ArgumentNullException.ThrowIfNull(profile);
         ObjectDisposedException.ThrowIf(_disposed, this);
 
-        return _clients.GetOrAdd(proxy, CreateClient);
+        return _clients.GetOrAdd(profile, CreateClient);
     }
 
-    private HttpClient CreateClient(ProxyConfiguration proxy)
+    private HttpClient CreateClient(ConnectionProfile profile)
     {
-        HttpClient client = proxy.IsEnabled
-            ? new HttpClient(CreateProxiedHandler(proxy), disposeHandler: false)
+        HttpClient client = profile.RequiresDedicatedHandler
+            ? new HttpClient(CreateDedicatedHandler(profile), disposeHandler: false)
             : new HttpClient(_sharedHandler.Handler, disposeHandler: false);
 
         client.Timeout = Timeout.InfiniteTimeSpan; // large transfers are bounded by cancellation, not a clock
@@ -49,7 +50,7 @@ internal sealed class HttpClientProvider : IHttpClientProvider, IDisposable
         return client;
     }
 
-    private SocketsHttpHandler CreateProxiedHandler(ProxyConfiguration proxy)
+    private SocketsHttpHandler CreateDedicatedHandler(ConnectionProfile profile)
     {
         var handler = new SocketsHttpHandler
         {
@@ -62,9 +63,19 @@ internal sealed class HttpClientProvider : IHttpClientProvider, IDisposable
             PooledConnectionIdleTimeout = _options.PooledConnectionIdleTimeout,
             ConnectTimeout = _options.ConnectTimeout,
             EnableMultipleHttp2Connections = true,
-            UseProxy = true,
-            Proxy = new WebProxy(proxy.ToProxyUri()),
         };
+
+        if (profile.Proxy.IsEnabled)
+        {
+            handler.UseProxy = true;
+            handler.Proxy = new WebProxy(profile.Proxy.ToProxyUri())
+            {
+                Credentials = ToNetworkCredential(profile.Proxy.Credentials),
+            };
+        }
+
+        // .NET answers the server's 401 challenge (Basic/Digest/NTLM/Negotiate) using these credentials.
+        handler.Credentials = ToNetworkCredential(profile.Credentials);
 
         lock (_ownedGate)
         {
@@ -73,6 +84,11 @@ internal sealed class HttpClientProvider : IHttpClientProvider, IDisposable
 
         return handler;
     }
+
+    private static NetworkCredential? ToNetworkCredential(NetworkCredentials? credentials) =>
+        credentials is null
+            ? null
+            : new NetworkCredential(credentials.Username, credentials.Password, credentials.Domain ?? string.Empty);
 
     public void Dispose()
     {

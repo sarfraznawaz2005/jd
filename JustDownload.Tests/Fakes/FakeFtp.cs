@@ -21,6 +21,9 @@ internal sealed class FakeFtpFactory : IFtpConnectionFactory
     /// <summary>Names returned by a directory listing.</summary>
     public IReadOnlyList<string> Names { get; set; } = [];
 
+    /// <summary>An optional delay applied while a read stream is open, to widen the concurrency window.</summary>
+    public TimeSpan ReadDelay { get; set; } = TimeSpan.Zero;
+
     /// <summary>Every <c>REST</c> restart offset requested across all connections.</summary>
     public ConcurrentBag<long> Restarts { get; } = [];
 
@@ -63,10 +66,15 @@ internal sealed class FakeFtpFactory : IFtpConnectionFactory
         public Task<long> GetFileSizeAsync(string path, CancellationToken cancellationToken) =>
             Task.FromResult<long>(_owner.Data.Length);
 
-        public Task<Stream> OpenReadAsync(string path, long restartPosition, CancellationToken cancellationToken)
+        public async Task<Stream> OpenReadAsync(string path, long restartPosition, CancellationToken cancellationToken)
         {
             _owner.Restarts.Add(restartPosition);
-            return Task.FromResult<Stream>(new MemoryStream(_owner.Data[(int)restartPosition..], writable: false));
+            if (_owner.ReadDelay > TimeSpan.Zero)
+            {
+                await Task.Delay(_owner.ReadDelay, cancellationToken).ConfigureAwait(false);
+            }
+
+            return new MemoryStream(_owner.Data[(int)restartPosition..], writable: false);
         }
 
         public Task<IReadOnlyList<string>> ListNamesAsync(string directoryPath, CancellationToken cancellationToken) =>

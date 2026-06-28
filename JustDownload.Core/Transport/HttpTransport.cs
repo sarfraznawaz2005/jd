@@ -1,5 +1,6 @@
 using System.Net.Http;
 using System.Net.Http.Headers;
+using JustDownload.Core.Transport.Auth;
 using JustDownload.Core.Transport.Proxy;
 
 namespace JustDownload.Core.Transport;
@@ -9,20 +10,24 @@ namespace JustDownload.Core.Transport;
 /// <c>Range</c> header, and returns the response once headers are read (the body streams lazily). A ranged
 /// request also asks for <c>identity</c> encoding so byte offsets stay meaningful for segmented resume —
 /// automatic decompression would otherwise make the received bytes not line up with the requested range.
-/// The client is chosen per request from <see cref="IHttpClientProvider"/> by the effective proxy
-/// (TASK-034), so a download routes through its per-download or the global proxy.
+/// The client is chosen per request from <see cref="IHttpClientProvider"/> by the effective connection
+/// profile (TASK-034/035), so a download routes through its proxy and answers auth challenges with its
+/// credentials.
 /// </summary>
 internal sealed class HttpTransport : ITransport
 {
     private readonly IHttpClientProvider _clientProvider;
     private readonly IProxyService _proxy;
+    private readonly ICredentialContext _credentials;
 
-    public HttpTransport(IHttpClientProvider clientProvider, IProxyService proxy)
+    public HttpTransport(IHttpClientProvider clientProvider, IProxyService proxy, ICredentialContext credentials)
     {
         ArgumentNullException.ThrowIfNull(clientProvider);
         ArgumentNullException.ThrowIfNull(proxy);
+        ArgumentNullException.ThrowIfNull(credentials);
         _clientProvider = clientProvider;
         _proxy = proxy;
+        _credentials = credentials;
     }
 
     public async Task<ITransportResponse> SendAsync(
@@ -31,7 +36,8 @@ internal sealed class HttpTransport : ITransport
     {
         ArgumentNullException.ThrowIfNull(request);
 
-        HttpClient client = _clientProvider.GetClient(_proxy.Effective);
+        var profile = new ConnectionProfile(_proxy.Effective, _credentials.Effective);
+        HttpClient client = _clientProvider.GetClient(profile);
 
         using var message = new HttpRequestMessage(
             request.Method == TransportMethod.Head ? HttpMethod.Head : HttpMethod.Get,

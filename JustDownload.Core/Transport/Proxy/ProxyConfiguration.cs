@@ -1,4 +1,5 @@
 using System.Globalization;
+using JustDownload.Core.Transport.Auth;
 
 namespace JustDownload.Core.Transport.Proxy;
 
@@ -27,7 +28,9 @@ public enum ProxyKind
 /// <param name="Kind">The proxy kind.</param>
 /// <param name="Host">The proxy host, or <see langword="null"/> for <see cref="ProxyKind.None"/>.</param>
 /// <param name="Port">The proxy port.</param>
-public sealed record ProxyConfiguration(ProxyKind Kind, string? Host = null, int Port = 0)
+/// <param name="Credentials">Credentials for an authenticating proxy (407), or <see langword="null"/> (TASK-035).</param>
+public sealed record ProxyConfiguration(
+    ProxyKind Kind, string? Host = null, int Port = 0, NetworkCredentials? Credentials = null)
 {
     /// <summary>The shared "no proxy" (direct) configuration.</summary>
     public static ProxyConfiguration None { get; } = new(ProxyKind.None);

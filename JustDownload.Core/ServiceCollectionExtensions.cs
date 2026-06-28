@@ -18,6 +18,7 @@ using JustDownload.Core.Settings;
 using JustDownload.Core.Storage;
 using JustDownload.Core.Throttling;
 using JustDownload.Core.Transport;
+using JustDownload.Core.Transport.Auth;
 using JustDownload.Core.Transport.Ftp;
 using JustDownload.Core.Transport.Proxy;
 using Microsoft.Extensions.DependencyInjection;
@@ -186,6 +187,10 @@ public static class ServiceCollectionExtensions
             services.TryAddSingleton<ISecretStore, UnsupportedSecretStore>();
         }
 
+        // Credential persistence (TASK-035 AC1): passwords are stored only via the OS keychain; the DB keeps
+        // just the opaque secret_ref plus the non-secret username/domain.
+        services.TryAddSingleton<ICredentialStore, CredentialStore>();
+
         return services;
     }
 
@@ -238,9 +243,13 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<ISharedHttpHandlerProvider, SharedHttpHandlerProvider>();
 
         // Proxy support (TASK-034, US-6): the runtime-toggleable global/per-download proxy resolver and the
-        // proxy-keyed HTTP client pool (direct over the shared handler; one pooled handler per proxy).
+        // profile-keyed HTTP client pool (direct over the shared handler; one pooled handler per proxy/cred).
         services.TryAddSingleton<IProxyService, ProxyService>();
         services.TryAddSingleton<IHttpClientProvider, HttpClientProvider>();
+
+        // HTTP/proxy authentication (TASK-035, US-7): the per-download credential flow. .NET answers
+        // Basic/Digest/NTLM challenges from the credentials carried on the pooled handler.
+        services.TryAddSingleton<ICredentialContext, CredentialContext>();
 
         // Scheme-routed transport (TASK-033): HTTP(S) → HttpTransport, FTP(S) → FtpTransport. The concrete
         // transports are registered so the router can compose them; the engine depends only on ITransport.

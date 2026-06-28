@@ -2,6 +2,7 @@ using FluentAssertions;
 using JustDownload.Core;
 using JustDownload.Core.Downloading;
 using JustDownload.Core.Transport;
+using JustDownload.Core.Transport.Auth;
 using JustDownload.Core.Transport.Ftp;
 using JustDownload.Core.Transport.Proxy;
 using JustDownload.Tests.Fakes;
@@ -53,7 +54,8 @@ public sealed class FtpDownloadIntegrationTests : IDisposable
     public async Task SegmentedFtpDownload_WritesCorrectFile_UsingRestPerSegment()
     {
         byte[] body = Bytes(256 * 1024);
-        var ftp = new FakeFtpFactory { Data = body };
+        // A small read delay keeps the four segment connections open at once so the parallel peak is observable.
+        var ftp = new FakeFtpFactory { Data = body, ReadDelay = TimeSpan.FromMilliseconds(40) };
         using ServiceProvider provider = BuildProvider(ftp);
         var downloader = provider.GetRequiredService<ISegmentedDownloader>();
         string dest = Path.Combine(_dir, "ftp.bin");
@@ -110,7 +112,7 @@ public sealed class FtpDownloadIntegrationTests : IDisposable
         var options = new TransportOptions();
         var ftp = new FtpTransport(new FakeFtpFactory(), NullLogger<FtpTransport>.Instance);
         var clientProvider = new HttpClientProvider(new SharedHttpHandlerProvider(options), options);
-        var http = new HttpTransport(clientProvider, new ProxyService());
+        var http = new HttpTransport(clientProvider, new ProxyService(), new CredentialContext());
         var router = new SchemeRoutingTransport(http, ftp);
 
         Func<Task> act = () => router.SendAsync(new TransportRequest { Uri = new Uri("gopher://host/x") });

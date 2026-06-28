@@ -1,3 +1,4 @@
+using JustDownload.Core.Transport.Auth;
 using JustDownload.Core.Transport.Proxy;
 
 namespace JustDownload.Core.Downloading;
@@ -29,4 +30,10 @@ public sealed record DownloadRequest
     /// setting. Applies to all of this download's connections.
     /// </summary>
     public ProxyConfiguration? Proxy { get; init; }
+
+    /// <summary>
+    /// Origin-server credentials for an authenticated download (TASK-035, US-7), or <see langword="null"/>.
+    /// Resolved from the OS keychain by the caller and used to answer 401 Basic/Digest/NTLM challenges.
+    /// </summary>
+    public NetworkCredentials? Credentials { get; init; }
 }

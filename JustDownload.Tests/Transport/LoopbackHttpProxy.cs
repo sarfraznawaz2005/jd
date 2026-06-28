@@ -38,6 +38,9 @@ internal sealed class LoopbackHttpProxy : IAsyncDisposable
     /// <summary>The proxy's listening port on loopback.</summary>
     public int Port { get; }
 
+    /// <summary>When set to <c>user:pass</c>, the proxy demands Basic <c>Proxy-Authorization</c> (407) first.</summary>
+    public string? RequiredBasicAuth { get; set; }
+
     /// <summary>The absolute URLs the proxy was asked to fetch (proves routing through the proxy).</summary>
     public IReadOnlyList<string> RequestedUrls
     {
@@ -79,9 +82,16 @@ internal sealed class LoopbackHttpProxy : IAsyncDisposable
             try
             {
                 NetworkStream stream = client.GetStream();
-                (string? target, string? range) = await ReadRequestAsync(stream, ct).ConfigureAwait(false);
+                (string? target, string? range, string? proxyAuth) =
+                    await ReadRequestAsync(stream, ct).ConfigureAwait(false);
                 if (target is null)
                 {
+                    return;
+                }
+
+                if (RequiredBasicAuth is { } required && !IsProxyAuthValid(proxyAuth, required))
+                {
+                    await WriteProxyChallengeAsync(stream, ct).ConfigureAwait(false);
                     return;
                 }
 
@@ -111,7 +121,28 @@ internal sealed class LoopbackHttpProxy : IAsyncDisposable
         }
     }
 
-    private static async Task<(string? Target, string? Range)> ReadRequestAsync(
+    private static bool IsProxyAuthValid(string? proxyAuth, string required)
+    {
+        const string prefix = "Basic ";
+        if (proxyAuth is null || !proxyAuth.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        string decoded = Encoding.UTF8.GetString(Convert.FromBase64String(proxyAuth[prefix.Length..].Trim()));
+        return decoded == required;
+    }
+
+    private static async Task WriteProxyChallengeAsync(NetworkStream stream, CancellationToken ct)
+    {
+        byte[] head = Encoding.ASCII.GetBytes(
+            "HTTP/1.1 407 Proxy Authentication Required\r\n" +
+            "Proxy-Authenticate: Basic realm=\"proxy\"\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+        await stream.WriteAsync(head, ct).ConfigureAwait(false);
+        await stream.FlushAsync(ct).ConfigureAwait(false);
+    }
+
+    private static async Task<(string? Target, string? Range, string? ProxyAuth)> ReadRequestAsync(
         NetworkStream stream, CancellationToken ct)
     {
         var buffer = new byte[8192];
@@ -130,21 +161,26 @@ internal sealed class LoopbackHttpProxy : IAsyncDisposable
         string[] lines = text.ToString().Split("\r\n");
         if (lines.Length == 0)
         {
-            return (null, null);
+            return (null, null, null);
         }
 
         string[] requestLine = lines[0].Split(' ');
         string? target = requestLine.Length >= 2 ? requestLine[1] : null;
         string? range = null;
+        string? proxyAuth = null;
         foreach (string line in lines)
         {
             if (line.StartsWith("Range:", StringComparison.OrdinalIgnoreCase))
             {
                 range = line["Range:".Length..].Trim();
             }
+            else if (line.StartsWith("Proxy-Authorization:", StringComparison.OrdinalIgnoreCase))
+            {
+                proxyAuth = line["Proxy-Authorization:".Length..].Trim();
+            }
         }
 
-        return (target, range);
+        return (target, range, proxyAuth);
     }
 
     private static async Task WriteResponseAsync(
