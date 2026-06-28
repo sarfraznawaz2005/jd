@@ -180,6 +180,13 @@ api.runtime.onMessage.addListener((message, sender, sendResponse) => {
       break;
     }
 
+    case "SYNC_BLACKLIST":
+      // The popup changed the per-site blacklist; push it to the desktop app (TASK-069 AC1).
+      void forwardToApp(JD.buildBlacklistSyncMessage(message.blacklist)).then((ok) =>
+        sendResponse({ ok }),
+      );
+      return true;
+
     case "GET_TAB_MEDIA": {
       // The popup / floating button asks what was detected for a tab (TASK-068/071).
       const tabId = message.tabId ?? sender?.tab?.id;

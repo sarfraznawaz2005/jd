@@ -1,11 +1,26 @@
 // JustDownload — popup logic (MV3)
 //
-// SCAFFOLD: wires the popup UI to the background worker. Real media listing,
-// link sending, and blacklist persistence land in later tasks.
+// Wires the popup to the background worker: app-connection status, sending the
+// current page link, and the per-site "show download button" toggle whose state
+// is the inverse of the blacklist — toggling it off blacklists the site so the
+// floating button never shows (TASK-069), persisting to sync storage and pushing
+// the blacklist to the desktop app. The detected-media list is filled in TASK-071.
 (() => {
   "use strict";
 
   const api = globalThis.browser ?? globalThis.chrome;
+
+  let currentHost = null;
+
+  async function activeTab() {
+    const [tab] = await api.tabs.query({ active: true, currentWindow: true });
+    return tab ?? null;
+  }
+
+  async function getBlacklist() {
+    const stored = await api.storage.sync.get("blacklist");
+    return Array.isArray(stored?.blacklist) ? stored.blacklist : [];
+  }
 
   /** Reflect app-connection state in the header pill. */
   async function refreshStatus() {
@@ -14,30 +29,66 @@
     try {
       const res = await api.runtime.sendMessage({ type: "PING" });
       if (res?.ok) {
-        pill.classList.add("connected");
-        text.textContent = "App connected";
+        pill?.classList.add("connected");
+        if (text) {
+          text.textContent = "App connected";
+        }
         return;
       }
     } catch {
       // fall through to disconnected state
     }
-    pill.classList.remove("connected");
-    text.textContent = "App not running";
+    pill?.classList.remove("connected");
+    if (text) {
+      text.textContent = "App not running";
+    }
+  }
+
+  /** Initialise the per-site toggle from the stored blacklist (TASK-069). */
+  async function initSiteToggle() {
+    const toggle = document.getElementById("site-toggle");
+    const tab = await activeTab();
+    currentHost = tab?.url ? JD.hostnameOf(tab.url) : null;
+
+    const blacklist = await getBlacklist();
+    const blocked = tab?.url ? JD.isBlacklisted(tab.url, blacklist) : false;
+    // Toggle ON = show the button here = NOT blacklisted.
+    setToggle(toggle, !blocked);
+  }
+
+  function setToggle(toggle, on) {
+    if (!toggle) {
+      return;
+    }
+    toggle.classList.toggle("on", on);
+    toggle.setAttribute("aria-checked", String(on));
+  }
+
+  /** Persist the blacklist and push it to the desktop app (TASK-069 AC1). */
+  async function applyBlacklist(blacklist) {
+    await api.storage.sync.set({ blacklist });
+    await api.runtime.sendMessage({ type: "SYNC_BLACKLIST", blacklist }).catch(() => {});
   }
 
   function wireInteractions() {
     document.getElementById("send-link")?.addEventListener("click", async () => {
-      const [tab] = await api.tabs.query({ active: true, currentWindow: true });
+      const tab = await activeTab();
       if (tab?.url) {
         await api.runtime.sendMessage({ type: "DOWNLOAD_LINK", url: tab.url });
       }
     });
 
-    document.getElementById("site-toggle")?.addEventListener("click", (e) => {
+    document.getElementById("site-toggle")?.addEventListener("click", async (e) => {
       const el = e.currentTarget;
-      const on = el.classList.toggle("on");
-      el.setAttribute("aria-checked", String(on));
-      // TODO(TASK-071): persist per-site blacklist via api.storage.
+      const on = !el.classList.contains("on");
+      setToggle(el, on);
+      if (!currentHost) {
+        return;
+      }
+      let blacklist = await getBlacklist();
+      // ON = not blacklisted (remove); OFF = blacklisted (add).
+      blacklist = on ? JD.removeFromBlacklist(blacklist, currentHost) : JD.addToBlacklist(blacklist, currentHost);
+      await applyBlacklist(blacklist);
     });
 
     document.getElementById("open-settings")?.addEventListener("click", () => {
@@ -48,5 +99,6 @@
   document.addEventListener("DOMContentLoaded", () => {
     wireInteractions();
     void refreshStatus();
+    void initSiteToggle();
   });
 })();

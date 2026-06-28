@@ -399,7 +399,9 @@ public static class ServiceCollectionExtensions
         ArgumentNullException.ThrowIfNull(services);
 
         services.TryAddSingleton(new NativeHostOptions());
-        services.TryAddSingleton<INativeMessageHandler, PingNativeMessageHandler>();
+        // The extension router handles ping, blacklist sync (TASK-069), and acknowledges download messages
+        // (delivered/queued by TASK-070). Replaces the bare ping handler from TASK-064.
+        services.TryAddSingleton<INativeMessageHandler, ExtensionMessageHandler>();
         services.TryAddSingleton<NativeMessageHost>();
 
         // Native-messaging host manifest registration (TASK-065, US-11): per-OS manifest locations, the

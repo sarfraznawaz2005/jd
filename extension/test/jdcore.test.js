@@ -89,6 +89,12 @@ test("createMediaStore bounds the list per tab (TASK-068)", () => {
   assert.equal(store.count(1), 3, "the list is capped");
 });
 
+test("buildBlacklistSyncMessage normalizes domains (TASK-069 AC1)", () => {
+  const msg = JD.buildBlacklistSyncMessage(["https://www.Example.com/x", "foo.test", "  "]);
+  assert.equal(msg.type, "BLACKLIST_SYNC");
+  assert.deepEqual(msg.domains, ["example.com", "foo.test"]);
+});
+
 test("formatCookieHeader serializes name=value pairs (TASK-067 AC1)", () => {
   const header = JD.formatCookieHeader([
     { name: "sid", value: "abc" },

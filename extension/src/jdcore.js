@@ -179,6 +179,14 @@
     };
   }
 
+  /** Builds the message that syncs the per-site blacklist to the desktop app (TASK-069 AC1). */
+  function buildBlacklistSyncMessage(blacklist) {
+    const domains = Array.isArray(blacklist)
+      ? blacklist.map(normalizeHost).filter((h) => h !== null)
+      : [];
+    return { type: "BLACKLIST_SYNC", domains };
+  }
+
   /** Serializes an array of {name,value} cookies into a Cookie header value. */
   function formatCookieHeader(cookies) {
     if (!Array.isArray(cookies)) {
@@ -203,6 +211,7 @@
     formatCookieHeader,
     shouldShowFloatingButton,
     createMediaStore,
+    buildBlacklistSyncMessage,
     MEDIA_KINDS,
   };
 
