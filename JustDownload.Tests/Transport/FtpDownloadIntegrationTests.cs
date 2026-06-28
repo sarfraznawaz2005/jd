@@ -3,6 +3,7 @@ using JustDownload.Core;
 using JustDownload.Core.Downloading;
 using JustDownload.Core.Transport;
 using JustDownload.Core.Transport.Ftp;
+using JustDownload.Core.Transport.Proxy;
 using JustDownload.Tests.Fakes;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -108,7 +109,8 @@ public sealed class FtpDownloadIntegrationTests : IDisposable
     {
         var options = new TransportOptions();
         var ftp = new FtpTransport(new FakeFtpFactory(), NullLogger<FtpTransport>.Instance);
-        var http = new HttpTransport(new SharedHttpHandlerProvider(options), options);
+        var clientProvider = new HttpClientProvider(new SharedHttpHandlerProvider(options), options);
+        var http = new HttpTransport(clientProvider, new ProxyService());
         var router = new SchemeRoutingTransport(http, ftp);
 
         Func<Task> act = () => router.SendAsync(new TransportRequest { Uri = new Uri("gopher://host/x") });

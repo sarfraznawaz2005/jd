@@ -19,6 +19,7 @@ using JustDownload.Core.Storage;
 using JustDownload.Core.Throttling;
 using JustDownload.Core.Transport;
 using JustDownload.Core.Transport.Ftp;
+using JustDownload.Core.Transport.Proxy;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
@@ -235,6 +236,11 @@ public static class ServiceCollectionExtensions
 
         services.TryAddSingleton(new TransportOptions());
         services.TryAddSingleton<ISharedHttpHandlerProvider, SharedHttpHandlerProvider>();
+
+        // Proxy support (TASK-034, US-6): the runtime-toggleable global/per-download proxy resolver and the
+        // proxy-keyed HTTP client pool (direct over the shared handler; one pooled handler per proxy).
+        services.TryAddSingleton<IProxyService, ProxyService>();
+        services.TryAddSingleton<IHttpClientProvider, HttpClientProvider>();
 
         // Scheme-routed transport (TASK-033): HTTP(S) → HttpTransport, FTP(S) → FtpTransport. The concrete
         // transports are registered so the router can compose them; the engine depends only on ITransport.

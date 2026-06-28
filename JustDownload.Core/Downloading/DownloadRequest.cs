@@ -1,3 +1,5 @@
+using JustDownload.Core.Transport.Proxy;
+
 namespace JustDownload.Core.Downloading;
 
 /// <summary>
@@ -21,4 +23,10 @@ public sealed record DownloadRequest
 
     /// <summary>Extra request headers to send on every connection.</summary>
     public IReadOnlyList<KeyValuePair<string, string>> Headers { get; init; } = [];
+
+    /// <summary>
+    /// A per-download proxy override (TASK-034, US-6), or <see langword="null"/> to use the global proxy
+    /// setting. Applies to all of this download's connections.
+    /// </summary>
+    public ProxyConfiguration? Proxy { get; init; }
 }

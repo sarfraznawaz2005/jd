@@ -1,32 +1,28 @@
 using System.Net.Http;
 using System.Net.Http.Headers;
+using JustDownload.Core.Transport.Proxy;
 
 namespace JustDownload.Core.Transport;
 
 /// <summary>
-/// HTTP/HTTPS <see cref="ITransport"/> over the single shared <see cref="SocketsHttpHandler"/>
-/// (TASK-023). Issues GET/HEAD requests, optionally with a <c>Range</c> header, and returns the response
-/// once headers are read (the body streams lazily). A ranged request also asks for <c>identity</c>
-/// encoding so byte offsets stay meaningful for segmented resume — automatic decompression on the shared
-/// handler would otherwise make the received bytes not line up with the requested range.
+/// HTTP/HTTPS <see cref="ITransport"/> (TASK-023). Issues GET/HEAD requests, optionally with a
+/// <c>Range</c> header, and returns the response once headers are read (the body streams lazily). A ranged
+/// request also asks for <c>identity</c> encoding so byte offsets stay meaningful for segmented resume —
+/// automatic decompression would otherwise make the received bytes not line up with the requested range.
+/// The client is chosen per request from <see cref="IHttpClientProvider"/> by the effective proxy
+/// (TASK-034), so a download routes through its per-download or the global proxy.
 /// </summary>
-internal sealed class HttpTransport : ITransport, IDisposable
+internal sealed class HttpTransport : ITransport
 {
-    private readonly HttpClient _client;
+    private readonly IHttpClientProvider _clientProvider;
+    private readonly IProxyService _proxy;
 
-    public HttpTransport(ISharedHttpHandlerProvider handlerProvider, TransportOptions options)
+    public HttpTransport(IHttpClientProvider clientProvider, IProxyService proxy)
     {
-        ArgumentNullException.ThrowIfNull(handlerProvider);
-        ArgumentNullException.ThrowIfNull(options);
-
-        // Reuse the one shared handler; disposeHandler:false so this client never tears it down.
-        _client = new HttpClient(handlerProvider.Handler, disposeHandler: false)
-        {
-            // No overall timeout: large transfers are bounded by the caller's CancellationToken, not a
-            // clock. Connect/idle timeouts live on the handler.
-            Timeout = Timeout.InfiniteTimeSpan,
-        };
-        _client.DefaultRequestHeaders.UserAgent.ParseAdd(options.UserAgent);
+        ArgumentNullException.ThrowIfNull(clientProvider);
+        ArgumentNullException.ThrowIfNull(proxy);
+        _clientProvider = clientProvider;
+        _proxy = proxy;
     }
 
     public async Task<ITransportResponse> SendAsync(
@@ -34,6 +30,8 @@ internal sealed class HttpTransport : ITransport, IDisposable
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
+
+        HttpClient client = _clientProvider.GetClient(_proxy.Effective);
 
         using var message = new HttpRequestMessage(
             request.Method == TransportMethod.Head ? HttpMethod.Head : HttpMethod.Get,
@@ -53,12 +51,10 @@ internal sealed class HttpTransport : ITransport, IDisposable
         }
 
         // ResponseHeadersRead: return as soon as headers arrive; the body is streamed by the caller.
-        HttpResponseMessage response = await _client
+        HttpResponseMessage response = await client
             .SendAsync(message, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
             .ConfigureAwait(false);
 
         return new HttpTransportResponse(response, request.Uri);
     }
-
-    public void Dispose() => _client.Dispose();
 }

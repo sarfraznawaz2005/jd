@@ -3,6 +3,7 @@ using JustDownload.Core.Abstractions;
 using JustDownload.Core.Storage;
 using JustDownload.Core.Throttling;
 using JustDownload.Core.Transport;
+using JustDownload.Core.Transport.Proxy;
 using Microsoft.Extensions.Logging;
 
 namespace JustDownload.Core.Downloading;
@@ -22,6 +23,7 @@ internal sealed partial class SegmentedDownloader : ISegmentedDownloader
     private readonly SegmentationOptions _options;
     private readonly IClock _clock;
     private readonly IRateLimiter _globalRateLimiter;
+    private readonly IProxyService _proxy;
     private readonly ILogger<SegmentedDownloader> _logger;
 
     public SegmentedDownloader(
@@ -30,6 +32,7 @@ internal sealed partial class SegmentedDownloader : ISegmentedDownloader
         SegmentationOptions options,
         IClock clock,
         IRateLimiter globalRateLimiter,
+        IProxyService proxy,
         ILogger<SegmentedDownloader> logger)
     {
         ArgumentNullException.ThrowIfNull(transport);
@@ -37,12 +40,14 @@ internal sealed partial class SegmentedDownloader : ISegmentedDownloader
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(clock);
         ArgumentNullException.ThrowIfNull(globalRateLimiter);
+        ArgumentNullException.ThrowIfNull(proxy);
         ArgumentNullException.ThrowIfNull(logger);
         _transport = transport;
         _probe = probe;
         _options = options;
         _clock = clock;
         _globalRateLimiter = globalRateLimiter;
+        _proxy = proxy;
         _logger = logger;
     }
 
@@ -77,6 +82,10 @@ internal sealed partial class SegmentedDownloader : ISegmentedDownloader
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
+
+        // Install this download's proxy override for the whole operation; it flows (via AsyncLocal) to the
+        // probe and every segment worker, then is cleared on completion. A null override uses the global proxy.
+        using IDisposable proxyScope = _proxy.BeginDownloadScope(request.Proxy);
 
         ResourceProbeResult probe = await _probe
             .ProbeAsync(request.Url, request.Headers, cancellationToken)
