@@ -6,23 +6,7 @@
 
 ---
 
-## 0. How we work together (collaboration protocol)
-
-- **Ask questions UPFRONT.** If requirements are ambiguous, conflicting, or underspecified, stop and
-  ask *before* writing code — especially for anything hard to reverse or wide-impact. Do not guess.
-- **Critique at the end of every task.** When the work is done, briefly surface: flaws or gaps in the
-  stated requirements, risky assumptions made, and anywhere the requested approach is suboptimal —
-  then propose a **better alternative with trade-offs**. Be concrete, not hand-wavy.
-- **Don't reinvent solved problems.** If a **free, permissively-licensed, well-maintained, popular**
-  library does the job correctly, use it instead of hand-rolling — subject to the license rules in §4.
-  Conversely, don't pull a heavy dependency for something trivial (the app's selling point is being
-  light — every dependency is weighed against startup time, RAM, and bundle size).
-- **Be honest about state.** If tests fail, say so with the output. If a step was skipped, say it.
-  Never report a task as done when a quality gate (§2) hasn't actually passed.
-- **Respect the locked decisions (§0.1).** They are settled. If implementation reveals one is wrong,
-  flag it and get sign-off — don't silently diverge.
-
-### 0.1 Locked decisions
+## 0. Locked decisions
 
 | # | Decision | Notes |
 |---|----------|-------|
@@ -40,21 +24,118 @@ If a task forces a change to D1–D9, **stop and get sign-off**.
 
 ---
 
-## 1. Code quality principles
+## Constitution
 
+These are rules you must ALWAYS follow:
+
+### Think Before Coding
+
+**Don't assume. Don't hide confusion. Surface tradeoffs.**
+
+Before implementing:
+- State your assumptions explicitly. If uncertain, ask.
+- If multiple interpretations exist, present them - don't pick silently.
+- If a simpler approach exists, say so. Push back when warranted.
+- If something is unclear, stop. Name what's confusing. Ask.
+
+### Simplicity First
+
+**Minimum code that solves the problem. Nothing speculative.**
+
+- No features beyond what was asked.
+- No abstractions for single-use code.
+- No "flexibility" or "configurability" that wasn't requested.
+- No error handling for impossible scenarios.
+- If you write 200 lines and it could be 50, rewrite it.
+
+Ask yourself: "Would a senior engineer say this is overcomplicated?" If yes, simplify.
+
+### Surgical Changes
+
+**Touch only what you must. Clean up only your own mess.**
+
+When editing existing code:
+- Don't "improve" adjacent code, comments, or formatting.
+- Don't refactor things that aren't broken.
+- Match existing style, even if you'd do it differently.
+- If you notice unrelated dead code, mention it - don't delete it.
+
+When your changes create orphans:
+- Remove imports/variables/functions that YOUR changes made unused.
+- Don't remove pre-existing dead code unless asked.
+
+The test: Every changed line should trace directly to the user's request.
+
+### Goal-Driven Execution
+
+**Define success criteria. Loop until verified.**
+
+Transform tasks into verifiable goals:
+- "Add validation" → "Write tests for invalid inputs, then make them pass"
+- "Fix the bug" → "Write a test that reproduces it, then make it pass"
+- "Refactor X" → "Ensure tests pass before and after"
+
+For multi-step tasks, state a brief plan:
+```
+1. [Step] → verify: [check]
+2. [Step] → verify: [check]
+3. [Step] → verify: [check]
+```
+
+Strong success criteria let you loop independently. Weak criteria ("make it work") require constant clarification.
+
+### Safety
+- NEVER execute destructive commands (rm -rf /, format, drop database) without explicit human approval
+- NEVER access files outside the project workspace directory
+- NEVER expose API keys, secrets, or credentials in code, logs, or chat
+- NEVER make network requests to unknown or unauthorized endpoints
+- NEVER modify system files or configurations outside the project
+
+### Code Quality
+- Follow the project's existing code style and conventions
+- Write code that is readable, maintainable, and well-structured
+- Include error handling for all external operations (I/O, network, parsing)
+- Do not introduce known security vulnerabilities (OWASP Top 10)
+- Prefer simple solutions over clever ones
 - **SOLID, KISS, DRY, YAGNI**, separation of concerns, composition over inheritance.
 - **Modular:** small, single-responsibility classes with clear boundaries and explicit interfaces.
   No god-files, no circular project references. A method/class doing two jobs gets split.
+- Reusable components
+- Keep comments minimal — do NOT add JSDoc or docstrings for obvious methods, constructors, getters, or simple utilities. Self-documenting code (clear names, small functions) over verbose comments. Only comment non-obvious logic.
 - **Strict typing & null-safety:** `<Nullable>enable</Nullable>` everywhere; treat warnings as errors.
   No `dynamic` to dodge the type system, no `!` null-forgiving operator to silence the compiler, no
   `as`-cast-then-ignore. Make illegal states unrepresentable (sealed types, enums, records).
-- **Pure functions** wherever possible — load-bearing for the segmentation math and resume-offset logic,
-  which must be deterministic and unit-testable in isolation (§3, §5).
-- **`async`/`await` end to end** for all I/O; never block on `.Result`/`.Wait()` (deadlocks + stalls the
-  UI). Honor `CancellationToken` on every cancellable operation (pause/cancel must be instant).
-- **Clear naming**, match surrounding style, comment the *why* not the *what*.
-- **No silent failures** — every error is surfaced through the global error handler; fail loud in debug,
-  handle gracefully in release. A swallowed `catch {}` is a bug.
+- **No silent failures** — every error is surfaced through the global error handler.
+- Always follow established best practices in your implementations.
+  
+### Completness
+- Finish tasks to the real end-to-end Definition of Done; no stub-marked or `later` comments.
+
+### Communication
+- Be honest about limitations and uncertainties
+- Report errors and failures or code issues that should be fixed
+- Ask for clarification rather than making risky assumptions
+- Provide concise, actionable status updates
+- After implementing changes or new features, always provide a list of **suggestions or improvements** if possible, even if they differ from the user's original request.
+
+### Collaboration Protocol
+- **Ask questions UPFRONT.** If requirements are ambiguous, conflicting, or underspecified, stop and
+  ask *before* writing code — especially for anything hard to reverse or wide-impact. Do not guess.
+- **Critique at the end of every task.** When the work is done, briefly surface: flaws or gaps in the
+  stated requirements, risky assumptions made, and anywhere the requested approach is suboptimal —
+  then propose a **better alternative with trade-offs**. Be concrete, not hand-wavy.
+- **Don't reinvent solved problems.** If a **free, permissively-licensed, well-maintained, popular**
+  library does the job correctly, use it instead of hand-rolling.
+  Conversely, don't pull a heavy dependency for something trivial (the app's selling point is being
+  light — every dependency is weighed against startup time, RAM, and bundle size).
+- **Be honest about state.** If tests fail, say so with the output. If a step was skipped, say it.
+  Never report a task as done when a quality gate hasn't actually passed.
+
+### Resource Limits
+- Respect token budgets and context limits
+- Do not create unnecessary files or bloat the codebase
+- Clean up temporary files after use
+- Clean up temporary processes you created after checking
 
 ## 2. Definition of Done — quality gates (run AFTER each task, before marking done)
 
