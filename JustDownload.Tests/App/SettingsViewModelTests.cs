@@ -36,7 +36,7 @@ public sealed class SettingsViewModelTests
     [Fact]
     public void AllSevenSections_ArePresent_InOrder()
     {
-        var vm = new SettingsViewModel(Settings(), Substitute.For<IThemeService>(), CategoryFolderRules.CreateDefault());
+        var vm = new SettingsViewModel(Settings(), Substitute.For<IThemeService>(), CategoryFolderRules.CreateDefault(), Substitute.For<JustDownload.Core.NativeMessaging.INativeHostInstaller>());
 
         vm.Sections.Select(s => s.Label).Should()
             .Equal("General", "Connections", "Proxy", "Authentication", "Categories", "Browsers", "Advanced");
@@ -47,7 +47,7 @@ public sealed class SettingsViewModelTests
     [Fact]
     public void Select_SwitchesActiveSection()
     {
-        var vm = new SettingsViewModel(Settings(), Substitute.For<IThemeService>(), CategoryFolderRules.CreateDefault());
+        var vm = new SettingsViewModel(Settings(), Substitute.For<IThemeService>(), CategoryFolderRules.CreateDefault(), Substitute.For<JustDownload.Core.NativeMessaging.INativeHostInstaller>());
         SettingsSectionViewModel connections = vm.Sections.Single(s => s.Label == "Connections");
 
         vm.SelectCommand.Execute(connections);

@@ -36,7 +36,8 @@ public sealed class NativeHostInstallerTests
         registrar.Received(1).Register(Arg.Is<NativeHostRegistration>(r =>
             r.Name == NativeHostIdentity.HostName &&
             r.ExecutablePath == exe &&
-            r.AllowedExtensionIds.Contains(NativeHostIdentity.FirefoxExtensionId)));
+            r.AllowedExtensionIds.Contains(NativeHostIdentity.FirefoxExtensionId) &&
+            r.AllowedOrigins.Contains($"chrome-extension://{NativeHostIdentity.ChromiumExtensionId}/")));
     }
 
     [Fact]

@@ -42,6 +42,7 @@ public partial class App : Application
             .AddSingleton<MainWindowViewModel>()
             .AddTransient<NewDownloadViewModel>()
             .AddTransient<MediaVariantPickerViewModel>()
+            .AddTransient<BrowsersViewModel>()
             .AddTransient<JustDownload.App.ViewModels.Settings.SettingsViewModel>()
             .BuildServiceProvider();
 
@@ -80,6 +81,9 @@ public partial class App : Application
             // The toolbar "Settings" intent opens the settings window (TASK-057).
             mainViewModel.SettingsRequested += (_, _) => _ = ShowSettingsDialogAsync(window);
 
+            // The toolbar "Browsers" intent opens the browser-integration panel (TASK-093).
+            mainViewModel.BrowsersRequested += (_, _) => _ = ShowBrowsersDialogAsync(window);
+
             // A URL — dropped on the app (TASK-062) or forwarded by a second launch (TASK-061) — opens the
             // new-download dialog prefilled.
             mainViewModel.DownloadUrlRequested += (_, url) => _ = ShowNewDownloadDialogAsync(window, url);
@@ -97,7 +101,7 @@ public partial class App : Application
 
             // Register the native-messaging host so browsers can find/launch it (TASK-089). Off-thread file/
             // registry writes; a no-op when the host executable isn't deployed alongside the app (dev).
-            _ = Task.Run(() => Services.GetRequiredService<NativeHostInstaller>().Install());
+            _ = Task.Run(() => Services.GetRequiredService<INativeHostInstaller>().Install());
 
             // Bring the schema up to date and load settings, then show the window (unless the user opted to
             // start hidden in the tray) and load the persisted downloads — off the startup path so we never
@@ -216,6 +220,12 @@ public partial class App : Application
         viewModel.SetAuthContext(handoff.Referrer, handoff.Cookies);
 
         var dialog = new NewDownloadWindow { DataContext = viewModel };
+        await dialog.ShowDialog(owner);
+    }
+
+    private async Task ShowBrowsersDialogAsync(Window owner)
+    {
+        var dialog = new BrowsersWindow { DataContext = Services.GetRequiredService<BrowsersViewModel>() };
         await dialog.ShowDialog(owner);
     }
 

@@ -442,8 +442,9 @@ public static class ServiceCollectionExtensions
 
         services.TryAddSingleton<INativeHostRegistrar, NativeHostRegistrar>();
 
-        // Self-registration on app startup so browsers can find/launch the host (TASK-089).
-        services.TryAddSingleton<NativeHostInstaller>();
+        // Self-registration on app startup so browsers can find/launch the host (TASK-089), and the
+        // in-app Browsers panel's status/register/unregister (TASK-093).
+        services.TryAddSingleton<INativeHostInstaller, NativeHostInstaller>();
 
         return services;
     }

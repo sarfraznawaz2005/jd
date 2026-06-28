@@ -1,0 +1,44 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:JustDownload.App.ViewModels"
+             x:Class="JustDownload.App.Views.BrowsersView"
+             x:DataType="vm:BrowsersViewModel">
+  <StackPanel Spacing="16">
+    <TextBlock Text="Browsers" Classes="SettingsHeading" />
+    <TextBlock TextWrapping="Wrap" Foreground="{DynamicResource TextDimBrush}"
+               Text="Connect your browsers so the JustDownload extension can hand off downloads and detected media. This registers a native messaging host for each browser — no local network port is opened." />
+
+    <Border Background="{DynamicResource SurfaceBrush}" CornerRadius="8" Padding="14"
+            BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1"
+            IsVisible="{Binding !HostAvailable}">
+      <TextBlock TextWrapping="Wrap" Foreground="{DynamicResource TextDimBrush}"
+                 Text="The native host isn't available next to the app, so registration can't take effect. Build/publish the app so JustDownload.NativeHost ships alongside it." />
+    </Border>
+
+    <ItemsControl ItemsSource="{Binding Browsers}">
+      <ItemsControl.ItemTemplate>
+        <DataTemplate x:DataType="vm:BrowserStatusRow">
+          <Grid ColumnDefinitions="*,Auto" Margin="0,4">
+            <TextBlock Grid.Column="0" Text="{Binding Name}" VerticalAlignment="Center"
+                       Foreground="{DynamicResource TextBrush}" />
+            <Border Grid.Column="1" CornerRadius="10" Padding="10,3"
+                    Background="{DynamicResource SurfaceBrush}">
+              <TextBlock Text="{Binding StatusText}"
+                         Foreground="{DynamicResource TextDimBrush}" FontSize="12" />
+            </Border>
+          </Grid>
+        </DataTemplate>
+      </ItemsControl.ItemTemplate>
+    </ItemsControl>
+
+    <StackPanel Orientation="Horizontal" Spacing="10">
+      <Button Content="Connect browsers" Command="{Binding RegisterCommand}"
+              IsEnabled="{Binding HostAvailable}" Classes="App" />
+      <Button Content="Disconnect" Command="{Binding UnregisterCommand}" Classes="App" />
+      <Button Content="Refresh" Command="{Binding RefreshCommand}" Classes="App" />
+    </StackPanel>
+
+    <TextBlock Text="{Binding StatusMessage}" IsVisible="{Binding StatusMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+               TextWrapping="Wrap" Classes="SettingsHint" />
+  </StackPanel>
+</UserControl>

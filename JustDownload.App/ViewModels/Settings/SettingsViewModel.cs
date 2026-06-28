@@ -18,11 +18,16 @@ public sealed partial class SettingsViewModel : ViewModelBase
     [ObservableProperty]
     private SettingsSectionViewModel _selectedSection;
 
-    public SettingsViewModel(ISettingsService settings, IThemeService theme, CategoryFolderRules folderRules)
+    public SettingsViewModel(
+        ISettingsService settings,
+        IThemeService theme,
+        CategoryFolderRules folderRules,
+        JustDownload.Core.NativeMessaging.INativeHostInstaller nativeHostInstaller)
     {
         ArgumentNullException.ThrowIfNull(settings);
         ArgumentNullException.ThrowIfNull(theme);
         ArgumentNullException.ThrowIfNull(folderRules);
+        ArgumentNullException.ThrowIfNull(nativeHostInstaller);
 
         Sections.Add(new SettingsSectionViewModel("General", "IconSetGeneral", new GeneralSettingsViewModel(settings, theme)));
         Sections.Add(new SettingsSectionViewModel("Connections", "IconSetConnections", new ConnectionsSettingsViewModel(settings)));
@@ -37,11 +42,8 @@ public sealed partial class SettingsViewModel : ViewModelBase
             + "OS keychain (DPAPI / macOS Keychain / libsecret) — never in plain text.",
             "There are no global credentials to configure here.")));
         Sections.Add(new SettingsSectionViewModel("Categories", "IconSetCategories", new CategoriesSettingsViewModel(settings, folderRules)));
-        Sections.Add(new SettingsSectionViewModel("Browsers", "IconSetBrowsers", new InfoSettingsViewModel(
-            "Browsers",
-            "Install the JustDownload browser extension to capture downloads and media from your browser.",
-            "The extension talks to the app over a Native Messaging host — no local network port is opened. "
-            + "Connected browsers will be managed here.")));
+        Sections.Add(new SettingsSectionViewModel(
+            "Browsers", "IconSetBrowsers", new BrowsersViewModel(nativeHostInstaller)));
         Sections.Add(new SettingsSectionViewModel("Advanced", "IconSetAdvanced", new InfoSettingsViewModel(
             "Advanced",
             "Logs redact credentials, tokens, and signed-URL query strings.",

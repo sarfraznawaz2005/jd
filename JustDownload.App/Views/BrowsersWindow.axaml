@@ -1,0 +1,15 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:JustDownload.App.ViewModels"
+        xmlns:views="using:JustDownload.App.Views"
+        x:Class="JustDownload.App.Views.BrowsersWindow"
+        x:DataType="vm:BrowsersViewModel"
+        Title="Browsers"
+        Width="520" Height="460"
+        MinWidth="420" MinHeight="380"
+        WindowStartupLocation="CenterOwner"
+        Background="{DynamicResource BgBrush}">
+  <ScrollViewer>
+    <views:BrowsersView Margin="24" />
+  </ScrollViewer>
+</Window>

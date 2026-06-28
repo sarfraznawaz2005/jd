@@ -1,6 +1,8 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="using:JustDownload.App.ViewModels.Settings"
+        xmlns:vmapp="using:JustDownload.App.ViewModels"
+        xmlns:views="using:JustDownload.App.Views"
         xmlns:conv="using:JustDownload.App.Converters"
         x:Class="JustDownload.App.Views.SettingsWindow"
         x:DataType="vm:SettingsViewModel"
@@ -113,7 +115,12 @@
       </StackPanel>
     </DataTemplate>
 
-    <!-- Info (Proxy / Authentication / Browsers / Advanced) -->
+    <!-- Browsers (extension / native-host integration) -->
+    <DataTemplate DataType="vmapp:BrowsersViewModel">
+      <views:BrowsersView />
+    </DataTemplate>
+
+    <!-- Info (Proxy / Authentication / Advanced) -->
     <DataTemplate DataType="vm:InfoSettingsViewModel">
       <StackPanel Spacing="14">
         <TextBlock Text="{Binding Heading}" Classes="SettingsHeading" />
