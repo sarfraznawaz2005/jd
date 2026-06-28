@@ -13,6 +13,7 @@ using JustDownload.Core.Media.Extraction;
 using JustDownload.Core.Media.Hls;
 using JustDownload.Core.Media.Streams;
 using JustDownload.Core.NativeMessaging;
+using JustDownload.Core.NativeMessaging.Registration;
 using JustDownload.Core.Security;
 using JustDownload.Core.Settings;
 using JustDownload.Core.Storage;
@@ -400,6 +401,21 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton(new NativeHostOptions());
         services.TryAddSingleton<INativeMessageHandler, PingNativeMessageHandler>();
         services.TryAddSingleton<NativeMessageHost>();
+
+        // Native-messaging host manifest registration (TASK-065, US-11): per-OS manifest locations, the
+        // registry writer (Windows only; macOS/Linux register by file path), and the registrar that writes
+        // and removes the Chrome/Edge/Firefox manifests on install/uninstall.
+        services.TryAddSingleton<INativeHostManifestLocations, NativeHostManifestLocations>();
+        if (OperatingSystem.IsWindows())
+        {
+            services.TryAddSingleton<INativeHostRegistryWriter, WindowsNativeHostRegistryWriter>();
+        }
+        else
+        {
+            services.TryAddSingleton<INativeHostRegistryWriter, NoOpNativeHostRegistryWriter>();
+        }
+
+        services.TryAddSingleton<INativeHostRegistrar, NativeHostRegistrar>();
 
         return services;
     }

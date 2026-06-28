@@ -51,6 +51,13 @@
     -->
     <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.10" />
     <!--
+      Native-messaging host registration (TASK-065, US-11). Microsoft.Win32.Registry (MIT, part of
+      dotnet/runtime) writes the per-user HKCU keys Chrome/Edge/Firefox read on Windows; it is only
+      invoked under an OperatingSystem.IsWindows() guard (macOS/Linux register by file path, no registry).
+      MIT-licensed, no native payload off-Windows — within the §4 allow-list. Recorded in THIRD-PARTY-NOTICES.
+    -->
+    <PackageReference Include="Microsoft.Win32.Registry" Version="5.0.0" />
+    <!--
       Windows DPAPI secret storage (TASK-022, CLAUDE.md §5 "secrets at rest"). Microsoft's
       System.Security.Cryptography.ProtectedData (MIT, part of dotnet/runtime) wraps DPAPI; the
       API exists on all targets but is only invoked under an OperatingSystem.IsWindows() guard

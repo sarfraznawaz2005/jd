@@ -19,6 +19,7 @@ each project for full license text.
 | Microsoft.Extensions.Logging | 8.0.1 | MIT |
 | Microsoft.Data.Sqlite | 8.0.10 | MIT |
 | System.Security.Cryptography.ProtectedData | 8.0.0 | MIT |
+| Microsoft.Win32.Registry | 5.0.0 | MIT |
 | FluentFTP | 54.2.0 | MIT |
 
 `FluentFTP` (MIT) is the FTP/FTPS client for the FTP transport (TASK-033): passive mode, REST resume,
