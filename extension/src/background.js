@@ -157,8 +157,19 @@ function forwardToApp(message) {
 api.runtime.onMessage.addListener((message, sender, sendResponse) => {
   switch (message?.type) {
     case "PING":
-      sendResponse({ ok: true, type: "PONG", host: NATIVE_HOST });
-      break;
+      // Actually reach the desktop app's native host so the popup reflects the real connection state —
+      // "connected" only when the host answers with a pong (TASK-094).
+      try {
+        api.runtime.sendNativeMessage(NATIVE_HOST, { type: "ping" }, (response) => {
+          sendResponse({
+            ok: !api.runtime.lastError && response?.type === "pong",
+            host: NATIVE_HOST,
+          });
+        });
+      } catch {
+        sendResponse({ ok: false, host: NATIVE_HOST });
+      }
+      return true; // async response
 
     case "DOWNLOAD_LINK":
       void sendDownload(
