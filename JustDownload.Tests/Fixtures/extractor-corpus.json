@@ -1,0 +1,37 @@
+[
+  { "name": "hls-master-plain-1seg",  "type": "hls", "encrypted": false, "viaMaster": true,  "segments": 1 },
+  { "name": "hls-master-plain-2seg",  "type": "hls", "encrypted": false, "viaMaster": true,  "segments": 2 },
+  { "name": "hls-master-plain-3seg",  "type": "hls", "encrypted": false, "viaMaster": true,  "segments": 3 },
+  { "name": "hls-master-plain-5seg",  "type": "hls", "encrypted": false, "viaMaster": true,  "segments": 5 },
+  { "name": "hls-master-plain-8seg",  "type": "hls", "encrypted": false, "viaMaster": true,  "segments": 8 },
+  { "name": "hls-master-plain-12seg", "type": "hls", "encrypted": false, "viaMaster": true,  "segments": 12 },
+
+  { "name": "hls-master-aes-1seg",  "type": "hls", "encrypted": true, "viaMaster": true, "segments": 1 },
+  { "name": "hls-master-aes-2seg",  "type": "hls", "encrypted": true, "viaMaster": true, "segments": 2 },
+  { "name": "hls-master-aes-3seg",  "type": "hls", "encrypted": true, "viaMaster": true, "segments": 3 },
+  { "name": "hls-master-aes-5seg",  "type": "hls", "encrypted": true, "viaMaster": true, "segments": 5 },
+  { "name": "hls-master-aes-8seg",  "type": "hls", "encrypted": true, "viaMaster": true, "segments": 8 },
+  { "name": "hls-master-aes-12seg", "type": "hls", "encrypted": true, "viaMaster": true, "segments": 12 },
+
+  { "name": "hls-media-plain-1seg", "type": "hls", "encrypted": false, "viaMaster": false, "segments": 1 },
+  { "name": "hls-media-plain-2seg", "type": "hls", "encrypted": false, "viaMaster": false, "segments": 2 },
+  { "name": "hls-media-plain-4seg", "type": "hls", "encrypted": false, "viaMaster": false, "segments": 4 },
+  { "name": "hls-media-plain-8seg", "type": "hls", "encrypted": false, "viaMaster": false, "segments": 8 },
+
+  { "name": "hls-media-aes-1seg", "type": "hls", "encrypted": true, "viaMaster": false, "segments": 1 },
+  { "name": "hls-media-aes-2seg", "type": "hls", "encrypted": true, "viaMaster": false, "segments": 2 },
+  { "name": "hls-media-aes-4seg", "type": "hls", "encrypted": true, "viaMaster": false, "segments": 4 },
+  { "name": "hls-media-aes-8seg", "type": "hls", "encrypted": true, "viaMaster": false, "segments": 8 },
+
+  { "name": "progressive-mp4",  "type": "progressive", "ext": ".mp4" },
+  { "name": "progressive-m4v",  "type": "progressive", "ext": ".m4v" },
+  { "name": "progressive-webm", "type": "progressive", "ext": ".webm" },
+  { "name": "progressive-mkv",  "type": "progressive", "ext": ".mkv" },
+  { "name": "progressive-mov",  "type": "progressive", "ext": ".mov" },
+
+  { "name": "progressive-mp3",  "type": "progressive", "ext": ".mp3" },
+  { "name": "progressive-m4a",  "type": "progressive", "ext": ".m4a" },
+  { "name": "progressive-aac",  "type": "progressive", "ext": ".aac" },
+  { "name": "progressive-flac", "type": "progressive", "ext": ".flac" },
+  { "name": "progressive-opus", "type": "progressive", "ext": ".opus" }
+]

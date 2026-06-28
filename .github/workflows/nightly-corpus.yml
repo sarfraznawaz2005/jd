@@ -1,0 +1,39 @@
+name: Nightly extractor corpus
+
+# Runs the self-hosted extractor evaluation corpus on a schedule (TASK-043, PRD §3.3): the generic
+# HLS/MP4/audio extractors must succeed on 100% of the checked-in self-hosted fixtures
+# (JustDownload.Tests/Fixtures/extractor-corpus.json). Only self-hosted cases gate here; flaky third-party
+# sites are kept out of this run (a separate, quarantined trait) so a site outage never reds the build.
+on:
+  schedule:
+    # 03:30 UTC daily.
+    - cron: "30 3 * * *"
+  workflow_dispatch: {} # allow manual runs
+
+permissions:
+  contents: read
+
+jobs:
+  corpus:
+    name: extractor corpus
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Restore
+        run: dotnet restore JustDownload.sln
+
+      - name: Build (Release)
+        run: dotnet build JustDownload.sln -c Release --no-restore
+
+      - name: Run extractor corpus
+        run: >-
+          dotnet test JustDownload.sln -c Release --no-build
+          --filter "Category=ExtractorCorpus"
+          --logger "console;verbosity=normal"
