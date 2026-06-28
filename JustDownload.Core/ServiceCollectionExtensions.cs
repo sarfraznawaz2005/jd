@@ -343,6 +343,9 @@ public static class ServiceCollectionExtensions
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IMediaExtractor, DashMediaExtractor>());
         services.TryAddSingleton<ISeparateStreamDownloader, SeparateStreamDownloader>();
 
+        // A/V mux (TASK-041): stream-copy the two streams into one container (MKV default, MP4 when codecs allow).
+        services.TryAddSingleton<IMediaMuxer, MediaMuxer>();
+
         services.TryAddSingleton<IMediaExtractorRegistry, MediaExtractorRegistry>();
 
         return services;
