@@ -96,9 +96,59 @@
     });
   }
 
+  /** Lists the media detected on the active tab, each with a download action (TASK-071 AC0). */
+  async function renderMedia() {
+    const empty = document.getElementById("media-empty");
+    const list = document.getElementById("media-list");
+    if (!list) {
+      return;
+    }
+
+    const tab = await activeTab();
+    const res = await api.runtime.sendMessage({ type: "GET_TAB_MEDIA", tabId: tab?.id }).catch(() => null);
+    const media = Array.isArray(res?.media) ? res.media : [];
+
+    list.replaceChildren();
+    if (media.length === 0) {
+      if (empty) {
+        empty.hidden = false;
+      }
+      list.hidden = true;
+      return;
+    }
+
+    if (empty) {
+      empty.hidden = true;
+    }
+    list.hidden = false;
+    for (const item of media) {
+      const row = document.createElement("button");
+      row.type = "button";
+      row.className = "media-item";
+      row.textContent = JD.mediaLabel(item);
+      row.title = item.url;
+      row.addEventListener("click", () => {
+        api.runtime.sendMessage({ type: "DOWNLOAD_DETECTED_MEDIA", tabId: tab?.id, url: item.url }).catch(() => {});
+      });
+      list.appendChild(row);
+    }
+  }
+
+  /** Shows the desktop app's default quality so popup settings stay in sync (TASK-071 AC2). */
+  async function syncAppSettings() {
+    const res = await api.runtime.sendMessage({ type: "GET_SETTINGS" }).catch(() => null);
+    const quality = res?.settings?.defaultVideoQuality;
+    const el = document.getElementById("default-quality");
+    if (el && typeof quality === "number") {
+      el.textContent = `${quality}p`;
+    }
+  }
+
   document.addEventListener("DOMContentLoaded", () => {
     wireInteractions();
     void refreshStatus();
     void initSiteToggle();
+    void renderMedia();
+    void syncAppSettings();
   });
 })();

@@ -95,6 +95,12 @@ test("buildBlacklistSyncMessage normalizes domains (TASK-069 AC1)", () => {
   assert.deepEqual(msg.domains, ["example.com", "foo.test"]);
 });
 
+test("mediaLabel describes a detected item (TASK-071 AC0)", () => {
+  assert.equal(JD.mediaLabel({ url: "https://x/clip%20a.mp4", kind: "video" }), "video · clip a.mp4");
+  assert.equal(JD.mediaLabel({ url: "https://x/playlist.m3u8" }), "hls · playlist.m3u8");
+  assert.equal(JD.mediaLabel({}), "Media");
+});
+
 test("formatCookieHeader serializes name=value pairs (TASK-067 AC1)", () => {
   const header = JD.formatCookieHeader([
     { name: "sid", value: "abc" },

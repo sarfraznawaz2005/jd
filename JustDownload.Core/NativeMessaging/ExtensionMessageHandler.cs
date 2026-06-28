@@ -1,6 +1,8 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using JustDownload.Core.Data.Models;
 using JustDownload.Core.Data.Repositories;
+using JustDownload.Core.Settings;
 using Microsoft.Extensions.Logging;
 
 namespace JustDownload.Core.NativeMessaging;
@@ -20,21 +22,25 @@ internal sealed partial class ExtensionMessageHandler : INativeMessageHandler
     private readonly IBlacklistRepository _blacklist;
     private readonly IExtensionInbox _inbox;
     private readonly IAppLauncher _launcher;
+    private readonly ISettingsService _settings;
     private readonly ILogger<ExtensionMessageHandler> _logger;
 
     public ExtensionMessageHandler(
         IBlacklistRepository blacklist,
         IExtensionInbox inbox,
         IAppLauncher launcher,
+        ISettingsService settings,
         ILogger<ExtensionMessageHandler> logger)
     {
         ArgumentNullException.ThrowIfNull(blacklist);
         ArgumentNullException.ThrowIfNull(inbox);
         ArgumentNullException.ThrowIfNull(launcher);
+        ArgumentNullException.ThrowIfNull(settings);
         ArgumentNullException.ThrowIfNull(logger);
         _blacklist = blacklist;
         _inbox = inbox;
         _launcher = launcher;
+        _settings = settings;
         _logger = logger;
     }
 
@@ -67,6 +73,9 @@ internal sealed partial class ExtensionMessageHandler : INativeMessageHandler
                 case "download_link":
                     await AcceptDownloadAsync(document.RootElement, cancellationToken).ConfigureAwait(false);
                     return "{\"type\":\"ok\"}";
+
+                case "get_settings":
+                    return await GetSettingsAsync(cancellationToken).ConfigureAwait(false);
 
                 case null:
                     return "{\"type\":\"error\",\"error\":\"malformed message\"}";
@@ -132,6 +141,21 @@ internal sealed partial class ExtensionMessageHandler : INativeMessageHandler
 
         await _launcher.EnsureRunningAsync(cancellationToken).ConfigureAwait(false);
         LogQueued(_logger, url);
+    }
+
+    private async Task<string> GetSettingsAsync(CancellationToken cancellationToken)
+    {
+        // Hydrate from storage so the popup reflects the user's actual app settings (TASK-071 AC2).
+        await _settings.LoadAsync(cancellationToken).ConfigureAwait(false);
+        AppSettings s = _settings.Current;
+        var payload = new JsonObject
+        {
+            ["type"] = "settings",
+            ["defaultVideoQuality"] = (int)s.DefaultVideoQuality,
+            ["defaultContainer"] = s.DefaultContainer.ToString().ToLowerInvariant(),
+            ["maxConcurrentDownloads"] = s.MaxConcurrentDownloads,
+        };
+        return payload.ToJsonString();
     }
 
     private static string? ReadString(JsonElement root, string name) =>

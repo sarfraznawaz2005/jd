@@ -3,6 +3,7 @@ using FluentAssertions;
 using JustDownload.Core.Data.Models;
 using JustDownload.Core.Data.Repositories;
 using JustDownload.Core.NativeMessaging;
+using JustDownload.Core.Settings;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
@@ -66,8 +67,25 @@ public sealed class ExtensionMessageHandlerTests
 
     private static ExtensionMessageHandler Build(
         IBlacklistRepository repo, IExtensionInbox? inbox = null, IAppLauncher? launcher = null) =>
-        new(repo, inbox ?? new FakeInbox(), launcher ?? new CountingLauncher(),
+        new(repo, inbox ?? new FakeInbox(), launcher ?? new CountingLauncher(), new StubSettings(),
             NullLogger<ExtensionMessageHandler>.Instance);
+
+    private sealed class StubSettings : ISettingsService
+    {
+        public AppSettings Current { get; private set; } = new() { DefaultVideoQuality = VideoQuality.P720 };
+
+#pragma warning disable CS0067
+        public event EventHandler<SettingsChangedEventArgs>? Changed;
+#pragma warning restore CS0067
+
+        public Task LoadAsync(CancellationToken ct = default) => Task.CompletedTask;
+
+        public Task<AppSettings> UpdateAsync(Func<AppSettings, AppSettings> mutate, CancellationToken ct = default)
+        {
+            Current = mutate(Current);
+            return Task.FromResult(Current);
+        }
+    }
 
     [Fact]
     public async Task Ping_RepliesPong()
@@ -103,6 +121,15 @@ public sealed class ExtensionMessageHandlerTests
         buttonDomains.Should().Equal("a.com", "b.com");
         (await repo.ExistsAsync("stale.com", ExtensionMessageHandler.ButtonScope)).Should().BeFalse("dropped domain removed");
         (await repo.ExistsAsync("keep.com", "app")).Should().BeTrue("other scopes are untouched");
+    }
+
+    [Fact]
+    public async Task GetSettings_ReturnsAppSettings()
+    {
+        string? reply = await Build(new InMemoryBlacklist()).HandleAsync("{\"type\":\"get_settings\"}");
+
+        reply.Should().Contain("settings");
+        reply.Should().Contain("720", "the app's default quality is surfaced to the popup");
     }
 
     [Fact]

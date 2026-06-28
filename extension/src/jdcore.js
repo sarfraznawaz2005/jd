@@ -179,6 +179,22 @@
     };
   }
 
+  /** A short human label for a detected media item, for the popup list (TASK-071 AC0). */
+  function mediaLabel(item) {
+    if (!item || typeof item.url !== "string") {
+      return "Media";
+    }
+    let name = "";
+    try {
+      const path = new URL(item.url).pathname;
+      name = path.substring(path.lastIndexOf("/") + 1);
+    } catch {
+      name = "";
+    }
+    const kind = item.kind || classifyMedia(item.url) || "media";
+    return name ? `${kind} · ${decodeURIComponent(name)}` : kind;
+  }
+
   /** Builds the message that syncs the per-site blacklist to the desktop app (TASK-069 AC1). */
   function buildBlacklistSyncMessage(blacklist) {
     const domains = Array.isArray(blacklist)
@@ -212,6 +228,7 @@
     shouldShowFloatingButton,
     createMediaStore,
     buildBlacklistSyncMessage,
+    mediaLabel,
     MEDIA_KINDS,
   };
 

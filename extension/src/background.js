@@ -187,6 +187,17 @@ api.runtime.onMessage.addListener((message, sender, sendResponse) => {
       );
       return true;
 
+    case "GET_SETTINGS":
+      // The popup asks the desktop app for its current settings (TASK-071 AC2).
+      try {
+        api.runtime.sendNativeMessage(NATIVE_HOST, { type: "get_settings" }, (response) => {
+          sendResponse({ ok: !api.runtime.lastError, settings: response ?? null });
+        });
+      } catch {
+        sendResponse({ ok: false, settings: null });
+      }
+      return true;
+
     case "GET_TAB_MEDIA": {
       // The popup / floating button asks what was detected for a tab (TASK-068/071).
       const tabId = message.tabId ?? sender?.tab?.id;
