@@ -18,13 +18,23 @@ internal sealed partial class ExtensionMessageHandler : INativeMessageHandler
     public const string ButtonScope = "button";
 
     private readonly IBlacklistRepository _blacklist;
+    private readonly IExtensionInbox _inbox;
+    private readonly IAppLauncher _launcher;
     private readonly ILogger<ExtensionMessageHandler> _logger;
 
-    public ExtensionMessageHandler(IBlacklistRepository blacklist, ILogger<ExtensionMessageHandler> logger)
+    public ExtensionMessageHandler(
+        IBlacklistRepository blacklist,
+        IExtensionInbox inbox,
+        IAppLauncher launcher,
+        ILogger<ExtensionMessageHandler> logger)
     {
         ArgumentNullException.ThrowIfNull(blacklist);
+        ArgumentNullException.ThrowIfNull(inbox);
+        ArgumentNullException.ThrowIfNull(launcher);
         ArgumentNullException.ThrowIfNull(logger);
         _blacklist = blacklist;
+        _inbox = inbox;
+        _launcher = launcher;
         _logger = logger;
     }
 
@@ -54,12 +64,14 @@ internal sealed partial class ExtensionMessageHandler : INativeMessageHandler
                     await SyncBlacklistAsync(document.RootElement, cancellationToken).ConfigureAwait(false);
                     return "{\"type\":\"ok\"}";
 
+                case "download_link":
+                    await AcceptDownloadAsync(document.RootElement, cancellationToken).ConfigureAwait(false);
+                    return "{\"type\":\"ok\"}";
+
                 case null:
                     return "{\"type\":\"error\",\"error\":\"malformed message\"}";
 
                 default:
-                    // Acknowledge other known types (e.g. download_link) so the extension's send succeeds;
-                    // their delivery/enqueue is handled elsewhere (TASK-070).
                     return "{\"type\":\"ok\"}";
             }
         }
@@ -98,6 +110,35 @@ internal sealed partial class ExtensionMessageHandler : INativeMessageHandler
         LogSynced(_logger, domains.Count);
     }
 
+    private async Task AcceptDownloadAsync(JsonElement root, CancellationToken cancellationToken)
+    {
+        string? url = ReadString(root, "url");
+        if (string.IsNullOrWhiteSpace(url))
+        {
+            return;
+        }
+
+        // Queue the link durably so it's delivered whether the app is running now or starts later (AC1),
+        // then ensure the app is running so it acts on it promptly (AC0).
+        await _inbox.EnqueueAsync(
+            new PendingLink
+            {
+                Url = url,
+                Referrer = ReadString(root, "referrer"),
+                Cookies = ReadString(root, "cookies"),
+                MediaKind = ReadString(root, "mediaKind"),
+            },
+            cancellationToken).ConfigureAwait(false);
+
+        await _launcher.EnsureRunningAsync(cancellationToken).ConfigureAwait(false);
+        LogQueued(_logger, url);
+    }
+
+    private static string? ReadString(JsonElement root, string name) =>
+        root.TryGetProperty(name, out JsonElement value) && value.ValueKind == JsonValueKind.String
+            ? value.GetString()
+            : null;
+
     private static string? ReadType(JsonElement root) =>
         root.ValueKind == JsonValueKind.Object &&
         root.TryGetProperty("type", out JsonElement type) &&
@@ -107,4 +148,7 @@ internal sealed partial class ExtensionMessageHandler : INativeMessageHandler
 
     [LoggerMessage(EventId = 1, Level = LogLevel.Information, Message = "Synced {Count} blacklisted site(s) from the extension.")]
     private static partial void LogSynced(ILogger logger, int count);
+
+    [LoggerMessage(EventId = 2, Level = LogLevel.Information, Message = "Queued handed-off link {Url} for the desktop app.")]
+    private static partial void LogQueued(ILogger logger, string url);
 }

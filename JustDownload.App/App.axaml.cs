@@ -166,6 +166,25 @@ public partial class App : Application
     {
         await Services.InitializeJustDownloadCoreAsync().ConfigureAwait(true);
         await Services.GetRequiredService<DownloadsListViewModel>().LoadAsync().ConfigureAwait(true);
+        await DeliverPendingLinksAsync().ConfigureAwait(true);
+    }
+
+    /// <summary>Delivers links the extension handed off while the app was closed (TASK-070 AC1).</summary>
+    private async Task DeliverPendingLinksAsync()
+    {
+        IReadOnlyList<JustDownload.Core.NativeMessaging.PendingLink> pending =
+            await Services.GetRequiredService<JustDownload.Core.NativeMessaging.IExtensionInbox>()
+                .DrainAsync().ConfigureAwait(true);
+        if (pending.Count == 0)
+        {
+            return;
+        }
+
+        MainWindowViewModel mainViewModel = Services.GetRequiredService<MainWindowViewModel>();
+        foreach (JustDownload.Core.NativeMessaging.PendingLink link in pending)
+        {
+            mainViewModel.RequestDownloadForUrl(link.Url);
+        }
     }
 
     /// <summary>The active top-level's clipboard, or <c>null</c> before a window exists.</summary>

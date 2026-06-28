@@ -399,8 +399,14 @@ public static class ServiceCollectionExtensions
         ArgumentNullException.ThrowIfNull(services);
 
         services.TryAddSingleton(new NativeHostOptions());
-        // The extension router handles ping, blacklist sync (TASK-069), and acknowledges download messages
-        // (delivered/queued by TASK-070). Replaces the bare ping handler from TASK-064.
+
+        // Hand-off queue + app launcher (TASK-070, US-11 AC5): the host queues links the app drains on next
+        // start, and launches the app when it is not already running.
+        services.TryAddSingleton<IExtensionInbox, ExtensionInbox>();
+        services.TryAddSingleton<IAppLauncher, AppLauncher>();
+
+        // The extension router handles ping, blacklist sync (TASK-069), and download links — queueing them and
+        // launching the app (TASK-070). Replaces the bare ping handler from TASK-064.
         services.TryAddSingleton<INativeMessageHandler, ExtensionMessageHandler>();
         services.TryAddSingleton<NativeMessageHost>();
 

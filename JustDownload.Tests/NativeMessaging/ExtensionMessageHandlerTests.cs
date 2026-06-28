@@ -35,8 +35,39 @@ public sealed class ExtensionMessageHandlerTests
             Task.FromResult(Entries.TryRemove((domain, scope), out _));
     }
 
-    private static ExtensionMessageHandler Build(IBlacklistRepository repo) =>
-        new(repo, NullLogger<ExtensionMessageHandler>.Instance);
+    private sealed class FakeInbox : IExtensionInbox
+    {
+        public List<PendingLink> Links { get; } = [];
+
+        public Task EnqueueAsync(PendingLink link, CancellationToken ct = default)
+        {
+            Links.Add(link);
+            return Task.CompletedTask;
+        }
+
+        public Task<IReadOnlyList<PendingLink>> DrainAsync(CancellationToken ct = default)
+        {
+            IReadOnlyList<PendingLink> copy = Links.ToArray();
+            Links.Clear();
+            return Task.FromResult(copy);
+        }
+    }
+
+    private sealed class CountingLauncher : IAppLauncher
+    {
+        public int Calls { get; private set; }
+
+        public Task EnsureRunningAsync(CancellationToken ct = default)
+        {
+            Calls++;
+            return Task.CompletedTask;
+        }
+    }
+
+    private static ExtensionMessageHandler Build(
+        IBlacklistRepository repo, IExtensionInbox? inbox = null, IAppLauncher? launcher = null) =>
+        new(repo, inbox ?? new FakeInbox(), launcher ?? new CountingLauncher(),
+            NullLogger<ExtensionMessageHandler>.Instance);
 
     [Fact]
     public async Task Ping_RepliesPong()
@@ -75,11 +106,20 @@ public sealed class ExtensionMessageHandlerTests
     }
 
     [Fact]
-    public async Task DownloadLink_IsAcknowledged()
+    public async Task DownloadLink_QueuesLink_AndEnsuresAppRunning()
     {
-        string? reply = await Build(new InMemoryBlacklist())
-            .HandleAsync("{\"type\":\"DOWNLOAD_LINK\",\"url\":\"https://x/a.zip\"}");
+        var inbox = new FakeInbox();
+        var launcher = new CountingLauncher();
+        ExtensionMessageHandler handler = Build(new InMemoryBlacklist(), inbox, launcher);
+
+        string? reply = await handler.HandleAsync(
+            "{\"type\":\"DOWNLOAD_LINK\",\"url\":\"https://x/a.zip\",\"referrer\":\"https://x/p\",\"cookies\":\"sid=1\"}");
 
         reply.Should().Contain("ok");
+        inbox.Links.Should().ContainSingle();
+        inbox.Links[0].Url.Should().Be("https://x/a.zip");
+        inbox.Links[0].Referrer.Should().Be("https://x/p");
+        inbox.Links[0].Cookies.Should().Be("sid=1");
+        launcher.Calls.Should().Be(1, "the app is launched/ensured running for the handed-off link");
     }
 }
