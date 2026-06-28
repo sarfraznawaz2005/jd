@@ -13,3 +13,71 @@ AI Agents must ignore contents of this file:
 - check for updates
 - No mention of youtube download in chrome extension or website
 - downloader website using surge.sh
+- dev name (extensions, etc.), app branding, etc.
+- check app readiness (including browser extensions) for real distribution to users and tell me if it will work for them as is or we need to fix anything before that.
+
+small N+1 batching tasks (TASK-105/106/107)
+
+
+==================================================================
+EXTENSION SIGNING KEY — ACTION REQUIRED (TASK-098) — do not lose this
+==================================================================
+
+A signing key was generated for the browser extension so Chrome/Edge get a
+STABLE extension id. The whole native-messaging allowlist depends on this id:
+
+  extension id : jomjhgmmkdicaonknkjlmhdfhlnchcnl
+  public key   : embedded as "key" in extension/src/manifest.chrome.json and
+                 extension/src/manifest.edge.json (committed)
+  PRIVATE key  : .keys/chrome-extension-private-key.pem   (gitignored, NOT committed)
+                 (a copy of the public-key text is in .keys/ too)
+
+>> DO THIS NOW: move .keys/chrome-extension-private-key.pem into a real secrets
+   manager / password vault and BACK IT UP. If you lose it you cannot re-pack or
+   re-publish the extension under the same id, and browser integration breaks for
+   everyone who already installed it. The .keys/ folder is gitignored on purpose.
+
+The id is wired in code here (keep these three in sync if the id ever changes):
+  - extension/src/manifest.chrome.json   ("key")
+  - extension/src/manifest.edge.json     ("key")
+  - JustDownload.Core/NativeMessaging/NativeHostIdentity.cs  (ChromiumExtensionId)
+
+------------------------------------------------------------------
+How to reuse the key when publishing the extension
+------------------------------------------------------------------
+
+WHERE THE ID IS ALREADY STABLE (works today, no extra steps):
+  - Unpacked dev load (chrome://extensions -> Load unpacked -> extension/dist/chrome)
+  - Edge sideload / unpacked
+  - Self-hosted .crx
+  ...because the "key" in the manifest pins the id to jomjhgmmkdicaonknkjlmhdfhlnchcnl,
+  which is what the desktop app's native-messaging host allows.
+
+CHROME WEB STORE (and Edge Add-ons):
+  The store assigns the FINAL public id when you first upload. It may or may not
+  match our generated id, so you must reconcile after the first upload:
+
+  1. Build the bundle:           cd extension && node build.js chrome   (output: dist/chrome)
+  2. Zip dist/chrome and upload it in the Chrome Web Store Developer Dashboard
+     (create the item, fill listing, submit). Tip: you can keep the "key" field;
+     it does not block submission.
+  3. After the item is created, copy its "Item ID" from the dashboard URL/overview.
+  4. Compare it to jomjhgmmkdicaonknkjlmhdfhlnchcnl:
+       - If they MATCH: nothing to do.
+       - If they DIFFER: update the id in the 3 places listed above
+         (manifest.chrome.json "key" can stay; set ChromiumExtensionId to the
+         store id, and set the manifest "key" to the store's public key if you
+         want unpacked dev to share that id), then rebuild + re-run the tests:
+            dotnet test JustDownload.sln -c Release
+            cd extension && node --test
+  5. Repeat for Edge Add-ons (its assigned id can differ from Chrome's). Add the
+     Edge id to NativeHostIdentity too if it is not the same.
+
+TO PACK A SIGNED .crx MANUALLY (self-distribution), use the private key:
+   chrome.exe --pack-extension="extension/dist/chrome" \
+              --pack-extension-key=".keys/chrome-extension-private-key.pem"
+   (produces dist/chrome.crx with id jomjhgmmkdicaonknkjlmhdfhlnchcnl)
+
+Firefox uses a fixed gecko id (justdownload@justdownload.app), not a key — no
+action needed there for the id.
+
