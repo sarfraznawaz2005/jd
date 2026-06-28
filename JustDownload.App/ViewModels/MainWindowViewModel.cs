@@ -14,6 +14,7 @@ namespace JustDownload.App.ViewModels;
 public sealed partial class MainWindowViewModel : ViewModelBase
 {
     private readonly IThemeService _theme;
+    private readonly IDensityService _density;
 
     /// <summary>Width (DIPs) below which the sidebar auto-hides so the list+detail still fit (TASK-048).</summary>
     public const double NarrowBreakpoint = 940;
@@ -28,17 +29,20 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
     public MainWindowViewModel(
         IThemeService theme,
+        IDensityService density,
         StatusSummaryViewModel status,
         DownloadsListViewModel downloads,
         DownloadDetailViewModel detail,
         SidebarViewModel sidebar)
     {
         ArgumentNullException.ThrowIfNull(theme);
+        ArgumentNullException.ThrowIfNull(density);
         ArgumentNullException.ThrowIfNull(status);
         ArgumentNullException.ThrowIfNull(downloads);
         ArgumentNullException.ThrowIfNull(detail);
         ArgumentNullException.ThrowIfNull(sidebar);
         _theme = theme;
+        _density = density;
         Status = status;
         Downloads = downloads;
         Detail = detail;
@@ -46,7 +50,13 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
         // Keep the detail pane pointed at the list's current selection (TASK-054).
         Downloads.PropertyChanged += OnDownloadsPropertyChanged;
+
+        // Re-apply the compact style class whenever density changes (here or via the settings screen).
+        _density.Changed += (_, _) => OnPropertyChanged(nameof(IsCompact));
     }
+
+    /// <summary>Whether the list/detail use the compact (power-user) density (TASK-063). Drives the shell style.</summary>
+    public bool IsCompact => _density.IsCompact;
 
     /// <summary>The live status-bar summary (active count, total speed, connections).</summary>
     public StatusSummaryViewModel Status { get; }
@@ -109,6 +119,10 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <summary>Cycles the application theme (Light → Dark → System).</summary>
     [RelayCommand]
     private void ToggleTheme() => _theme.Toggle();
+
+    /// <summary>Switches between Comfortable and Compact list/detail density (TASK-063); persists the choice.</summary>
+    [RelayCommand]
+    private void ToggleDensity() => _density.Toggle();
 
     /// <summary>Collapses or restores the sidebar pane.</summary>
     [RelayCommand]

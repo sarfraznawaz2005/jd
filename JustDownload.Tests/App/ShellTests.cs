@@ -67,7 +67,7 @@ public sealed class ShellTests
 
         var detail = new DownloadDetailViewModel(manager, Substitute.For<IDownloadActions>());
         var sidebar = new SidebarViewModel(downloads);
-        return new MainWindowViewModel(new ThemeService(), new StatusSummaryViewModel(manager), downloads, detail, sidebar);
+        return new MainWindowViewModel(new ThemeService(), Substitute.For<IDensityService>(), new StatusSummaryViewModel(manager), downloads, detail, sidebar);
     }
 
     [AvaloniaFact]

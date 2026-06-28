@@ -24,6 +24,7 @@ public partial class App : Application
         new ServiceCollection()
             .AddJustDownloadCore()
             .AddSingleton<IThemeService, ThemeService>()
+            .AddSingleton<IDensityService, DensityService>()
             .AddSingleton<IDownloadActions, DownloadActionsService>()
             .AddSingleton<IFileRevealer, FileRevealer>()
             .AddSingleton<IDownloadFolderProvider, DownloadFolderProvider>()

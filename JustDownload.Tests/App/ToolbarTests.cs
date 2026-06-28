@@ -47,7 +47,7 @@ public sealed class ToolbarTests
         }
 
         public MainWindowViewModel BuildMain(DownloadsListViewModel list) =>
-            new(new ThemeService(), new StatusSummaryViewModel(Manager), list,
+            new(new ThemeService(), Substitute.For<IDensityService>(), new StatusSummaryViewModel(Manager), list,
                 new DownloadDetailViewModel(Manager, Actions), new SidebarViewModel(list));
     }
 

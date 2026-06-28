@@ -36,7 +36,7 @@ public sealed class AccessibilityTests
             Substitute.For<IFileRevealer>(), Substitute.For<IFileCategorizer>(), clock);
         var detail = new DownloadDetailViewModel(manager, Substitute.For<IDownloadActions>());
         return new MainWindowViewModel(
-            new ThemeService(), new StatusSummaryViewModel(manager), downloads, detail, new SidebarViewModel(downloads));
+            new ThemeService(), Substitute.For<IDensityService>(), new StatusSummaryViewModel(manager), downloads, detail, new SidebarViewModel(downloads));
     }
 
     [AvaloniaFact]

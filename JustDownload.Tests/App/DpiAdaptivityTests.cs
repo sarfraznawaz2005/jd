@@ -56,7 +56,7 @@ public sealed class DpiAdaptivityTests
             Substitute.For<IFileRevealer>(), categorizer, clock);
         var detail = new DownloadDetailViewModel(manager, Substitute.For<IDownloadActions>());
         return new MainWindowViewModel(
-            new ThemeService(), new StatusSummaryViewModel(manager), downloads, detail, new SidebarViewModel(downloads));
+            new ThemeService(), Substitute.For<IDensityService>(), new StatusSummaryViewModel(manager), downloads, detail, new SidebarViewModel(downloads));
     }
 
     [Fact]

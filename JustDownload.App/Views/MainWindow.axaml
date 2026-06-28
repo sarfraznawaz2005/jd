@@ -7,7 +7,8 @@
         x:DataType="vm:MainWindowViewModel"
         Title="JustDownload"
         Width="1080" Height="700"
-        MinWidth="800" MinHeight="600">
+        MinWidth="800" MinHeight="600"
+        Classes.compact="{Binding IsCompact}">
 
   <Window.Resources>
     <!-- Compact icon set (filled silhouettes for PathIcon). The full category icon set lands with the list view. -->
@@ -29,6 +30,7 @@
     <KeyBinding Gesture="Ctrl+N" Command="{Binding NewDownloadCommand}" />
     <KeyBinding Gesture="Delete" Command="{Binding Downloads.RemoveCommand}" />
     <KeyBinding Gesture="Ctrl+OemComma" Command="{Binding OpenSettingsCommand}" />
+    <KeyBinding Gesture="Ctrl+Shift+C" Command="{Binding ToggleDensityCommand}" />
   </Window.KeyBindings>
 
   <DockPanel>

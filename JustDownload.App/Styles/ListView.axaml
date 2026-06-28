@@ -147,6 +147,24 @@
     <Setter Property="Foreground" Value="{DynamicResource AmberBrush}" />
   </Style>
 
+  <!--
+    Compact density (TASK-063, PRD §2.4.4): when the shell carries the .compact class the list rows and
+    headers tighten up for power users. Comfortable (the default above) is unchanged.
+  -->
+  <Style Selector="Window.compact DataGrid">
+    <Setter Property="RowHeight" Value="34" />
+  </Style>
+  <Style Selector="Window.compact DataGridRow">
+    <Setter Property="MinHeight" Value="34" />
+  </Style>
+  <Style Selector="Window.compact DataGridColumnHeader">
+    <Setter Property="Height" Value="28" />
+  </Style>
+  <Style Selector="Window.compact Border.FileTile">
+    <Setter Property="Width" Value="22" />
+    <Setter Property="Height" Value="22" />
+  </Style>
+
   <!-- Segment-visualization cell (TASK-055): a small vertical block that fills with a connection's progress. -->
   <Style Selector="ProgressBar.SegCell">
     <Setter Property="Width" Value="22" />
