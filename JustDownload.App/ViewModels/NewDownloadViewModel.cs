@@ -167,8 +167,10 @@ public sealed partial class NewDownloadViewModel : ViewModelBase
         {
             // Superseded by a newer detection — ignore.
         }
-        catch (Exception ex) when (ex is ResourceProbeException or HttpRequestException or InvalidOperationException)
+        catch (Exception ex)
         {
+            // Any probe failure (timeout, transport, parse, …) surfaces the same guidance rather than
+            // escaping as an unobserved exception and silently resetting the form (no silent failures, §1).
             LogDetectFailed(_logger, uri, ex);
             DetectionMessage = "Couldn't read this link automatically — check the URL or enter the details manually.";
         }

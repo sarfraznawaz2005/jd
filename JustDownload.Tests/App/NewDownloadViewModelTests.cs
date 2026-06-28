@@ -106,6 +106,23 @@ public sealed class NewDownloadViewModelTests
         vm.IsDetecting.Should().BeFalse();
     }
 
+    [Fact]
+    public async Task DetectAsync_UnexpectedProbeFailure_SurfacesMessage_AndDoesNotThrow()
+    {
+        // A failure type outside the previously-whitelisted set (e.g. a timeout) must still be caught and
+        // surfaced, not escape as an unobserved exception that silently resets the form (TASK-120).
+        var h = new Harness();
+        h.Probe.ProbeAsync(Arg.Any<Uri>(), Arg.Any<IReadOnlyList<KeyValuePair<string, string>>?>(), Arg.Any<CancellationToken>())
+            .Returns<Task<ResourceProbeResult>>(_ => throw new TimeoutException("probe timed out"));
+        var vm = h.Build();
+        vm.Url = "https://host.example/slow.bin";
+
+        await vm.DetectAsync();
+
+        vm.DetectionMessage.Should().Contain("Couldn't read");
+        vm.IsDetecting.Should().BeFalse();
+    }
+
     [Theory]
     [InlineData("", false)]
     [InlineData("not a url", false)]
