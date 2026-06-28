@@ -115,6 +115,21 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <summary>Raised when the user invokes "New URL" — the shell opens the new-download dialog (TASK-053).</summary>
     public event EventHandler? NewDownloadRequested;
 
+    /// <summary>
+    /// Raised with a URL the shell should start a download for — a link dropped onto the app (TASK-062) or
+    /// forwarded by a second launch (TASK-061). The shell opens the new-download dialog prefilled with it.
+    /// </summary>
+    public event EventHandler<string>? DownloadUrlRequested;
+
+    /// <summary>Asks the shell to start a download for <paramref name="url"/> (drop / forwarded launch).</summary>
+    public void RequestDownloadForUrl(string url)
+    {
+        if (!string.IsNullOrWhiteSpace(url))
+        {
+            DownloadUrlRequested?.Invoke(this, url);
+        }
+    }
+
     /// <summary>Raised when the user opens Settings — the shell shows the settings screens (TASK-057).</summary>
     public event EventHandler? SettingsRequested;
 

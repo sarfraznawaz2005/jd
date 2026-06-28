@@ -67,10 +67,14 @@ public partial class App : Application
             // The toolbar "Settings" intent opens the settings window (TASK-057).
             mainViewModel.SettingsRequested += (_, _) => _ = ShowSettingsDialogAsync(window);
 
+            // A URL — dropped on the app (TASK-062) or forwarded by a second launch (TASK-061) — opens the
+            // new-download dialog prefilled.
+            mainViewModel.DownloadUrlRequested += (_, url) => _ = ShowNewDownloadDialogAsync(window, url);
+
             // Notify on completion/error, add a tray icon, and accept URLs forwarded by a second launch (TASK-061).
             Services.GetRequiredService<DownloadNotifier>().Start();
             InstallTrayIcon(desktop, window, mainViewModel);
-            WireForwardedArguments(window);
+            WireForwardedArguments(window, mainViewModel);
 
             // Bring the schema up to date, then load the persisted downloads into the list — off the
             // initialisation path so the window paints immediately and never blocks on I/O (§6).
@@ -110,7 +114,7 @@ public partial class App : Application
         window.Activate();
     }
 
-    private void WireForwardedArguments(Window window)
+    private static void WireForwardedArguments(Window window, MainWindowViewModel mainViewModel)
     {
         if (InstanceCoordinator is not { } coordinator)
         {
@@ -123,7 +127,7 @@ public partial class App : Application
             string? url = args.FirstOrDefault(a => Uri.TryCreate(a, UriKind.Absolute, out Uri? _));
             if (url is not null)
             {
-                _ = ShowNewDownloadDialogAsync(window, url);
+                mainViewModel.RequestDownloadForUrl(url);
             }
         });
     }

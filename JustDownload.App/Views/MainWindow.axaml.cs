@@ -3,8 +3,10 @@ using Avalonia.Controls;
 using Avalonia.Data;
 using Avalonia.Input;
 using Avalonia.Interactivity;
+using Avalonia.Platform.Storage;
 using Avalonia.Reactive;
 using Avalonia.VisualTree;
+using JustDownload.App.Services;
 
 namespace JustDownload.App.Views;
 
@@ -24,6 +26,14 @@ public partial class MainWindow : Window
 
         // Drive the responsive layout (sidebar auto-hide) from the window width (TASK-048).
         this.GetObservable(ClientSizeProperty).Subscribe(new AnonymousObserver<Size>(OnClientSizeChanged));
+
+        // Drag a link/media onto the window to enqueue it (TASK-062 AC0).
+        DragDrop.SetAllowDrop(this, true);
+        AddHandler(DragDrop.DragOverEvent, OnDragOver);
+        AddHandler(DragDrop.DropEvent, OnDrop);
+
+        // Drag a completed item out to Finder/Explorer (TASK-062 AC1).
+        DownloadsGrid.AddHandler(PointerMovedEvent, OnGridPointerMoved, RoutingStrategies.Tunnel);
 
         // Command palette (TASK-056): focus the search box when it opens, and handle its keys (tunnel so the
         // palette wins over the TextBox/ListBox for Enter/Escape/arrows).
@@ -70,6 +80,67 @@ public partial class MainWindow : Window
             default:
                 break;
         }
+    }
+
+    // The classic drag-drop data API (DragEventArgs.Data) is the documented, working path; its DataTransfer
+    // replacement can't be validated on this build host, so we keep the stable API for the drop handlers.
+#pragma warning disable CS0618
+    private static void OnDragOver(object? sender, DragEventArgs e)
+    {
+        // Accept text/links; show a copy cursor only when there's something we can enqueue.
+        bool hasLink = DroppedLinkParser.TryExtractUrl(e.Data.GetText()) is not null;
+        e.DragEffects = hasLink ? DragDropEffects.Copy : DragDropEffects.None;
+    }
+
+    private void OnDrop(object? sender, DragEventArgs e)
+    {
+        if (DataContext is not ViewModels.MainWindowViewModel vm)
+        {
+            return;
+        }
+
+        string? url = DroppedLinkParser.TryExtractUrl(e.Data.GetText());
+        if (url is not null)
+        {
+            vm.RequestDownloadForUrl(url);
+        }
+    }
+#pragma warning restore CS0618
+
+    private async void OnGridPointerMoved(object? sender, PointerEventArgs e)
+    {
+        // Only start a drag when the primary button is held over a completed row with a file on disk.
+        if (!e.GetCurrentPoint(DownloadsGrid).Properties.IsLeftButtonPressed)
+        {
+            return;
+        }
+
+        if (e.Source is not Visual visual || visual.FindAncestorOfType<DataGridRow>()?.DataContext
+            is not ViewModels.DownloadRowViewModel { IsCompleted: true, FilePath: { } path })
+        {
+            return;
+        }
+
+        IStorageProvider? storage = StorageProvider;
+        if (storage is null)
+        {
+            return;
+        }
+
+        IStorageFile? file = await storage.TryGetFileFromPathAsync(path);
+        if (file is null)
+        {
+            return; // file moved/removed — nothing to drag out
+        }
+
+        // The classic DataObject/DoDragDrop API is the documented, working path for starting an OS file drag
+        // (the file lands in Finder/Explorer). The newer DataTransfer replacement can't be validated on this
+        // build host, so we keep the stable API here.
+#pragma warning disable CS0618
+        var data = new DataObject();
+        data.Set(DataFormats.Files, new[] { file });
+        await DragDrop.DoDragDrop(e, data, DragDropEffects.Copy);
+#pragma warning restore CS0618
     }
 
     private void OnClientSizeChanged(Size size)
