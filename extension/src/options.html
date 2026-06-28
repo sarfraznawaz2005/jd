@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>JustDownload — Settings</title>
+  <style>
+    :root { color-scheme: light dark; }
+    body { font: 14px/1.5 system-ui, sans-serif; margin: 0; padding: 24px; max-width: 640px; }
+    h1 { font-size: 18px; margin: 0 0 4px; }
+    .muted { color: GrayText; }
+    .status { display: inline-flex; align-items: center; gap: 6px; margin: 8px 0 20px; font-size: 13px; }
+    .dot { width: 9px; height: 9px; border-radius: 50%; background: #c44; }
+    .status.connected .dot { background: #2ca02c; }
+    section { margin-top: 20px; }
+    .row { display: flex; gap: 8px; align-items: center; }
+    input[type=text] { flex: 1; padding: 7px 10px; border: 1px solid GrayText; border-radius: 6px; background: transparent; color: inherit; }
+    button { padding: 7px 12px; border: 1px solid GrayText; border-radius: 6px; background: transparent; color: inherit; cursor: pointer; }
+    ul { list-style: none; padding: 0; margin: 12px 0 0; }
+    li { display: flex; align-items: center; justify-content: space-between; padding: 8px 10px; border: 1px solid; border-color: color-mix(in srgb, GrayText 35%, transparent); border-radius: 6px; margin-bottom: 6px; }
+    li button { padding: 3px 9px; font-size: 12px; }
+    .empty { color: GrayText; padding: 12px 0; }
+  </style>
+</head>
+<body>
+  <h1>JustDownload</h1>
+  <div class="muted">Browser extension settings</div>
+
+  <div class="status" id="status">
+    <span class="dot"></span>
+    <span id="status-text">Checking…</span>
+  </div>
+
+  <section>
+    <strong>Blocked sites</strong>
+    <div class="muted">The floating download button and media capture are disabled on these sites.</div>
+    <div class="row" style="margin-top:12px">
+      <input type="text" id="add-input" placeholder="example.com" aria-label="Site to block">
+      <button id="add-button" type="button">Block site</button>
+    </div>
+    <ul id="list"></ul>
+    <div class="empty" id="empty" hidden>No blocked sites.</div>
+  </section>
+
+  <script src="jdcore.js"></script>
+  <script src="options.js"></script>
+</body>
+</html>

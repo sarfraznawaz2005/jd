@@ -17,11 +17,13 @@
       "32": "icons/icon-32.png"
     }
   },
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": true
+  },
   "permissions": [
-    "activeTab",
     "contextMenus",
     "storage",
-    "downloads",
     "nativeMessaging",
     "cookies",
     "webRequest"
