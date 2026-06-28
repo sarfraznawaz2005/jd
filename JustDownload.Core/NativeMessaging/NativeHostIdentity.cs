@@ -21,12 +21,11 @@ public static class NativeHostIdentity
     public const string FirefoxExtensionId = "justdownload@justdownload.app";
 
     /// <summary>
-    /// The Chromium extension id (the bare 32-char id), once the extension has a fixed manifest <c>key</c>
-    /// or is published (TASK-098). <see langword="null"/> means the Chromium path is intentionally not yet
-    /// enabled — we never allowlist a guessed id. (A field, not a <c>const</c>, so the enabling logic below
-    /// stays reachable until the id is known.)
+    /// The Chromium (Chrome/Edge) extension id, derived from the fixed manifest <c>key</c> the extension
+    /// ships (TASK-098). Chrome and Edge share the same key, so the same id covers both. It is a substring
+    /// of the <c>chrome-extension://&lt;id&gt;/</c> origin the browser passes, which is how the host matches it.
     /// </summary>
-    public static readonly string? ChromiumExtensionId;
+    public static readonly string? ChromiumExtensionId = "jomjhgmmkdicaonknkjlmhdfhlnchcnl";
 
     /// <summary>The Firefox ids written into the Firefox manifest's <c>allowed_extensions</c>.</summary>
     public static IReadOnlyList<string> FirefoxExtensionIds { get; } = [FirefoxExtensionId];

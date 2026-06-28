@@ -25,6 +25,17 @@ public sealed class NativeHostIdentityTests
     }
 
     [Fact]
+    public void Allowlist_AcceptsChromiumOrigin_FromFixedManifestKey()
+    {
+        // TASK-098: the fixed manifest key gives Chrome/Edge a stable id, so its origin is accepted.
+        NativeHostIdentity.ChromiumExtensionId.Should().NotBeNullOrEmpty();
+        string origin = $"chrome-extension://{NativeHostIdentity.ChromiumExtensionId}/";
+
+        ExtensionOrigin.IsAllowed(origin, NativeHostIdentity.AllowedExtensionIds).Should().BeTrue();
+        NativeHostIdentity.ChromiumOrigins.Should().ContainSingle().Which.Should().Be(origin);
+    }
+
+    [Fact]
     public void DependencyInjection_PopulatesHostAllowlistFromIdentity()
     {
         using ServiceProvider provider = new ServiceCollection()
