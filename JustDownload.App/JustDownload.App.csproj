@@ -30,6 +30,29 @@
 
   <ItemGroup>
     <ProjectReference Include="..\JustDownload.Core\JustDownload.Core.csproj" />
+    <!--
+      The Native Messaging Host ships beside the app so browsers can launch it (D8, TASK-151).
+      ReferenceOutputAssembly=false: the app doesn't call the host's code, it just needs it built and
+      co-located. The copy targets below place its files next to JustDownload.App.exe; all other
+      dependencies (Core, Sqlite, …) are already in the app output at the same versions.
+    -->
+    <ProjectReference Include="..\JustDownload.NativeHost\JustDownload.NativeHost.csproj"
+                      ReferenceOutputAssembly="false" Private="false" />
   </ItemGroup>
+
+  <!-- Glob inside the targets (not a static ItemGroup) so the host's freshly-built files are picked up. -->
+  <Target Name="CopyNativeHostToBuildOutput" AfterTargets="Build">
+    <ItemGroup>
+      <_NativeHostFiles Include="$(MSBuildThisFileDirectory)..\JustDownload.NativeHost\bin\$(Configuration)\$(TargetFramework)\JustDownload.NativeHost.*" />
+    </ItemGroup>
+    <Copy SourceFiles="@(_NativeHostFiles)" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
+  </Target>
+
+  <Target Name="CopyNativeHostToPublishOutput" AfterTargets="Publish">
+    <ItemGroup>
+      <_NativeHostFiles Include="$(MSBuildThisFileDirectory)..\JustDownload.NativeHost\bin\$(Configuration)\$(TargetFramework)\JustDownload.NativeHost.*" />
+    </ItemGroup>
+    <Copy SourceFiles="@(_NativeHostFiles)" DestinationFolder="$(PublishDir)" SkipUnchangedFiles="true" />
+  </Target>
 
 </Project>
