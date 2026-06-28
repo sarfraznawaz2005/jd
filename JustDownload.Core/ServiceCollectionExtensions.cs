@@ -402,7 +402,12 @@ public static class ServiceCollectionExtensions
     {
         ArgumentNullException.ThrowIfNull(services);
 
-        services.TryAddSingleton(new NativeHostOptions());
+        // The host validates the calling extension against this allowlist (US-11 AC4). Derived from the
+        // single identity source so it never drifts from the registered manifests (TASK-090).
+        services.TryAddSingleton(new NativeHostOptions
+        {
+            AllowedExtensionIds = NativeHostIdentity.AllowedExtensionIds,
+        });
 
         // Hand-off queue + app launcher (TASK-070, US-11 AC5): the host queues links the app drains on next
         // start, and launches the app when it is not already running.
@@ -428,6 +433,9 @@ public static class ServiceCollectionExtensions
         }
 
         services.TryAddSingleton<INativeHostRegistrar, NativeHostRegistrar>();
+
+        // Self-registration on app startup so browsers can find/launch the host (TASK-089).
+        services.TryAddSingleton<NativeHostInstaller>();
 
         return services;
     }

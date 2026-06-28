@@ -10,6 +10,7 @@ using JustDownload.App.ViewModels;
 using JustDownload.App.Views;
 using JustDownload.Core;
 using JustDownload.Core.Diagnostics;
+using JustDownload.Core.NativeMessaging;
 using JustDownload.Core.Settings;
 using JustDownload.Core.Throttling;
 using Microsoft.Extensions.DependencyInjection;
@@ -89,6 +90,10 @@ public partial class App : Application
             Services.GetRequiredService<DownloadNotifier>().Start();
             InstallTrayIcon(desktop, window, mainViewModel);
             WireForwardedArguments(window, mainViewModel);
+
+            // Register the native-messaging host so browsers can find/launch it (TASK-089). Off-thread file/
+            // registry writes; a no-op when the host executable isn't deployed alongside the app (dev).
+            _ = Task.Run(() => Services.GetRequiredService<NativeHostInstaller>().Install());
 
             // Bring the schema up to date and load settings, then show the window (unless the user opted to
             // start hidden in the tray) and load the persisted downloads — off the startup path so we never
