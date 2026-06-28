@@ -9,6 +9,7 @@ using JustDownload.Core.Lifecycle;
 using JustDownload.Core.Logging;
 using JustDownload.Core.Media;
 using JustDownload.Core.Media.Extraction;
+using JustDownload.Core.Media.Hls;
 using JustDownload.Core.NativeMessaging;
 using JustDownload.Core.Security;
 using JustDownload.Core.Settings;
@@ -325,6 +326,13 @@ public static class ServiceCollectionExtensions
         // extractors (HLS/DASH) are appended by their own tasks.
         services.TryAddEnumerable(
             ServiceDescriptor.Singleton<IMediaExtractor, ProgressiveMediaExtractor>());
+
+        // HLS extractor + segment downloader (TASK-037): parses master/media .m3u8, downloads segments in
+        // parallel and decrypts AES-128. Registered before the generic extractor via its lower Priority.
+        services.TryAddSingleton(new HlsOptions());
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IMediaExtractor, HlsMediaExtractor>());
+        services.TryAddSingleton<IHlsDownloader, HlsDownloader>();
+
         services.TryAddSingleton<IMediaExtractorRegistry, MediaExtractorRegistry>();
 
         return services;
