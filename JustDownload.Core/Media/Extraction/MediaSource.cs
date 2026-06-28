@@ -27,4 +27,10 @@ public sealed record MediaSource
     /// required — the quality selector orders them. Empty for progressive media or a single media playlist.
     /// </summary>
     public IReadOnlyList<VideoVariant> Variants { get; init; } = [];
+
+    /// <summary>
+    /// The selectable audio renditions for separate-streams media (DASH / HLS alternate audio). Empty when
+    /// audio is muxed into the video stream or the media is progressive.
+    /// </summary>
+    public IReadOnlyList<AudioVariant> AudioVariants { get; init; } = [];
 }

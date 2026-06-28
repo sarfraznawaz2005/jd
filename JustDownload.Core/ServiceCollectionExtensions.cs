@@ -8,8 +8,10 @@ using JustDownload.Core.Downloading;
 using JustDownload.Core.Lifecycle;
 using JustDownload.Core.Logging;
 using JustDownload.Core.Media;
+using JustDownload.Core.Media.Dash;
 using JustDownload.Core.Media.Extraction;
 using JustDownload.Core.Media.Hls;
+using JustDownload.Core.Media.Streams;
 using JustDownload.Core.NativeMessaging;
 using JustDownload.Core.Security;
 using JustDownload.Core.Settings;
@@ -335,6 +337,11 @@ public static class ServiceCollectionExtensions
 
         // HLS concat (TASK-038): byte-exact append of downloaded segments into one .ts.
         services.TryAddSingleton<IHlsConcatenator, HlsConcatenator>();
+
+        // DASH / separate video+audio streams (TASK-039): the .mpd extractor plus the concurrent
+        // two-stream downloader (each stream segmented, with its own progress and resume).
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IMediaExtractor, DashMediaExtractor>());
+        services.TryAddSingleton<ISeparateStreamDownloader, SeparateStreamDownloader>();
 
         services.TryAddSingleton<IMediaExtractorRegistry, MediaExtractorRegistry>();
 
