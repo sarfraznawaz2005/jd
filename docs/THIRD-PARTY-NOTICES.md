@@ -79,6 +79,20 @@ JustDownload uses **ffmpeg** for media post-processing (HLS concatenation, separ
   a developer's machine is for development only.
 - Default media operations are **stream-copy** (no re-encode) — fast and lossless.
 
+### How ffmpeg is obtained (download-on-first-use)
+
+JustDownload ships **no** ffmpeg binary. ffmpeg is resolved lazily, only when a media task needs it:
+
+1. an explicitly-configured path, then a previously-provisioned vendor directory, then the system `PATH`;
+2. if none is found, and a **pinned LGPL build** exists for the current platform, JustDownload downloads it
+   on first use, verifies it against a **pinned SHA-256**, and extracts it into the per-user vendor directory.
+
+Only LGPL builds are ever fetched. The pinned hash is the guarantee that the downloaded bytes are exactly
+the reviewed LGPL artifact, so a GPL build can never be substituted. On platforms with no pinned source
+(Linux/macOS, where the package manager already provides ffmpeg), JustDownload uses the system ffmpeg and,
+if absent, asks the user to install it — it never silently downloads a non-LGPL build. The pinned builds,
+their source URLs, and how to refresh them are documented in [`docs/ffmpeg.md`](./ffmpeg.md).
+
 ffmpeg is a trademark of its respective owners and is licensed under the GNU Lesser General Public License
 (LGPL) version 2.1 or later (depending on build configuration). See <https://ffmpeg.org/legal.html> for
 ffmpeg's own licensing terms. JustDownload is not affiliated with the ffmpeg project.

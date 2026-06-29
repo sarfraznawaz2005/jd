@@ -400,6 +400,11 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<IFfmpegRunner, FfmpegRunner>();
         services.TryAddSingleton<IMediaConverter, MediaConverter>();
 
+        // Download-on-first-use of a pinned LGPL ffmpeg when the system has none (TASK-079, D7): the
+        // manifest of LGPL builds and the provisioner that fetches, integrity-checks, and extracts one.
+        services.TryAddSingleton(FfmpegManifest.Default);
+        services.TryAddSingleton<IFfmpegProvisioner, FfmpegProvisioner>();
+
         // Pluggable extractor registry (TASK-036, D3): generic extractors register at startup and are tried
         // in priority order; the registry degrades gracefully when nothing recognises a URL. Specific
         // extractors (HLS/DASH) are appended by their own tasks.
