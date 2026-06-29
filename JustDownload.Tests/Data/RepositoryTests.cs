@@ -267,6 +267,51 @@ public sealed class RepositoryTests : IDisposable
     }
 
     [Fact]
+    public async Task SegmentRepository_ReplaceForDownloadAsync_SwapsTheWholeSetAtomically()
+    {
+        var downloads = _provider.GetRequiredService<IDownloadRepository>();
+        var segments = _provider.GetRequiredService<ISegmentRepository>();
+        long d1 = await downloads.AddAsync(SampleDownload());
+        long d2 = await downloads.AddAsync(SampleDownload());
+
+        // Pre-existing rows that the replace must wipe, plus an untouched neighbour download.
+        await segments.AddAsync(new DownloadSegment
+        {
+            DownloadId = d1,
+            Index = 0,
+            Start = 0,
+            End = 99,
+            Downloaded = 100,
+            State = "complete",
+        });
+        await segments.AddAsync(new DownloadSegment
+        {
+            DownloadId = d2,
+            Index = 0,
+            Start = 0,
+            End = 511,
+            Downloaded = 0,
+            State = "pending",
+        });
+
+        var replacement = new[]
+        {
+            new DownloadSegment { DownloadId = d1, Index = 0, Start = 0, End = 511, Downloaded = 512, State = "complete" },
+            new DownloadSegment { DownloadId = d1, Index = 1, Start = 512, End = 1023, Downloaded = 512, State = "complete" },
+        };
+        await segments.ReplaceForDownloadAsync(d1, replacement);
+
+        IReadOnlyList<DownloadSegment> after = await segments.GetByDownloadAsync(d1);
+        after.Select(s => s.Index).Should().ContainInOrder(0, 1);
+        after.Select(s => s.End).Should().ContainInOrder(511, 1023);
+        (await segments.GetByDownloadAsync(d2)).Should().ContainSingle("the other download's segments are untouched");
+
+        // An empty replacement clears the checkpoint without throwing.
+        await segments.ReplaceForDownloadAsync(d1, Array.Empty<DownloadSegment>());
+        (await segments.GetByDownloadAsync(d1)).Should().BeEmpty();
+    }
+
+    [Fact]
     public async Task SettingsRepository_RoundTrips_CreateReadUpdateDelete()
     {
         var settings = _provider.GetRequiredService<ISettingsRepository>();

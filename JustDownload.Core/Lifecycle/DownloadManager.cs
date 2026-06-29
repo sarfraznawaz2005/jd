@@ -384,35 +384,29 @@ internal sealed partial class DownloadManager : IDownloadManager
 
     /// <summary>
     /// Replaces the download's persisted segment rows with the current coalesced received intervals — the
-    /// checkpoint a resume reads. A handful of rows, applied as a delete-then-insert so the on-disk set
-    /// exactly mirrors what is on the file.
+    /// checkpoint a resume reads. Applied as a single atomic delete-then-multi-row-insert so the on-disk set
+    /// exactly mirrors what is on the file and the 500ms checkpoint costs a constant few queries (TASK-103).
     /// </summary>
     private async Task PersistSegmentsAsync(long id, ReceivedRanges received, CancellationToken cancellationToken)
     {
         IReadOnlyList<ByteInterval> intervals = received.Snapshot();
 
-        IReadOnlyList<DownloadSegment> existing =
-            await _segments.GetByDownloadAsync(id, cancellationToken).ConfigureAwait(false);
-        foreach (DownloadSegment row in existing)
-        {
-            await _segments.DeleteAsync(row.Id, cancellationToken).ConfigureAwait(false);
-        }
-
+        var rows = new DownloadSegment[intervals.Count];
         for (int i = 0; i < intervals.Count; i++)
         {
             ByteInterval interval = intervals[i];
-            await _segments.AddAsync(
-                new DownloadSegment
-                {
-                    DownloadId = id,
-                    Index = i,
-                    Start = interval.Start,
-                    End = interval.EndInclusive,
-                    Downloaded = interval.Length,
-                    State = "complete",
-                },
-                cancellationToken).ConfigureAwait(false);
+            rows[i] = new DownloadSegment
+            {
+                DownloadId = id,
+                Index = i,
+                Start = interval.Start,
+                End = interval.EndInclusive,
+                Downloaded = interval.Length,
+                State = "complete",
+            };
         }
+
+        await _segments.ReplaceForDownloadAsync(id, rows, cancellationToken).ConfigureAwait(false);
     }
 
     private async Task ClearSegmentsAsync(long id) =>

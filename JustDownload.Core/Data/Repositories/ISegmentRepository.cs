@@ -30,4 +30,13 @@ public interface ISegmentRepository
 
     /// <summary>Deletes every segment for a download in one statement. Returns the number removed.</summary>
     Task<int> DeleteByDownloadAsync(long downloadId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Atomically replaces a download's entire segment set with <paramref name="segments"/> — one
+    /// <c>DELETE</c> plus a single multi-row <c>INSERT</c> in one transaction, so the checkpoint write is a
+    /// constant handful of queries regardless of segment count (the 500ms hot path). An empty list just
+    /// clears the rows.
+    /// </summary>
+    Task ReplaceForDownloadAsync(
+        long downloadId, IReadOnlyList<DownloadSegment> segments, CancellationToken cancellationToken = default);
 }

@@ -123,6 +123,61 @@ internal sealed class SegmentRepository : ISegmentRepository
         return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
 
+    public async Task ReplaceForDownloadAsync(
+        long downloadId, IReadOnlyList<DownloadSegment> segments, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(segments);
+
+        await using SqliteConnection connection =
+            await _connectionFactory.CreateOpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await using SqliteTransaction transaction =
+            (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+
+        await using (SqliteCommand delete = connection.CreateCommand())
+        {
+            delete.Transaction = transaction;
+            delete.CommandText = "DELETE FROM segments WHERE download_id = $download_id;";
+            delete.Parameters.AddWithValue("$download_id", downloadId);
+            await delete.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        if (segments.Count > 0)
+        {
+            await using SqliteCommand insert = connection.CreateCommand();
+            insert.Transaction = transaction;
+
+            var sql = new System.Text.StringBuilder(
+                "INSERT INTO segments (download_id, \"index\", \"start\", \"end\", downloaded, state) VALUES ");
+            for (int i = 0; i < segments.Count; i++)
+            {
+                if (i > 0)
+                {
+                    sql.Append(", ");
+                }
+
+                sql.Append("($download_id, $index").Append(i)
+                    .Append(", $start").Append(i)
+                    .Append(", $end").Append(i)
+                    .Append(", $downloaded").Append(i)
+                    .Append(", $state").Append(i).Append(')');
+
+                DownloadSegment segment = segments[i];
+                insert.Parameters.AddWithValue("$index" + i, segment.Index);
+                insert.Parameters.AddWithValue("$start" + i, segment.Start);
+                insert.Parameters.AddWithValue("$end" + i, segment.End);
+                insert.Parameters.AddWithValue("$downloaded" + i, segment.Downloaded);
+                insert.Parameters.AddWithValue("$state" + i, segment.State);
+            }
+
+            sql.Append(';');
+            insert.CommandText = sql.ToString();
+            insert.Parameters.AddWithValue("$download_id", downloadId);
+            await insert.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+    }
+
     private static void BindWritableColumns(SqliteCommand command, DownloadSegment segment)
     {
         command.Parameters.AddWithValue("$download_id", segment.DownloadId);
