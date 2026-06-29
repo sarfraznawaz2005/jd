@@ -23,6 +23,56 @@ public sealed class ReceivedRangesTests
     }
 
     [Fact]
+    public async Task SnapshotDurable_CapturesBeforeFlush_SoTheCheckpointNeverLeadsFsyncedData()
+    {
+        // TASK-109 AC0: the durable snapshot is what gets persisted as the resume checkpoint. It must be
+        // captured BEFORE the fsync runs, so bytes still being written while the flush is in flight are
+        // deferred to the next checkpoint rather than recorded ahead of data that is actually on disk.
+        var ranges = new ReceivedRanges();
+        ranges.Add(0, 100); // [0,99] — written and about to be made durable
+
+        bool flushed = false;
+        ranges.SetDurabilityFlush(_ =>
+        {
+            flushed = true;
+            ranges.Add(100, 100); // a write that lands during the fsync — must NOT be in this snapshot
+            return Task.CompletedTask;
+        });
+
+        IReadOnlyList<ByteInterval> durable = await ranges.SnapshotDurableAsync();
+
+        flushed.Should().BeTrue("the durable snapshot must fsync the file");
+        durable.Sum(i => i.Length).Should().Be(100,
+            "the snapshot is taken before the flush, so it never records bytes written during/after the fsync");
+        durable.Should().ContainSingle().Which.Should().Be(new ByteInterval(0, 99));
+    }
+
+    [Fact]
+    public async Task SnapshotDurable_WithNoFlushRegistered_IsAPlainSnapshot()
+    {
+        var ranges = new ReceivedRanges();
+        ranges.Add(0, 50);
+
+        IReadOnlyList<ByteInterval> durable = await ranges.SnapshotDurableAsync();
+
+        durable.Should().Equal(ranges.Snapshot());
+    }
+
+    [Fact]
+    public async Task SnapshotDurable_AfterFlushCleared_DoesNotInvokeTheStaleFlush()
+    {
+        var ranges = new ReceivedRanges();
+        ranges.Add(0, 50);
+        int flushes = 0;
+        ranges.SetDurabilityFlush(_ => { flushes++; return Task.CompletedTask; });
+        ranges.SetDurabilityFlush(null); // the downloader releases the file
+
+        await ranges.SnapshotDurableAsync();
+
+        flushes.Should().Be(0, "a released file handle must never be fsynced");
+    }
+
+    [Fact]
     public void Add_KeepsDisjointIntervalsSeparate()
     {
         var ranges = new ReceivedRanges();

@@ -20,6 +20,7 @@ public sealed class ReceivedRanges
     private readonly object _gate = new();
     private readonly List<ByteInterval> _intervals = [];
     private long _total;
+    private Func<CancellationToken, Task>? _durabilityFlush;
 
     /// <summary>Creates an empty set (a fresh download).</summary>
     public ReceivedRanges()
@@ -73,6 +74,36 @@ public sealed class ReceivedRanges
         {
             return _intervals.ToArray();
         }
+    }
+
+    /// <summary>
+    /// Registers how to flush written bytes to physical storage — the segmented downloader sets this to its
+    /// output file's fsync while a download is in flight, and clears it (<see langword="null"/>) when the
+    /// file is released (TASK-109). <see cref="SnapshotDurableAsync"/> uses it so a persisted checkpoint
+    /// never points past data that is actually on disk.
+    /// </summary>
+    public void SetDurabilityFlush(Func<CancellationToken, Task>? flush) =>
+        Volatile.Write(ref _durabilityFlush, flush);
+
+    /// <summary>
+    /// A snapshot of the received intervals that is safe to persist as a resume checkpoint: the intervals
+    /// are captured first, then the registered durability flush fsyncs the file, so every byte in the
+    /// returned set is physically on disk before the caller records it (TASK-109). With no flush registered
+    /// (e.g. a single-connection transfer that cannot resume) it is a plain <see cref="Snapshot"/>.
+    /// </summary>
+    public async Task<IReadOnlyList<ByteInterval>> SnapshotDurableAsync(CancellationToken cancellationToken = default)
+    {
+        // Capture BEFORE flushing: every interval here was written before the fsync below, so the fsync makes
+        // all of them durable. Bytes recorded after this point are simply deferred to the next checkpoint, so
+        // the checkpoint can never get ahead of fsynced data.
+        IReadOnlyList<ByteInterval> snapshot = Snapshot();
+        Func<CancellationToken, Task>? flush = Volatile.Read(ref _durabilityFlush);
+        if (flush is not null)
+        {
+            await flush(cancellationToken).ConfigureAwait(false);
+        }
+
+        return snapshot;
     }
 
     /// <summary>

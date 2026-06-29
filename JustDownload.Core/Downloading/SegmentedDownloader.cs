@@ -194,32 +194,60 @@ internal sealed partial class SegmentedDownloader : ISegmentedDownloader
     {
         await using var file = PreallocatedFile.Create(request.DestinationPath, totalLength);
 
-        // Resume: only the gaps not already on disk are fetched; a fresh download covers the whole span.
-        long baseBytes = received?.TotalReceived ?? 0;
-        IReadOnlyList<SegmentRange> ranges = baseBytes > 0
-            ? Segmentation.SplitRanges(received!.Gaps(totalLength), connectionCount, _options.MinSegmentSize)
-            : Segmentation.Split(totalLength, connectionCount, _options.MinSegmentSize);
-
-        if (ranges.Count == 0)
+        // Let the lifecycle's checkpoint loop fsync this file before it records any offset, so a persisted
+        // checkpoint never points past data that is physically on disk (TASK-109). Cleared in the finally
+        // below before the file is disposed.
+        received?.SetDurabilityFlush(file.FlushToDiskAsync);
+        try
         {
-            // Everything was already received (a resume of a finished-but-uncommitted download).
+            // Resume: only the gaps not already on disk are fetched; a fresh download covers the whole span.
+            long baseBytes = received?.TotalReceived ?? 0;
+            IReadOnlyList<SegmentRange> ranges = baseBytes > 0
+                ? Segmentation.SplitRanges(received!.Gaps(totalLength), connectionCount, _options.MinSegmentSize)
+                : Segmentation.Split(totalLength, connectionCount, _options.MinSegmentSize);
+
+            if (ranges.Count == 0)
+            {
+                // Everything was already received (a resume of a finished-but-uncommitted download).
+                await file.FlushToDiskAsync(cancellationToken).ConfigureAwait(false);
+                progress?.Report(totalLength);
+                return CompletedSegmentedResult(probe, totalLength, initialSegments: 0, steals: 0);
+            }
+
+            var state = new DownloadState(ranges, baseBytes);
+            var pool = new WorkerPool(
+                this, state, file, probe.FinalUri, request.Headers, limiter, progress, received, connectionProgress,
+                connections, connectionCount, Math.Max(_options.MinStealSize, PreallocatedFile.CopyBufferSize),
+                cancellationToken);
+
+            await pool.RunAsync().ConfigureAwait(false);
             await file.FlushToDiskAsync(cancellationToken).ConfigureAwait(false);
-            progress?.Report(totalLength);
-            return CompletedSegmentedResult(probe, totalLength, initialSegments: 0, steals: 0);
+
+            LogSegmented(_logger, state.BytesWritten, probe.FinalUri, ranges.Count, state.Steals);
+
+            return CompletedSegmentedResult(probe, totalLength, ranges.Count, state.Steals);
         }
+        catch
+        {
+            // A pause (cancel) or failure still fsyncs the partial bytes before the file is released, so the
+            // checkpoint the manager persists for resume is backed by data on disk (TASK-109). Best-effort:
+            // a teardown flush failure must not mask the original outcome.
+            try
+            {
+                await file.FlushToDiskAsync(CancellationToken.None).ConfigureAwait(false);
+            }
+            catch (Exception flushEx)
+            {
+                LogFlushOnTeardownFailed(_logger, flushEx);
+            }
 
-        var state = new DownloadState(ranges, baseBytes);
-        var pool = new WorkerPool(
-            this, state, file, probe.FinalUri, request.Headers, limiter, progress, received, connectionProgress,
-            connections, connectionCount, Math.Max(_options.MinStealSize, PreallocatedFile.CopyBufferSize),
-            cancellationToken);
-
-        await pool.RunAsync().ConfigureAwait(false);
-        await file.FlushToDiskAsync(cancellationToken).ConfigureAwait(false);
-
-        LogSegmented(_logger, state.BytesWritten, probe.FinalUri, ranges.Count, state.Steals);
-
-        return CompletedSegmentedResult(probe, totalLength, ranges.Count, state.Steals);
+            throw;
+        }
+        finally
+        {
+            // The file is about to be disposed — stop the checkpoint loop from fsyncing a dead handle.
+            received?.SetDurabilityFlush(null);
+        }
     }
 
     private static DownloadResult CompletedSegmentedResult(
@@ -671,4 +699,10 @@ internal sealed partial class SegmentedDownloader : ISegmentedDownloader
         Level = LogLevel.Information,
         Message = "Downloaded {Bytes} bytes from {Uri} across {Segments} segments ({Steals} steals).")]
     private static partial void LogSegmented(ILogger logger, long bytes, Uri uri, int segments, int steals);
+
+    [LoggerMessage(
+        EventId = 3,
+        Level = LogLevel.Warning,
+        Message = "Flushing the output file to disk on teardown failed; the partial file may not be fully durable.")]
+    private static partial void LogFlushOnTeardownFailed(ILogger logger, Exception exception);
 }

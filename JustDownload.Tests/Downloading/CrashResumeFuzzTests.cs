@@ -102,6 +102,104 @@ public sealed class CrashResumeFuzzTests : IDisposable
         _output.WriteLine($"total kills across 12 iterations: {totalKills}");
     }
 
+    [Theory]
+    [InlineData(3)]
+    [InlineData(77)]
+    [InlineData(555)]
+    public async Task PowerLoss_TailAfterDurableCheckpointLost_ResumesToSha256IdenticalFile(int seed)
+    {
+        // TASK-109 AC1: a power cut (unlike a clean pause) can lose bytes written after the last durable
+        // checkpoint. Model the worst case — only the contiguous prefix the durability contract guarantees on
+        // disk survives; everything past it is overwritten with garbage and dropped from the resume state —
+        // then assert resume rebuilds a byte-identical file. If a checkpoint could ever lead the fsynced data,
+        // the lost-but-"received" bytes would never be re-fetched and the hash would diverge.
+        byte[] body = RandomBody(300 * 1024);
+        string reference = CrashResumeFuzz.Sha256(body);
+
+        await using var server = new LoopbackHttpServer { Body = body, SupportRanges = true };
+        using ServiceProvider provider = BuildProvider();
+        var downloader = provider.GetRequiredService<ISegmentedDownloader>();
+        string dest = Path.Combine(_dir, $"powerloss-{seed}.bin");
+
+        // Attempt 1: kill mid-stream so only part of the file is on disk.
+        var received = new ReceivedRanges();
+        long killAt = 1 + (long)(new Random(seed).NextDouble() * (body.Length - 2));
+        using (var cts = new CancellationTokenSource())
+        {
+            try
+            {
+                await downloader.DownloadAsync(
+                    Request(server, dest), new CancelAtProgress(killAt, cts), received, cancellationToken: cts.Token);
+            }
+            catch (OperationCanceledException)
+            {
+            }
+        }
+
+        // Power loss: keep only the durable contiguous prefix; lose the rest.
+        IReadOnlyList<ByteInterval> durable = await received.SnapshotDurableAsync();
+        long survived = ContiguousPrefixFromZero(durable);
+        OverwriteTailWithGarbage(dest, survived);
+        var resume = new ReceivedRanges(
+            survived > 0 ? new[] { new ByteInterval(0, survived - 1) } : Array.Empty<ByteInterval>());
+
+        // Resume to completion from the surviving checkpoint.
+        await downloader.DownloadAsync(Request(server, dest), received: resume);
+
+        byte[] finalBytes = await File.ReadAllBytesAsync(dest);
+        finalBytes.Length.Should().Be(body.Length);
+        CrashResumeFuzz.Sha256(finalBytes).Should().Be(reference,
+            "after a power loss that kept only the durable checkpoint, resume rebuilds a byte-identical file");
+        _output.WriteLine($"seed {seed}: survived {survived}/{body.Length} bytes before power loss");
+    }
+
+    private static DownloadRequest Request(LoopbackHttpServer server, string dest) => new()
+    {
+        Url = server.Url("file.bin"),
+        DestinationPath = dest,
+        Connections = 4,
+        SpeedLimit = 512 * 1024, // keep the transfer in flight long enough for the kill to land mid-stream
+    };
+
+    // The number of bytes contiguously received from offset 0 — what a power cut is guaranteed to have kept,
+    // given checkpoints never lead fsynced data. Intervals are coalesced, so a prefix from 0 is one interval.
+    private static long ContiguousPrefixFromZero(IReadOnlyList<ByteInterval> intervals) =>
+        intervals.Count > 0 && intervals[0].Start == 0 ? intervals[0].EndInclusive + 1 : 0;
+
+    private static void OverwriteTailWithGarbage(string path, long fromOffset)
+    {
+        using var fs = new FileStream(path, FileMode.Open, FileAccess.Write, FileShare.None);
+        if (fromOffset >= fs.Length)
+        {
+            return;
+        }
+
+        fs.Seek(fromOffset, SeekOrigin.Begin);
+        var garbage = new byte[fs.Length - fromOffset];
+        Array.Fill(garbage, (byte)0xEE);
+        fs.Write(garbage);
+    }
+
+    private sealed class CancelAtProgress : IProgress<long>
+    {
+        private readonly long _killAt;
+        private readonly CancellationTokenSource _cts;
+
+        public CancelAtProgress(long killAt, CancellationTokenSource cts)
+        {
+            _killAt = killAt;
+            _cts = cts;
+        }
+
+        public void Report(long value)
+        {
+            if (value >= _killAt)
+            {
+                _cts.Cancel();
+            }
+        }
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_dir))

@@ -390,12 +390,15 @@ internal sealed partial class DownloadManager : IDownloadManager
 
     /// <summary>
     /// Replaces the download's persisted segment rows with the current coalesced received intervals — the
-    /// checkpoint a resume reads. Applied as a single atomic delete-then-multi-row-insert so the on-disk set
-    /// exactly mirrors what is on the file and the 500ms checkpoint costs a constant few queries (TASK-103).
+    /// checkpoint a resume reads. The snapshot is taken durably (the output file is fsynced before the
+    /// offsets are recorded, TASK-109) so a power loss can never leave the checkpoint ahead of the bytes
+    /// actually on disk, and it is applied as a single atomic delete-then-multi-row-insert so the row set
+    /// exactly mirrors the file and the 500ms checkpoint costs a constant few queries (TASK-103).
     /// </summary>
     private async Task PersistSegmentsAsync(long id, ReceivedRanges received, CancellationToken cancellationToken)
     {
-        IReadOnlyList<ByteInterval> intervals = received.Snapshot();
+        IReadOnlyList<ByteInterval> intervals =
+            await received.SnapshotDurableAsync(cancellationToken).ConfigureAwait(false);
 
         var rows = new DownloadSegment[intervals.Count];
         for (int i = 0; i < intervals.Count; i++)
