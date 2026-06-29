@@ -84,22 +84,24 @@ public sealed class ConnectionStatsTests : IDisposable
 
         var idsSeen = new ConcurrentDictionary<int, byte>();
         var rangesSeen = new ConcurrentBag<long>();
-        Manager.ProgressChanged += (_, e) =>
-        {
-            if (e.DownloadId != id)
-            {
-                return;
-            }
 
-            IReadOnlyList<ConnectionStat> stats = Manager.GetConnections(id);
-            foreach (ConnectionStat s in stats)
+        // Poll the live connection stats directly while the download runs, rather than piggy-backing on the
+        // progress event: progress notifications are coalesced to ~15Hz (TASK-104), too sparse to reliably
+        // sample a fast transfer. This observes the same thing the detail view shows (TASK-054), just on its
+        // own cadence so the test does not depend on the UI notification rate.
+        Task<DownloadResult> download = Manager.StartAsync(id);
+        while (!download.IsCompleted)
+        {
+            foreach (ConnectionStat s in Manager.GetConnections(id))
             {
                 idsSeen[s.ConnectionId] = 1;
                 rangesSeen.Add(s.End - s.Start + 1);
             }
-        };
 
-        await Manager.StartAsync(id);
+            await Task.Delay(2);
+        }
+
+        await download;
 
         idsSeen.Count.Should().BeGreaterThan(1, "a multi-connection download surfaces several distinct connections");
         rangesSeen.Should().OnlyContain(length => length > 0, "each connection works a non-empty byte range");
