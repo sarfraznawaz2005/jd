@@ -94,6 +94,28 @@ public sealed class DownloadDetailViewModelTests
     }
 
     [AvaloniaFact]
+    public void SampleNow_RecordsSelectedDownloadSpeed_AndResetsOnReselect()
+    {
+        var manager = Substitute.For<IDownloadManager>();
+        manager.GetConnections(Arg.Any<long>()).Returns([]);
+        var vm = new DownloadDetailViewModel(manager, Substitute.For<IDownloadActions>());
+        vm.Select(Row());
+
+        manager.ProgressChanged += Raise.Event<EventHandler<DownloadProgressChangedEventArgs>>(
+            manager,
+            new DownloadProgressChangedEventArgs(
+                1, DownloadProgress.Create(DownloadStatus.Active, 50, 100, 442_000, resumable: true, connections: 3)));
+        Dispatcher.UIThread.RunJobs();
+
+        vm.SampleNow();
+        vm.SpeedHistory.Count.Should().Be(1);
+        vm.SpeedHistory.Peak.Should().Be(442_000);
+
+        vm.Select(Row(id: 2)); // a different download starts with a fresh graph
+        vm.SpeedHistory.Count.Should().Be(0);
+    }
+
+    [AvaloniaFact]
     public void Connections_UpdateInPlace_AndDropWhenGone()
     {
         var manager = Substitute.For<IDownloadManager>();

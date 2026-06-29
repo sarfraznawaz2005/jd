@@ -15,6 +15,7 @@ public sealed partial class StatusSummaryViewModel : ViewModelBase, IDisposable
     private readonly IDownloadManager _manager;
     private readonly StatusAggregate _aggregate = new();
     private readonly object _gate = new();
+    private DispatcherTimer? _sampler;
 
     [ObservableProperty]
     private int _activeCount;
@@ -31,6 +32,34 @@ public sealed partial class StatusSummaryViewModel : ViewModelBase, IDisposable
         _manager = manager;
         _manager.StatusChanged += OnStatusChanged;
         _manager.ProgressChanged += OnProgressChanged;
+    }
+
+    /// <summary>The recent aggregate-speed history for the status-bar sparkline (TASK-137).</summary>
+    public SpeedSamples SpeedHistory { get; } = new();
+
+    /// <summary>Records the current combined speed into the history. Called on a timer; public for tests.</summary>
+    public void SampleNow()
+    {
+        double speed;
+        lock (_gate)
+        {
+            speed = _aggregate.TotalBytesPerSecond;
+        }
+
+        SpeedHistory.Add((long)speed);
+    }
+
+    /// <summary>Begins sampling the combined speed once a second for the sparkline (TASK-137).</summary>
+    public void Start()
+    {
+        if (_sampler is not null)
+        {
+            return;
+        }
+
+        _sampler = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
+        _sampler.Tick += (_, _) => SampleNow();
+        _sampler.Start();
     }
 
     private void OnStatusChanged(object? sender, DownloadStatusChangedEventArgs e)
@@ -88,6 +117,7 @@ public sealed partial class StatusSummaryViewModel : ViewModelBase, IDisposable
 
     public void Dispose()
     {
+        _sampler?.Stop();
         _manager.StatusChanged -= OnStatusChanged;
         _manager.ProgressChanged -= OnProgressChanged;
     }

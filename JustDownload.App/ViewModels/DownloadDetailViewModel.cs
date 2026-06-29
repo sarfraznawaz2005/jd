@@ -22,6 +22,8 @@ public sealed partial class DownloadDetailViewModel : ViewModelBase, IDisposable
     private readonly IDownloadActions _actions;
     private readonly IChecksumVerifier _checksums;
     private readonly Dictionary<int, ConnectionRowViewModel> _connectionsById = [];
+    private Avalonia.Threading.DispatcherTimer? _sampler;
+    private long _latestSpeed;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasSelection))]
@@ -69,6 +71,31 @@ public sealed partial class DownloadDetailViewModel : ViewModelBase, IDisposable
         _manager.StatusChanged += OnStatusChanged;
     }
 
+    /// <summary>The recent speed history for the selected download's sparkline (TASK-137).</summary>
+    public SpeedSamples SpeedHistory { get; } = new();
+
+    /// <summary>Records the selected download's latest speed into the history. Called on a timer; public for tests.</summary>
+    public void SampleNow()
+    {
+        if (Selected is not null)
+        {
+            SpeedHistory.Add(Interlocked.Read(ref _latestSpeed));
+        }
+    }
+
+    /// <summary>Begins sampling the selected download's speed once a second for the sparkline (TASK-137).</summary>
+    public void Start()
+    {
+        if (_sampler is not null)
+        {
+            return;
+        }
+
+        _sampler = new Avalonia.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
+        _sampler.Tick += (_, _) => SampleNow();
+        _sampler.Start();
+    }
+
     /// <summary>The live segment/connection visualization shown on the Download tab (TASK-055).</summary>
     public SegmentVisualizationViewModel Segments { get; }
 
@@ -97,6 +124,8 @@ public sealed partial class DownloadDetailViewModel : ViewModelBase, IDisposable
         Selected = row;
         ExpectedChecksum = string.Empty;
         ChecksumStatus = string.Empty;
+        Interlocked.Exchange(ref _latestSpeed, 0);
+        SpeedHistory.Clear(); // a new download starts with a fresh graph
         Connections.Clear();
         _connectionsById.Clear();
         RefreshStats();
@@ -128,6 +157,7 @@ public sealed partial class DownloadDetailViewModel : ViewModelBase, IDisposable
             return;
         }
 
+        Interlocked.Exchange(ref _latestSpeed, (long)e.Progress.BytesPerSecond);
         Dispatcher.UIThread.Post(() =>
         {
             RefreshStats();
@@ -262,6 +292,7 @@ public sealed partial class DownloadDetailViewModel : ViewModelBase, IDisposable
 
     public void Dispose()
     {
+        _sampler?.Stop();
         _manager.ProgressChanged -= OnProgressChanged;
         _manager.StatusChanged -= OnStatusChanged;
         Segments.Dispose();

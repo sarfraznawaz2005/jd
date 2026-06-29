@@ -82,6 +82,10 @@ public partial class App : Application
             MainWindowViewModel mainViewModel = Services.GetRequiredService<MainWindowViewModel>();
             var window = new MainWindow { DataContext = mainViewModel };
 
+            // Begin sampling speed history for the bandwidth sparklines (TASK-137).
+            mainViewModel.Status.Start();
+            mainViewModel.Detail.Start();
+
             // The toolbar/command-palette "New URL" intent opens the dialog over the main window (TASK-052/053).
             mainViewModel.NewDownloadRequested += (_, _) => _ = ShowNewDownloadDialogAsync(window);
 

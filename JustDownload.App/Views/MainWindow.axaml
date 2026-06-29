@@ -155,8 +155,25 @@
           <TextBlock Text="{Binding Status.ActiveCount, StringFormat='{}{0} active'}" FontSize="11.5"
                      Foreground="{DynamicResource TextDimBrush}" />
         </StackPanel>
-        <TextBlock DockPanel.Dock="Left" Text="{Binding Status.TotalSpeedDisplay, StringFormat='Total speed {0}'}"
-                   Margin="18,0,0,0" FontSize="11.5" VerticalAlignment="Center" Foreground="{DynamicResource TextDimBrush}" />
+        <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" Spacing="8" Margin="18,0,0,0" VerticalAlignment="Center">
+          <TextBlock Text="{Binding Status.TotalSpeedDisplay, StringFormat='Total speed {0}'}"
+                     FontSize="11.5" VerticalAlignment="Center" Foreground="{DynamicResource TextDimBrush}" />
+          <!-- Aggregate speed sparkline (TASK-137) -->
+          <ItemsControl ItemsSource="{Binding Status.SpeedHistory.Bars}" Height="24" VerticalAlignment="Center"
+                        ToolTip.Tip="Recent combined speed">
+            <ItemsControl.ItemsPanel>
+              <ItemsPanelTemplate>
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Bottom" />
+              </ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:SpeedBar">
+                <Rectangle Width="2" Height="{Binding Height}" VerticalAlignment="Bottom"
+                           Fill="{DynamicResource AccentBrush}" />
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </StackPanel>
         <TextBlock DockPanel.Dock="Left" Text="{Binding Status.Connections, StringFormat='{}{0} connections'}"
                    Margin="18,0,0,0" FontSize="11.5" VerticalAlignment="Center" Foreground="{DynamicResource TextDimBrush}" />
         <TextBlock DockPanel.Dock="Right" Text="Speed limit: Unlimited" FontSize="11.5"

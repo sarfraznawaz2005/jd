@@ -34,6 +34,26 @@ public sealed class StatusSummaryViewModelTests
     }
 
     [AvaloniaFact]
+    public void SampleNow_RecordsCombinedSpeed_IntoTheSparklineHistory()
+    {
+        var manager = Substitute.For<IDownloadManager>();
+        var vm = new StatusSummaryViewModel(manager);
+        manager.StatusChanged += Raise.Event<EventHandler<DownloadStatusChangedEventArgs>>(
+            manager, new DownloadStatusChangedEventArgs(1, null, DownloadStatus.Active));
+        manager.ProgressChanged += Raise.Event<EventHandler<DownloadProgressChangedEventArgs>>(
+            manager,
+            new DownloadProgressChangedEventArgs(
+                1, DownloadProgress.Create(DownloadStatus.Active, 50, 100, 442_000, resumable: true, connections: 8)));
+        Dispatcher.UIThread.RunJobs();
+
+        vm.SampleNow();
+        vm.SampleNow();
+
+        vm.SpeedHistory.Count.Should().Be(2);
+        vm.SpeedHistory.Peak.Should().Be(442_000, "the sampled combined speed is recorded for the sparkline");
+    }
+
+    [AvaloniaFact]
     public void DropsDownloadsThatLeaveTheActiveState()
     {
         var manager = Substitute.For<IDownloadManager>();

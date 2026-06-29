@@ -81,6 +81,26 @@
                 </StackPanel>
               </Grid>
 
+              <!-- Recent speed sparkline (TASK-137) -->
+              <StackPanel Spacing="6">
+                <TextBlock Text="Speed (recent)" Classes="StatKey" />
+                <Border Background="{DynamicResource CardBrush}" CornerRadius="4" Padding="6" Height="36">
+                  <ItemsControl ItemsSource="{Binding SpeedHistory.Bars}" VerticalAlignment="Bottom">
+                    <ItemsControl.ItemsPanel>
+                      <ItemsPanelTemplate>
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Bottom" Spacing="1" />
+                      </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate x:DataType="vm:SpeedBar">
+                        <Rectangle Width="3" Height="{Binding Height}" VerticalAlignment="Bottom"
+                                   Fill="{DynamicResource AccentBrush}" />
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
+                </Border>
+              </StackPanel>
+
               <!-- Live segment/connection visualization (TASK-055): one stacked strip per stream. -->
               <ItemsControl ItemsSource="{Binding Segments.Streams}" IsVisible="{Binding Segments.HasStreams}">
                 <ItemsControl.ItemTemplate>
