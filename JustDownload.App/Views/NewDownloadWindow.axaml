@@ -65,6 +65,11 @@
       <TextBlock Text="{Binding FolderError}"
                  IsVisible="{Binding FolderError, Converter={x:Static ObjectConverters.IsNotNull}}"
                  FontSize="11" Foreground="{DynamicResource RedBrush}" />
+      <Border IsVisible="{Binding DuplicateWarning, Converter={x:Static ObjectConverters.IsNotNull}}"
+              BorderBrush="{DynamicResource RedBrush}" BorderThickness="1" CornerRadius="4" Padding="8,6">
+        <TextBlock Text="{Binding DuplicateWarning}" TextWrapping="Wrap" FontSize="11.5"
+                   Foreground="{DynamicResource TextDimBrush}" />
+      </Border>
     </StackPanel>
 
     <!-- Segmentation toggle + detection status -->

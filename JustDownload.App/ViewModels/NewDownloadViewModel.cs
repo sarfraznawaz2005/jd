@@ -29,6 +29,7 @@ public sealed partial class NewDownloadViewModel : ViewModelBase
     private readonly ISettingsService _settings;
     private readonly IDownloadManager _manager;
     private readonly IDownloadActions _actions;
+    private readonly IDuplicateDownloadCheck _duplicateCheck;
     private readonly ILogger<NewDownloadViewModel> _logger;
 
     // The user editing a field pins it, so re-detection never clobbers a manual choice.
@@ -82,6 +83,14 @@ public sealed partial class NewDownloadViewModel : ViewModelBase
     [ObservableProperty]
     private string? _urlWarning;
 
+    /// <summary>
+    /// A warning shown when the target file already exists on disk or a download to the same destination is
+    /// already in the library (TASK-139), so the user can rename or cancel (skip) rather than re-download or
+    /// overwrite. <see langword="null"/> when there is no collision.
+    /// </summary>
+    [ObservableProperty]
+    private string? _duplicateWarning;
+
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(CanSubmit))]
     [NotifyPropertyChangedFor(nameof(ProxyOverrideError))]
@@ -122,6 +131,7 @@ public sealed partial class NewDownloadViewModel : ViewModelBase
         ISettingsService settings,
         IDownloadManager manager,
         IDownloadActions actions,
+        IDuplicateDownloadCheck duplicateCheck,
         ILogger<NewDownloadViewModel> logger)
     {
         ArgumentNullException.ThrowIfNull(probe);
@@ -130,6 +140,7 @@ public sealed partial class NewDownloadViewModel : ViewModelBase
         ArgumentNullException.ThrowIfNull(settings);
         ArgumentNullException.ThrowIfNull(manager);
         ArgumentNullException.ThrowIfNull(actions);
+        ArgumentNullException.ThrowIfNull(duplicateCheck);
         ArgumentNullException.ThrowIfNull(logger);
         _probe = probe;
         _categorizer = categorizer;
@@ -137,6 +148,7 @@ public sealed partial class NewDownloadViewModel : ViewModelBase
         _settings = settings;
         _manager = manager;
         _actions = actions;
+        _duplicateCheck = duplicateCheck;
         _logger = logger;
 
         Categories = BuildCategoryOptions();
@@ -223,6 +235,7 @@ public sealed partial class NewDownloadViewModel : ViewModelBase
         IsDetecting = true;
         DetectionMessage = null;
         UrlWarning = null;
+        DuplicateWarning = null;
         try
         {
             ResourceProbeResult result = await _probe.ProbeAsync(uri, headers: null, cts.Token).ConfigureAwait(true);
@@ -233,6 +246,7 @@ public sealed partial class NewDownloadViewModel : ViewModelBase
 
             _detectedSize = result.TotalLength;
             ApplyDetection(result.SuggestedFileName, result.TotalLength, result.Resumable);
+            await CheckForDuplicateAsync(cts.Token).ConfigureAwait(true);
         }
         catch (OperationCanceledException)
         {
@@ -367,6 +381,37 @@ public sealed partial class NewDownloadViewModel : ViewModelBase
     /// <summary>Whether the current URL is a well-formed http(s) URL worth auto-detecting (the view triggers it).</summary>
     public bool CanDetect => TryGetValidUri(Url, out _);
 
+    /// <summary>
+    /// Checks whether the chosen destination already holds this file (on disk or in the library) and sets
+    /// <see cref="DuplicateWarning"/> accordingly (TASK-139). Best-effort: a check failure is swallowed so it
+    /// never blocks the dialog.
+    /// </summary>
+    private async Task CheckForDuplicateAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            DuplicateCheckResult result = await _duplicateCheck
+                .CheckAsync(SaveToFolder.Trim(), FileName.Trim(), _detectedSize, cancellationToken)
+                .ConfigureAwait(true);
+
+            DuplicateWarning = result.Kind switch
+            {
+                DuplicateKind.FileExistsOnDisk when result.SizeMatches =>
+                    "A file with this name and size already exists in this folder — it looks like the same file. "
+                    + "Rename it, or cancel to skip.",
+                DuplicateKind.FileExistsOnDisk =>
+                    "A file with this name already exists in this folder and may be overwritten. Rename it, or cancel to skip.",
+                DuplicateKind.AlreadyInLibrary =>
+                    "You've already downloaded this file to this folder. Rename it, or cancel to skip.",
+                _ => null,
+            };
+        }
+        catch (OperationCanceledException)
+        {
+            // Superseded by a newer detection — ignore.
+        }
+    }
+
     /// <summary>Maps a probe failure status to a clear, human-readable warning (TASK-142).</summary>
     private static string DescribeProbeFailure(int statusCode) => statusCode switch
     {
@@ -379,9 +424,17 @@ public sealed partial class NewDownloadViewModel : ViewModelBase
     // Editing the URL invalidates the previous probe's verdict until the next detect runs.
     partial void OnUrlChanged(string value) => UrlWarning = null;
 
-    partial void OnFileNameChanged(string value) => _fileNameTouched = true;
+    partial void OnFileNameChanged(string value)
+    {
+        _fileNameTouched = true;
+        DuplicateWarning = null; // stale once the target name changes; re-checked on the next detect
+    }
 
-    partial void OnSaveToFolderChanged(string value) => _folderTouched = true;
+    partial void OnSaveToFolderChanged(string value)
+    {
+        _folderTouched = true;
+        DuplicateWarning = null;
+    }
 
     partial void OnSelectedCategoryChanged(CategoryOption value)
     {

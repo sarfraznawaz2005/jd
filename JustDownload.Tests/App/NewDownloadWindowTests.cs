@@ -31,6 +31,7 @@ public sealed class NewDownloadWindowTests
             settings,
             Substitute.For<IDownloadManager>(),
             Substitute.For<IDownloadActions>(),
+            Substitute.For<IDuplicateDownloadCheck>(),
             NullLogger<NewDownloadViewModel>.Instance);
     }
 

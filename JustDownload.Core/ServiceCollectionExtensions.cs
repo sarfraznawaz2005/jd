@@ -342,6 +342,9 @@ public static class ServiceCollectionExtensions
 
         services.TryAddSingleton<IDownloadManager, DownloadManager>();
 
+        // Pre-download duplicate detection for the New URL dialog (TASK-139).
+        services.TryAddSingleton<IDuplicateDownloadCheck, DuplicateDownloadCheck>();
+
         // Download queue (TASK-072, US-16): enforces the max-concurrent limit and priority order, starting
         // queued downloads through the manager as slots free up. Singleton so one queue owns scheduling.
         services.TryAddSingleton<IDownloadQueueService, DownloadQueueService>();

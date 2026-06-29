@@ -25,10 +25,13 @@ public sealed class NewDownloadViewModelTests
         public ISettingsService Settings { get; } = Substitute.For<ISettingsService>();
         public IDownloadManager Manager { get; } = Substitute.For<IDownloadManager>();
         public IDownloadActions Actions { get; } = Substitute.For<IDownloadActions>();
+        public IDuplicateDownloadCheck DuplicateCheck { get; } = Substitute.For<IDuplicateDownloadCheck>();
 
         public Harness()
         {
             Settings.Current.Returns(new AppSettings { ConnectionsPerDownload = 8 });
+            DuplicateCheck.CheckAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<long?>(), Arg.Any<CancellationToken>())
+                .Returns(DuplicateCheckResult.None);
             Folders.GetBaseFolder().Returns(@"C:\Users\me\Downloads");
             Folders.GetFolderForCategory(Arg.Any<FileCategory>())
                 .Returns(ci => $@"C:\Users\me\Downloads\{((FileCategory)ci[0])}");
@@ -36,7 +39,8 @@ public sealed class NewDownloadViewModelTests
         }
 
         public NewDownloadViewModel Build() =>
-            new(Probe, Categorizer, Folders, Settings, Manager, Actions, NullLogger<NewDownloadViewModel>.Instance);
+            new(Probe, Categorizer, Folders, Settings, Manager, Actions, DuplicateCheck,
+                NullLogger<NewDownloadViewModel>.Instance);
 
         public void SetProbe(string fileName, long? size, bool ranges) =>
             Probe.ProbeAsync(Arg.Any<Uri>(), Arg.Any<IReadOnlyList<KeyValuePair<string, string>>?>(), Arg.Any<CancellationToken>())
@@ -138,6 +142,56 @@ public sealed class NewDownloadViewModelTests
 
         vm.UrlWarning.Should().BeNull();
         vm.DetectionMessage.Should().NotBeNull();
+        vm.DuplicateWarning.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task DetectAsync_DuplicateOnDisk_WarnsWithSizeMatch()
+    {
+        var h = new Harness();
+        h.SetProbe("file.bin", 1234, ranges: true);
+        h.DuplicateCheck.CheckAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<long?>(), Arg.Any<CancellationToken>())
+            .Returns(new DuplicateCheckResult(DuplicateKind.FileExistsOnDisk, 1234, SizeMatches: true));
+        var vm = h.Build();
+        vm.Url = "https://host.example/file.bin";
+
+        await vm.DetectAsync();
+
+        vm.DuplicateWarning.Should().NotBeNull();
+        vm.DuplicateWarning.Should().Contain("same file");
+    }
+
+    [Fact]
+    public async Task DetectAsync_AlreadyInLibrary_Warns()
+    {
+        var h = new Harness();
+        h.SetProbe("file.bin", 1234, ranges: true);
+        h.DuplicateCheck.CheckAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<long?>(), Arg.Any<CancellationToken>())
+            .Returns(new DuplicateCheckResult(DuplicateKind.AlreadyInLibrary));
+        var vm = h.Build();
+        vm.Url = "https://host.example/file.bin";
+
+        await vm.DetectAsync();
+
+        vm.DuplicateWarning.Should().NotBeNull();
+        vm.DuplicateWarning.Should().Contain("already downloaded");
+    }
+
+    [Fact]
+    public async Task DuplicateWarning_ClearsWhenTheFileNameChanges()
+    {
+        var h = new Harness();
+        h.SetProbe("file.bin", 1234, ranges: true);
+        h.DuplicateCheck.CheckAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<long?>(), Arg.Any<CancellationToken>())
+            .Returns(new DuplicateCheckResult(DuplicateKind.FileExistsOnDisk, 1234, SizeMatches: false));
+        var vm = h.Build();
+        vm.Url = "https://host.example/file.bin";
+        await vm.DetectAsync();
+        vm.DuplicateWarning.Should().NotBeNull();
+
+        vm.FileName = "renamed.bin";
+
+        vm.DuplicateWarning.Should().BeNull();
     }
 
     [Fact]
