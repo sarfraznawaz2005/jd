@@ -182,7 +182,6 @@ public sealed class SeparateStreamDownloaderTests : IDisposable
         var services = new ServiceCollection();
         services.AddLogging();
         services.AddJustDownloadTransport();
-        services.AddJustDownloadStorage();
         services.AddJustDownloadDownloading();
         services.AddJustDownloadMedia();
         return services.BuildServiceProvider();
