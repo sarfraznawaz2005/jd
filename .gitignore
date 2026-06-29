@@ -34,9 +34,16 @@ coverage/
 .aitasks/
 
 # ---- Vendored binaries (ffmpeg etc. are fetched/bundled, not committed) ----
+# Match the executables and downloaded archives only — NOT source files named Ffmpeg*.cs / ffmpeg.md
+# (Git is case-insensitive on Windows, so a bare `ffmpeg*` would wrongly ignore those).
 vendor/
-ffmpeg*
-ffprobe*
+ffmpeg.exe
+ffprobe.exe
+ffplay.exe
+/ffmpeg
+/ffprobe
+ffmpeg-*.zip
+ffmpeg-*.tar.*
 
 # ---- Runtime / downloaded artifacts & test leftovers ----
 downloads/
