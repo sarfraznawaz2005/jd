@@ -7,6 +7,7 @@ using JustDownload.Core.Data.Repositories;
 using JustDownload.Core.Downloading;
 using JustDownload.Core.Lifecycle;
 using JustDownload.Core.Security;
+using JustDownload.Core.Transport.Proxy;
 using JustDownload.Tests.Transport;
 using Microsoft.Extensions.DependencyInjection;
 using NSubstitute;
@@ -107,6 +108,31 @@ public sealed class DownloadCookieAuthTests : IDisposable
 
         // The plaintext cookies live only in the keychain (here, the in-memory store), never in the record.
         _secrets.Values[saved.CookieSecretRef!].Should().Be("session=abc123; theme=dark");
+    }
+
+    [Fact]
+    public async Task Enqueue_ProxyOverridePassword_IsStoredInKeychain_NotInTheClear()
+    {
+        long id = await Manager.EnqueueAsync(new EnqueueDownloadRequest
+        {
+            Url = new Uri("https://example.com/file.bin"),
+            DestinationDirectory = _tempDir,
+            FileName = "file.bin",
+            Proxy = new ProxyConfiguration(
+                ProxyKind.Http, "proxy.local", 8080,
+                new JustDownload.Core.Transport.Auth.NetworkCredentials("user", "s3cret", "CORP")),
+        });
+
+        Download? saved = await Repository.GetAsync(id);
+        saved!.ProxyKind.Should().Be((int)ProxyKind.Http);
+        saved.ProxyHost.Should().Be("proxy.local");
+        saved.ProxyUsername.Should().Be("user");
+        saved.ProxyDomain.Should().Be("CORP");
+        saved.ProxyPasswordSecretRef.Should().NotBeNullOrEmpty("the proxy password is referenced by a keychain ref");
+
+        // The plaintext password lives only in the keychain (here, the in-memory store), never in a column (§5).
+        _secrets.Values[saved.ProxyPasswordSecretRef!].Should().Be("s3cret");
+        saved.ProxyDomain.Should().NotContain("s3cret");
     }
 
     [Fact]

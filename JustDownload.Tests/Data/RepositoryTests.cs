@@ -99,6 +99,37 @@ public sealed class RepositoryTests : IDisposable
     }
 
     [Fact]
+    public async Task DownloadRepository_RoundTrips_PerDownloadProxyOverride()
+    {
+        var repo = _provider.GetRequiredService<IDownloadRepository>();
+
+        long id = await repo.AddAsync(SampleDownload() with
+        {
+            ProxyKind = 1, // ProxyKind.Http
+            ProxyHost = "proxy.local",
+            ProxyPort = 8080,
+            ProxyUsername = "user",
+            ProxyDomain = "CORP",
+            ProxyPasswordSecretRef = "secret-ref-1",
+        });
+
+        Download? read = await repo.GetAsync(id);
+        read!.ProxyKind.Should().Be(1);
+        read.ProxyHost.Should().Be("proxy.local");
+        read.ProxyPort.Should().Be(8080);
+        read.ProxyUsername.Should().Be("user");
+        read.ProxyDomain.Should().Be("CORP");
+        read.ProxyPasswordSecretRef.Should().Be("secret-ref-1");
+
+        // No-override default round-trips as all-null.
+        long plain = await repo.AddAsync(SampleDownload());
+        Download? plainRead = await repo.GetAsync(plain);
+        plainRead!.ProxyKind.Should().BeNull();
+        plainRead.ProxyHost.Should().BeNull();
+        plainRead.ProxyPasswordSecretRef.Should().BeNull();
+    }
+
+    [Fact]
     public async Task DownloadRepository_Update_OnMissingRow_ReturnsFalse()
     {
         var repo = _provider.GetRequiredService<IDownloadRepository>();

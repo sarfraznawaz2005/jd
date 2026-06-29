@@ -14,7 +14,8 @@ internal sealed class DownloadRepository : IDownloadRepository
     private const string Columns =
         "id, url, referrer, filename, dir, total_bytes, status, category_type, category_status, " +
         "etag, last_modified, created_at, completed_at, error, max_connections, speed_limit, priority, " +
-        "cookie_secret_ref, retry_count";
+        "cookie_secret_ref, retry_count, " +
+        "proxy_kind, proxy_host, proxy_port, proxy_username, proxy_domain, proxy_password_secret_ref";
 
     private readonly IDbConnectionFactory _connectionFactory;
 
@@ -36,11 +37,13 @@ internal sealed class DownloadRepository : IDownloadRepository
             INSERT INTO downloads
                 (url, referrer, filename, dir, total_bytes, status, category_type, category_status,
                  etag, last_modified, created_at, completed_at, error, max_connections, speed_limit, priority,
-                 cookie_secret_ref, retry_count)
+                 cookie_secret_ref, retry_count,
+                 proxy_kind, proxy_host, proxy_port, proxy_username, proxy_domain, proxy_password_secret_ref)
             VALUES
                 ($url, $referrer, $filename, $dir, $total_bytes, $status, $category_type, $category_status,
                  $etag, $last_modified, $created_at, $completed_at, $error, $max_connections, $speed_limit,
-                 $priority, $cookie_secret_ref, $retry_count);
+                 $priority, $cookie_secret_ref, $retry_count,
+                 $proxy_kind, $proxy_host, $proxy_port, $proxy_username, $proxy_domain, $proxy_password_secret_ref);
             SELECT last_insert_rowid();
             """;
         BindWritableColumns(command, download);
@@ -100,7 +103,10 @@ internal sealed class DownloadRepository : IDownloadRepository
                 category_status = $category_status, etag = $etag, last_modified = $last_modified,
                 created_at = $created_at, completed_at = $completed_at, error = $error,
                 max_connections = $max_connections, speed_limit = $speed_limit, priority = $priority,
-                cookie_secret_ref = $cookie_secret_ref, retry_count = $retry_count
+                cookie_secret_ref = $cookie_secret_ref, retry_count = $retry_count,
+                proxy_kind = $proxy_kind, proxy_host = $proxy_host, proxy_port = $proxy_port,
+                proxy_username = $proxy_username, proxy_domain = $proxy_domain,
+                proxy_password_secret_ref = $proxy_password_secret_ref
             WHERE id = $id;
             """;
         BindWritableColumns(command, download);
@@ -143,6 +149,13 @@ internal sealed class DownloadRepository : IDownloadRepository
         command.Parameters.AddWithValue("$priority", download.Priority);
         command.Parameters.AddWithValue("$cookie_secret_ref", (object?)download.CookieSecretRef ?? DBNull.Value);
         command.Parameters.AddWithValue("$retry_count", download.RetryCount);
+        command.Parameters.AddWithValue("$proxy_kind", (object?)download.ProxyKind ?? DBNull.Value);
+        command.Parameters.AddWithValue("$proxy_host", (object?)download.ProxyHost ?? DBNull.Value);
+        command.Parameters.AddWithValue("$proxy_port", (object?)download.ProxyPort ?? DBNull.Value);
+        command.Parameters.AddWithValue("$proxy_username", (object?)download.ProxyUsername ?? DBNull.Value);
+        command.Parameters.AddWithValue("$proxy_domain", (object?)download.ProxyDomain ?? DBNull.Value);
+        command.Parameters.AddWithValue(
+            "$proxy_password_secret_ref", (object?)download.ProxyPasswordSecretRef ?? DBNull.Value);
     }
 
     private static Download Map(SqliteDataReader reader) => new()
@@ -166,6 +179,12 @@ internal sealed class DownloadRepository : IDownloadRepository
         Priority = reader.GetInt32(16),
         CookieSecretRef = reader.GetNullableString(17),
         RetryCount = reader.GetInt32(18),
+        ProxyKind = reader.GetNullableInt32(19),
+        ProxyHost = reader.GetNullableString(20),
+        ProxyPort = reader.GetNullableInt32(21),
+        ProxyUsername = reader.GetNullableString(22),
+        ProxyDomain = reader.GetNullableString(23),
+        ProxyPasswordSecretRef = reader.GetNullableString(24),
     };
 
     public async Task<IReadOnlyList<Download>> GetByStatusOrderedByPriorityAsync(

@@ -1,3 +1,5 @@
+using JustDownload.Core.Transport.Proxy;
+
 namespace JustDownload.Core.Lifecycle;
 
 /// <summary>
@@ -37,4 +39,12 @@ public sealed record EnqueueDownloadRequest
 
     /// <summary>Per-download speed cap in bytes/second; <see langword="null"/>/<c>0</c> means unlimited.</summary>
     public long? SpeedLimit { get; init; }
+
+    /// <summary>
+    /// A proxy that routes only this download, overriding the global proxy (TASK-153). <see langword="null"/>
+    /// (or a <see cref="ProxyKind.None"/> configuration) means "use the global proxy". When the override
+    /// carries credentials, the password travels here as plaintext only long enough for the manager to store
+    /// it in the OS keychain (§5); it is never persisted in the clear.
+    /// </summary>
+    public ProxyConfiguration? Proxy { get; init; }
 }

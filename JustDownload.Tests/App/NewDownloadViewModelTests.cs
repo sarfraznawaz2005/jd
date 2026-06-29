@@ -228,6 +228,78 @@ public sealed class NewDownloadViewModelTests
     }
 
     [Fact]
+    public async Task ProxyOverride_On_FlowsConfigIntoEnqueue()
+    {
+        var h = new Harness();
+        h.Manager.EnqueueAsync(Arg.Any<EnqueueDownloadRequest>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(5L));
+        var vm = h.Build();
+        vm.Url = "https://host.example/file.zip";
+        vm.FileName = "file.zip";
+        vm.SaveToFolder = @"C:\Dest";
+        vm.UseProxyOverride = true;
+        vm.OverrideProxyKind = JustDownload.Core.Transport.Proxy.ProxyKind.Socks5;
+        vm.OverrideProxyHost = "proxy.local";
+        vm.OverrideProxyPort = 1080;
+        vm.OverrideProxyUsername = "user";
+        vm.OverrideProxyPassword = "pw";
+
+        vm.CanSubmit.Should().BeTrue();
+        await vm.DownloadNowCommand.ExecuteAsync(null);
+
+        await h.Manager.Received(1).EnqueueAsync(
+            Arg.Is<EnqueueDownloadRequest>(r =>
+                r.Proxy != null
+                && r.Proxy.Kind == JustDownload.Core.Transport.Proxy.ProxyKind.Socks5
+                && r.Proxy.Host == "proxy.local"
+                && r.Proxy.Port == 1080
+                && r.Proxy.Credentials != null
+                && r.Proxy.Credentials.Username == "user"
+                && r.Proxy.Credentials.Password == "pw"),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ProxyOverride_Off_LeavesProxyNull()
+    {
+        var h = new Harness();
+        h.Manager.EnqueueAsync(Arg.Any<EnqueueDownloadRequest>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(6L));
+        var vm = h.Build();
+        vm.Url = "https://host.example/file.zip";
+        vm.FileName = "file.zip";
+        vm.SaveToFolder = @"C:\Dest";
+
+        await vm.DownloadNowCommand.ExecuteAsync(null);
+
+        await h.Manager.Received(1).EnqueueAsync(
+            Arg.Is<EnqueueDownloadRequest>(r => r.Proxy == null), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public void ProxyOverride_MissingHostOrBadPort_BlocksSubmit()
+    {
+        var h = new Harness();
+        var vm = h.Build();
+        vm.Url = "https://host.example/file.zip";
+        vm.FileName = "file.zip";
+        vm.SaveToFolder = @"C:\Dest";
+        vm.UseProxyOverride = true; // host blank, port 0
+
+        vm.ProxyOverrideError.Should().NotBeNull();
+        vm.CanSubmit.Should().BeFalse();
+
+        vm.OverrideProxyHost = "proxy.local";
+        vm.OverrideProxyPort = 70000; // out of range
+        vm.ProxyOverrideError.Should().NotBeNull();
+        vm.CanSubmit.Should().BeFalse();
+
+        vm.OverrideProxyPort = 1080;
+        vm.ProxyOverrideError.Should().BeNull();
+        vm.CanSubmit.Should().BeTrue();
+    }
+
+    [Fact]
     public void Cancel_ClosesWithoutEnqueue()
     {
         var h = new Harness();

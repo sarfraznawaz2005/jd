@@ -6,6 +6,8 @@ using JustDownload.Core.Downloading;
 using JustDownload.Core.Logging;
 using JustDownload.Core.Security;
 using JustDownload.Core.Transport;
+using JustDownload.Core.Transport.Auth;
+using JustDownload.Core.Transport.Proxy;
 using Microsoft.Extensions.Logging;
 
 namespace JustDownload.Core.Lifecycle;
@@ -94,6 +96,11 @@ internal sealed partial class DownloadManager : IDownloadManager
             cookieSecretRef = await _secretStore.StoreAsync(cookies, cancellationToken).ConfigureAwait(false);
         }
 
+        // A per-download proxy override (TASK-153): persist the config columns; the password (if any) goes to
+        // the keychain like every other secret and only its reference is stored.
+        ProxyOverridePersistence proxy = await PersistProxyOverrideAsync(request.Proxy, cancellationToken)
+            .ConfigureAwait(false);
+
         var record = new Download
         {
             Url = request.Url.ToString(),
@@ -108,6 +115,12 @@ internal sealed partial class DownloadManager : IDownloadManager
             MaxConnections = request.MaxConnections,
             SpeedLimit = request.SpeedLimit,
             CookieSecretRef = cookieSecretRef,
+            ProxyKind = proxy.Kind,
+            ProxyHost = proxy.Host,
+            ProxyPort = proxy.Port,
+            ProxyUsername = proxy.Username,
+            ProxyDomain = proxy.Domain,
+            ProxyPasswordSecretRef = proxy.PasswordSecretRef,
         };
 
         long id = await _repository.AddAsync(record, cancellationToken).ConfigureAwait(false);
@@ -139,6 +152,8 @@ internal sealed partial class DownloadManager : IDownloadManager
 
         IReadOnlyList<KeyValuePair<string, string>> headers =
             await BuildHeadersAsync(record, cancellationToken).ConfigureAwait(false);
+        ProxyConfiguration? proxyOverride = await BuildProxyOverrideAsync(record, cancellationToken)
+            .ConfigureAwait(false);
         var downloadRequest = new DownloadRequest
         {
             Url = new Uri(record.Url),
@@ -146,6 +161,7 @@ internal sealed partial class DownloadManager : IDownloadManager
             Connections = record.MaxConnections,
             SpeedLimit = record.SpeedLimit,
             Headers = headers,
+            Proxy = proxyOverride,
         };
 
         // Periodically flush the checkpoint so a crash loses at most one interval; pause/cancel flushes the
@@ -414,6 +430,65 @@ internal sealed partial class DownloadManager : IDownloadManager
 
         return headers;
     }
+
+    /// <summary>
+    /// Stores a per-download proxy override's password in the OS keychain (§5) and returns the column values to
+    /// persist (TASK-153). A <see langword="null"/> or disabled override persists all-null (use the global proxy).
+    /// </summary>
+    private async Task<ProxyOverridePersistence> PersistProxyOverrideAsync(
+        ProxyConfiguration? proxy, CancellationToken cancellationToken)
+    {
+        if (proxy is not { IsEnabled: true })
+        {
+            return default;
+        }
+
+        string? username = string.IsNullOrWhiteSpace(proxy.Credentials?.Username)
+            ? null
+            : proxy.Credentials.Username;
+        string? domain = string.IsNullOrWhiteSpace(proxy.Credentials?.Domain) ? null : proxy.Credentials.Domain;
+        string? passwordSecretRef = null;
+        if (username is not null && proxy.Credentials!.Password is { Length: > 0 } password)
+        {
+            passwordSecretRef = await _secretStore.StoreAsync(password, cancellationToken).ConfigureAwait(false);
+        }
+
+        return new ProxyOverridePersistence(
+            (int)proxy.Kind, proxy.Host, proxy.Port, username, domain, passwordSecretRef);
+    }
+
+    /// <summary>
+    /// Rebuilds the per-download proxy override from the persisted columns, resolving the password from the OS
+    /// keychain (TASK-153). Returns <see langword="null"/> when there is no override (use the global proxy).
+    /// </summary>
+    private async Task<ProxyConfiguration?> BuildProxyOverrideAsync(
+        Download record, CancellationToken cancellationToken)
+    {
+        if (record.ProxyKind is not { } kindValue)
+        {
+            return null;
+        }
+
+        var kind = (ProxyKind)kindValue;
+        if (kind == ProxyKind.None || string.IsNullOrEmpty(record.ProxyHost))
+        {
+            return null;
+        }
+
+        NetworkCredentials? credentials = null;
+        if (record.ProxyUsername is { Length: > 0 } username)
+        {
+            string? password = record.ProxyPasswordSecretRef is { Length: > 0 } secretRef
+                ? await _secretStore.RetrieveAsync(secretRef, cancellationToken).ConfigureAwait(false)
+                : null;
+            credentials = new NetworkCredentials(username, password ?? string.Empty, record.ProxyDomain);
+        }
+
+        return new ProxyConfiguration(kind, record.ProxyHost, record.ProxyPort ?? 0, credentials);
+    }
+
+    private readonly record struct ProxyOverridePersistence(
+        int? Kind, string? Host, int? Port, string? Username, string? Domain, string? PasswordSecretRef);
 
     /// <summary>Rebuilds the resume checkpoint from persisted segment rows (empty for a fresh download).</summary>
     private async Task<ReceivedRanges> LoadReceivedAsync(long id, CancellationToken cancellationToken)

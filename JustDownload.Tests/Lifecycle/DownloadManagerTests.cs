@@ -6,6 +6,7 @@ using JustDownload.Core.Data.Models;
 using JustDownload.Core.Data.Repositories;
 using JustDownload.Core.Downloading;
 using JustDownload.Core.Lifecycle;
+using JustDownload.Core.Transport.Proxy;
 using JustDownload.Tests.Fakes;
 using JustDownload.Tests.Transport;
 using Microsoft.Extensions.DependencyInjection;
@@ -140,6 +141,36 @@ public sealed class DownloadManagerTests : IDisposable
 
         Manager.GetProgress(id).Should().NotBeNull();
         Manager.GetProgress(id)!.DownloadedBytes.Should().Be(body.Length);
+    }
+
+    [Fact]
+    public async Task PerDownloadProxyOverride_PersistsAndRoutesThatDownloadThroughTheProxy()
+    {
+        // The global proxy is None (direct) in this harness, so traffic hitting the loopback SOCKS proxy can
+        // only be the per-download override taking effect (TASK-153).
+        byte[] body = Bytes(64 * 1024);
+        await using var origin = new LoopbackHttpServer { Body = body, SupportRanges = true };
+        await using var socks = new LoopbackSocksProxy();
+
+        long id = await Manager.EnqueueAsync(new EnqueueDownloadRequest
+        {
+            Url = origin.Url("f.bin"),
+            DestinationDirectory = _tempDir,
+            FileName = "via-override.bin",
+            Proxy = new ProxyConfiguration(ProxyKind.Socks5, "127.0.0.1", socks.Port),
+        });
+
+        Download? persisted = await Repository.GetAsync(id);
+        persisted!.ProxyKind.Should().Be((int)ProxyKind.Socks5);
+        persisted.ProxyHost.Should().Be("127.0.0.1");
+        persisted.ProxyPort.Should().Be(socks.Port);
+
+        DownloadResult result = await Manager.StartAsync(id);
+
+        result.TotalBytes.Should().Be(body.Length);
+        (await File.ReadAllBytesAsync(Path.Combine(_tempDir, "via-override.bin"))).Should().Equal(body);
+        socks.ConnectedTargets.Should().NotBeEmpty(
+            "the download was routed through the per-download proxy override, not direct");
     }
 
     [Fact]

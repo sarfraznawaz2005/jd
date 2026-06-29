@@ -80,4 +80,30 @@ public sealed record Download
     /// has never been retried.
     /// </summary>
     public int RetryCount { get; init; }
+
+    /// <summary>
+    /// Per-download proxy override kind (TASK-153), stored as the integer value of
+    /// <c>JustDownload.Core.Transport.Proxy.ProxyKind</c>. <see langword="null"/> means "no override — use the
+    /// global proxy". The remaining <c>Proxy*</c> fields are meaningful only when this is set.
+    /// </summary>
+    public int? ProxyKind { get; init; }
+
+    /// <summary>The override proxy host (TASK-153), or <see langword="null"/>.</summary>
+    public string? ProxyHost { get; init; }
+
+    /// <summary>The override proxy port (TASK-153), or <see langword="null"/>.</summary>
+    public int? ProxyPort { get; init; }
+
+    /// <summary>The override proxy auth user name (TASK-153), or <see langword="null"/> for no auth.</summary>
+    public string? ProxyUsername { get; init; }
+
+    /// <summary>The override proxy NTLM/Negotiate domain (TASK-153), or <see langword="null"/>.</summary>
+    public string? ProxyDomain { get; init; }
+
+    /// <summary>
+    /// Opaque OS-keychain reference (§5) for the override proxy password — never the password itself
+    /// (TASK-153). Resolved on start/resume when building the per-download proxy. <see langword="null"/> when
+    /// the override has no password.
+    /// </summary>
+    public string? ProxyPasswordSecretRef { get; init; }
 }

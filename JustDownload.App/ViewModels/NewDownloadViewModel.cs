@@ -9,6 +9,8 @@ using JustDownload.Core.Categorization;
 using JustDownload.Core.Lifecycle;
 using JustDownload.Core.Settings;
 using JustDownload.Core.Transport;
+using JustDownload.Core.Transport.Auth;
+using JustDownload.Core.Transport.Proxy;
 using Microsoft.Extensions.Logging;
 
 namespace JustDownload.App.ViewModels;
@@ -72,6 +74,39 @@ public sealed partial class NewDownloadViewModel : ViewModelBase
     [ObservableProperty]
     private string? _detectionMessage;
 
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanSubmit))]
+    [NotifyPropertyChangedFor(nameof(ProxyOverrideError))]
+    [NotifyCanExecuteChangedFor(nameof(DownloadNowCommand))]
+    [NotifyCanExecuteChangedFor(nameof(AddPausedCommand))]
+    private bool _useProxyOverride;
+
+    [ObservableProperty]
+    private ProxyKind _overrideProxyKind = ProxyKind.Http;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanSubmit))]
+    [NotifyPropertyChangedFor(nameof(ProxyOverrideError))]
+    [NotifyCanExecuteChangedFor(nameof(DownloadNowCommand))]
+    [NotifyCanExecuteChangedFor(nameof(AddPausedCommand))]
+    private string _overrideProxyHost = string.Empty;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanSubmit))]
+    [NotifyPropertyChangedFor(nameof(ProxyOverrideError))]
+    [NotifyCanExecuteChangedFor(nameof(DownloadNowCommand))]
+    [NotifyCanExecuteChangedFor(nameof(AddPausedCommand))]
+    private int _overrideProxyPort;
+
+    [ObservableProperty]
+    private string _overrideProxyUsername = string.Empty;
+
+    [ObservableProperty]
+    private string _overrideProxyDomain = string.Empty;
+
+    [ObservableProperty]
+    private string _overrideProxyPassword = string.Empty;
+
     public NewDownloadViewModel(
         IResourceProbe probe,
         IFileCategorizer categorizer,
@@ -131,11 +166,34 @@ public sealed partial class NewDownloadViewModel : ViewModelBase
             ? "The folder path is invalid."
             : null;
 
+    /// <summary>The proxy-override kind options (TASK-153); "None" is expressed by the on/off toggle instead.</summary>
+    public IReadOnlyList<ProxyKind> ProxyKinds { get; } = [ProxyKind.Http, ProxyKind.Socks4, ProxyKind.Socks5];
+
+    /// <summary>Validation for the per-download proxy override, or <see langword="null"/> when valid/unused.</summary>
+    public string? ProxyOverrideError
+    {
+        get
+        {
+            if (!UseProxyOverride)
+            {
+                return null;
+            }
+
+            if (string.IsNullOrWhiteSpace(OverrideProxyHost))
+            {
+                return "Enter the proxy host.";
+            }
+
+            return OverrideProxyPort is < 1 or > 65535 ? "Enter a port between 1 and 65535." : null;
+        }
+    }
+
     /// <summary>Whether the form is complete and valid enough to enqueue.</summary>
     public bool CanSubmit =>
         TryGetValidUri(Url, out _)
         && !string.IsNullOrWhiteSpace(FileName) && FileNameError is null
-        && !string.IsNullOrWhiteSpace(SaveToFolder) && FolderError is null;
+        && !string.IsNullOrWhiteSpace(SaveToFolder) && FolderError is null
+        && ProxyOverrideError is null;
 
     /// <summary>
     /// Probes the current URL and fills the file name, category, and folder that the user has not overridden
@@ -251,6 +309,7 @@ public sealed partial class NewDownloadViewModel : ViewModelBase
             SpeedLimit = null,
             Referrer = _referrer,
             Cookies = _cookies,
+            Proxy = BuildProxyOverride(),
         };
 
         long id = await _manager.EnqueueAsync(request).ConfigureAwait(true);
@@ -260,6 +319,29 @@ public sealed partial class NewDownloadViewModel : ViewModelBase
         }
 
         CloseRequested?.Invoke(this, true);
+    }
+
+    /// <summary>
+    /// Builds the per-download proxy override (TASK-153) from the dialog fields, or <see langword="null"/> when
+    /// the override is off (so the engine uses the global proxy). The password rides along as plaintext for the
+    /// engine to store in the OS keychain (§5).
+    /// </summary>
+    private ProxyConfiguration? BuildProxyOverride()
+    {
+        if (!UseProxyOverride)
+        {
+            return null;
+        }
+
+        string? username = string.IsNullOrWhiteSpace(OverrideProxyUsername) ? null : OverrideProxyUsername.Trim();
+        NetworkCredentials? credentials = username is null
+            ? null
+            : new NetworkCredentials(
+                username,
+                OverrideProxyPassword,
+                string.IsNullOrWhiteSpace(OverrideProxyDomain) ? null : OverrideProxyDomain.Trim());
+
+        return new ProxyConfiguration(OverrideProxyKind, OverrideProxyHost.Trim(), OverrideProxyPort, credentials);
     }
 
     /// <summary>The effective category: the user's explicit pick, or auto-derived from the file name.</summary>

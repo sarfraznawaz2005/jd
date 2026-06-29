@@ -71,6 +71,35 @@
                  FontSize="11.5" Foreground="{DynamicResource TextFaintBrush}" />
     </Grid>
 
+    <!-- Per-download proxy override (TASK-153) -->
+    <StackPanel Spacing="8">
+      <CheckBox IsChecked="{Binding UseProxyOverride, Mode=TwoWay}"
+                Content="Use a different proxy for this download"
+                Foreground="{DynamicResource TextDimBrush}" FontSize="12" />
+      <StackPanel Spacing="8" IsVisible="{Binding UseProxyOverride}" Margin="22,0,0,0">
+        <Grid ColumnDefinitions="120,*,90">
+          <ComboBox Grid.Column="0" ItemsSource="{Binding ProxyKinds}"
+                    SelectedItem="{Binding OverrideProxyKind, Mode=TwoWay}" HorizontalAlignment="Stretch"
+                    Margin="0,0,8,0" />
+          <TextBox Grid.Column="1" Watermark="Proxy host" Text="{Binding OverrideProxyHost, Mode=TwoWay}"
+                   Margin="0,0,8,0" />
+          <TextBox Grid.Column="2" Watermark="Port"
+                   Text="{Binding OverrideProxyPort, Mode=TwoWay}" />
+        </Grid>
+        <Grid ColumnDefinitions="*,*,*">
+          <TextBox Grid.Column="0" Watermark="Username (optional)"
+                   Text="{Binding OverrideProxyUsername, Mode=TwoWay}" Margin="0,0,8,0" />
+          <TextBox Grid.Column="1" Watermark="Domain (optional)"
+                   Text="{Binding OverrideProxyDomain, Mode=TwoWay}" Margin="0,0,8,0" />
+          <TextBox Grid.Column="2" Watermark="Password" PasswordChar="•"
+                   Text="{Binding OverrideProxyPassword, Mode=TwoWay}" />
+        </Grid>
+        <TextBlock Text="{Binding ProxyOverrideError}" FontSize="11"
+                   IsVisible="{Binding ProxyOverrideError, Converter={x:Static ObjectConverters.IsNotNull}}"
+                   Foreground="{DynamicResource RedBrush}" />
+      </StackPanel>
+    </StackPanel>
+
     <!-- Footer -->
     <Grid ColumnDefinitions="Auto,*,Auto,Auto" Margin="0,4,0,0">
       <TextBlock Grid.Column="0" Text="Detecting…" VerticalAlignment="Center"
