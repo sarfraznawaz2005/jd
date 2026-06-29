@@ -22,6 +22,9 @@ internal sealed partial class DownloadManager : IDownloadManager
     /// <summary>How often the resume checkpoint is flushed to the database during an active download.</summary>
     private static readonly TimeSpan CheckpointInterval = TimeSpan.FromMilliseconds(500);
 
+    /// <summary>Upper bound on UI progress notifications per download (~15Hz) — coalesces per-chunk reports.</summary>
+    private static readonly TimeSpan ProgressEmitInterval = TimeSpan.FromMilliseconds(66);
+
     private readonly IDownloadRepository _repository;
     private readonly ISegmentRepository _segments;
     private readonly ISegmentedDownloader _downloader;
@@ -32,6 +35,7 @@ internal sealed partial class DownloadManager : IDownloadManager
     private readonly ILogger<DownloadManager> _logger;
     private readonly ConcurrentDictionary<long, DownloadProgress> _latest = new();
     private readonly ConcurrentDictionary<long, ConnectionTracker> _connections = new();
+    private readonly ProgressEmitThrottle _progressThrottle = new(ProgressEmitInterval);
 
     public DownloadManager(
         IDownloadRepository repository,
@@ -257,8 +261,10 @@ internal sealed partial class DownloadManager : IDownloadManager
         await _repository.UpdateAsync(updated, CancellationToken.None).ConfigureAwait(false);
 
         // The download is no longer running — drop its live per-connection stats so the detail view's
-        // Connections tab clears rather than showing a frozen last frame.
+        // Connections tab clears rather than showing a frozen last frame, and its progress-throttle state so
+        // the dictionary stays bounded.
         _connections.TryRemove(id, out _);
+        _progressThrottle.Forget(id);
         RaiseStatus(id, fromStatus, to);
     }
 
@@ -446,11 +452,18 @@ internal sealed partial class DownloadManager : IDownloadManager
     private void OnBytes(
         long id, SpeedEstimator estimator, long? total, bool resumable, int connections, long cumulativeBytes)
     {
-        double speed = estimator.Sample(_clock.UtcNow, cumulativeBytes);
+        DateTimeOffset now = _clock.UtcNow;
+        double speed = estimator.Sample(now, cumulativeBytes);
         DownloadProgress snapshot = DownloadProgress.Create(
             DownloadStatus.Active, cumulativeBytes, total, speed, resumable, connections);
+
+        // Keep the latest snapshot current for GetProgress and the explicit terminal emit, but only notify the
+        // UI at a bounded rate so a fast transfer's per-chunk reports don't flood the UI thread (TASK-104).
         _latest[id] = snapshot;
-        ProgressChanged?.Invoke(this, new DownloadProgressChangedEventArgs(id, snapshot));
+        if (_progressThrottle.ShouldEmit(id, now))
+        {
+            ProgressChanged?.Invoke(this, new DownloadProgressChangedEventArgs(id, snapshot));
+        }
     }
 
     private void OnConnectionProgress(long id, ConnectionProgress progress) =>
