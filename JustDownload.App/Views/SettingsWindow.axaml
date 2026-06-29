@@ -38,8 +38,22 @@
           <TextBlock Text="Default download folder" Classes="StatKey" />
           <TextBlock Text="Leave empty to use the OS Downloads folder. New downloads default here."
                      Classes="SettingsHint" />
-          <TextBox Text="{Binding DefaultDownloadFolder, Mode=TwoWay, UpdateSourceTrigger=LostFocus}" Width="360"
-                   HorizontalAlignment="Left" />
+          <Grid ColumnDefinitions="360,Auto" ColumnSpacing="8" HorizontalAlignment="Left">
+            <TextBox Grid.Column="0"
+                     Text="{Binding DefaultDownloadFolder, Mode=TwoWay, UpdateSourceTrigger=LostFocus}" />
+            <Button Grid.Column="1" Classes="App" Click="OnBrowseDefaultFolder">
+              <StackPanel Orientation="Horizontal" Spacing="6">
+                <PathIcon Data="{StaticResource IconFolder}" Width="13" Height="13" />
+                <TextBlock Text="Browse" VerticalAlignment="Center" />
+              </StackPanel>
+            </Button>
+          </Grid>
+          <TextBlock Text="{Binding DefaultDownloadFolderError}"
+                     IsVisible="{Binding DefaultDownloadFolderError, Converter={x:Static ObjectConverters.IsNotNull}}"
+                     FontSize="11" Foreground="{DynamicResource RedBrush}" />
+          <TextBlock Text="{Binding DefaultDownloadFolderHint}"
+                     IsVisible="{Binding DefaultDownloadFolderHint, Converter={x:Static ObjectConverters.IsNotNull}}"
+                     Classes="SettingsHint" />
         </StackPanel>
         <StackPanel Spacing="10">
           <TextBlock Text="Startup &amp; tray" Classes="StatKey" />

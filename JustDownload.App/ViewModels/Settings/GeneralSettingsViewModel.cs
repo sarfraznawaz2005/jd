@@ -29,6 +29,8 @@ public sealed partial class GeneralSettingsViewModel : ViewModelBase
     private MediaContainer _defaultContainer;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(DefaultDownloadFolderError))]
+    [NotifyPropertyChangedFor(nameof(DefaultDownloadFolderHint))]
     private string _defaultDownloadFolder;
 
     [ObservableProperty]
@@ -105,13 +107,41 @@ public sealed partial class GeneralSettingsViewModel : ViewModelBase
         }
     }
 
+    /// <summary>Red validation error for the default folder (invalid path characters), or null when acceptable.</summary>
+    public string? DefaultDownloadFolderError =>
+        !string.IsNullOrWhiteSpace(DefaultDownloadFolder)
+        && DefaultDownloadFolder.IndexOfAny(Path.GetInvalidPathChars()) >= 0
+            ? "That isn't a valid folder path."
+            : null;
+
+    /// <summary>Informational hint when the chosen folder is valid but does not exist yet, or null otherwise.</summary>
+    public string? DefaultDownloadFolderHint
+    {
+        get
+        {
+            string folder = DefaultDownloadFolder.Trim();
+            if (folder.Length == 0 || DefaultDownloadFolderError is not null)
+            {
+                return null;
+            }
+
+            return Directory.Exists(folder)
+                ? null
+                : "This folder doesn't exist yet — it'll be created on the first download.";
+        }
+    }
+
     partial void OnDefaultDownloadFolderChanged(string value)
     {
-        if (!_suppress)
+        // Don't persist an invalid path — keep the last valid value until the user fixes it. A valid but
+        // not-yet-existing folder is fine (the engine creates it on first use).
+        if (_suppress || DefaultDownloadFolderError is not null)
         {
-            string? folder = string.IsNullOrWhiteSpace(value) ? null : value.Trim();
-            _ = _settings.UpdateAsync(s => s with { DefaultDownloadDirectory = folder });
+            return;
         }
+
+        string? folder = string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+        _ = _settings.UpdateAsync(s => s with { DefaultDownloadDirectory = folder });
     }
 
     partial void OnStartMinimizedToTrayChanged(bool value)

@@ -131,6 +131,47 @@ public sealed class SettingsViewModelTests
     }
 
     [Fact]
+    public void General_InvalidDefaultDownloadFolder_ShowsError_AndDoesNotPersist()
+    {
+        ISettingsService settings = Settings();
+        var vm = new GeneralSettingsViewModel(settings, Substitute.For<IThemeService>());
+
+        vm.DefaultDownloadFolder = "C:\\bad\0path"; // the NUL char is invalid on every platform
+
+        vm.DefaultDownloadFolderError.Should().NotBeNull();
+        settings.DidNotReceive().UpdateAsync(
+            Arg.Any<Func<AppSettings, AppSettings>>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public void General_MissingDefaultDownloadFolder_ShowsHint_AndStillPersists()
+    {
+        ISettingsService settings = Settings();
+        var vm = new GeneralSettingsViewModel(settings, Substitute.For<IThemeService>());
+        string missing = Path.Combine(Path.GetTempPath(), "jd-missing-" + Guid.NewGuid().ToString("N"));
+
+        vm.DefaultDownloadFolder = missing;
+
+        vm.DefaultDownloadFolderError.Should().BeNull();
+        vm.DefaultDownloadFolderHint.Should().NotBeNull("a valid but not-yet-existing folder gets a hint");
+        Persisted(settings, new AppSettings()).DefaultDownloadDirectory.Should().Be(missing);
+    }
+
+    [Fact]
+    public void General_ExistingOrEmptyDefaultDownloadFolder_HasNoMessages()
+    {
+        var vm = new GeneralSettingsViewModel(Settings(), Substitute.For<IThemeService>());
+
+        vm.DefaultDownloadFolder = string.Empty;
+        vm.DefaultDownloadFolderError.Should().BeNull();
+        vm.DefaultDownloadFolderHint.Should().BeNull();
+
+        vm.DefaultDownloadFolder = Path.GetTempPath(); // exists
+        vm.DefaultDownloadFolderError.Should().BeNull();
+        vm.DefaultDownloadFolderHint.Should().BeNull();
+    }
+
+    [Fact]
     public void Connections_PersistConnectionsConcurrencyAndSpeed()
     {
         ISettingsService settings = Settings();
