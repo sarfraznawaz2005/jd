@@ -174,6 +174,36 @@ public sealed class DownloadManagerTests : IDisposable
     }
 
     [Fact]
+    public async Task MediaDownload_Hls_DownloadsAndConcatenates_AsTrackedDownload()
+    {
+        // A chosen HLS variant runs the segments->concat media path (TASK-154) and lands as a tracked,
+        // Completed download whose output is the segments joined in playlist order.
+        var segments = new[] { Bytes(4096), Bytes(8192), Bytes(2048) };
+        await using var hls = new LoopbackHlsServer(segments, encrypted: false);
+
+        long id = await Manager.EnqueueAsync(new EnqueueDownloadRequest
+        {
+            Url = hls.MediaUrl,
+            DestinationDirectory = _tempDir,
+            FileName = "video.ts",
+            MediaKind = JustDownload.Core.Media.Extraction.MediaKind.Hls,
+        });
+
+        DownloadResult result = await Manager.StartAsync(id);
+
+        string output = Path.Combine(_tempDir, "video.ts");
+        (await File.ReadAllBytesAsync(output)).Should().Equal(hls.ReferenceBytes, "segments concatenated in playlist order");
+        result.TotalBytes.Should().Be(hls.ReferenceBytes.Length);
+
+        Download? saved = await Repository.GetAsync(id);
+        saved!.Status.Should().Be(DownloadStatusCodes.Completed);
+        saved.MediaKind.Should().Be((int)JustDownload.Core.Media.Extraction.MediaKind.Hls);
+        Directory.Exists(output + ".jdmedia").Should().BeFalse("the scratch segment directory is cleaned up");
+
+        Manager.GetProgress(id)!.Fraction.Should().Be(1.0);
+    }
+
+    [Fact]
     public async Task PerDownloadProxyOverride_IsUsedForThePreflightProbe_NotJustTheTransfer()
     {
         // The global proxy is dead; only the per-download override can reach the origin. If the validator

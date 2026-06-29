@@ -4,6 +4,8 @@ using JustDownload.Core.Data.Models;
 using JustDownload.Core.Data.Repositories;
 using JustDownload.Core.Downloading;
 using JustDownload.Core.Logging;
+using JustDownload.Core.Media;
+using JustDownload.Core.Media.Extraction;
 using JustDownload.Core.Security;
 using JustDownload.Core.Transport;
 using JustDownload.Core.Transport.Auth;
@@ -36,6 +38,7 @@ internal sealed partial class DownloadManager : IDownloadManager
     private readonly ISecretStore _secretStore;
     private readonly IRetryBackoff _backoff;
     private readonly IProxyService _proxy;
+    private readonly IMediaDownloadCoordinator _mediaCoordinator;
     private readonly IClock _clock;
     private readonly ILogger<DownloadManager> _logger;
     private readonly ConcurrentDictionary<long, DownloadProgress> _latest = new();
@@ -51,6 +54,7 @@ internal sealed partial class DownloadManager : IDownloadManager
         ISecretStore secretStore,
         IRetryBackoff backoff,
         IProxyService proxy,
+        IMediaDownloadCoordinator mediaCoordinator,
         IClock clock,
         ILogger<DownloadManager> logger)
     {
@@ -62,6 +66,7 @@ internal sealed partial class DownloadManager : IDownloadManager
         ArgumentNullException.ThrowIfNull(secretStore);
         ArgumentNullException.ThrowIfNull(backoff);
         ArgumentNullException.ThrowIfNull(proxy);
+        ArgumentNullException.ThrowIfNull(mediaCoordinator);
         ArgumentNullException.ThrowIfNull(clock);
         ArgumentNullException.ThrowIfNull(logger);
         _repository = repository;
@@ -72,6 +77,7 @@ internal sealed partial class DownloadManager : IDownloadManager
         _secretStore = secretStore;
         _backoff = backoff;
         _proxy = proxy;
+        _mediaCoordinator = mediaCoordinator;
         _clock = clock;
         _logger = logger;
     }
@@ -125,6 +131,7 @@ internal sealed partial class DownloadManager : IDownloadManager
             ProxyUsername = proxy.Username,
             ProxyDomain = proxy.Domain,
             ProxyPasswordSecretRef = proxy.PasswordSecretRef,
+            MediaKind = request.MediaKind is { } kind ? (int)kind : null,
         };
 
         long id = await _repository.AddAsync(record, cancellationToken).ConfigureAwait(false);
@@ -150,6 +157,14 @@ internal sealed partial class DownloadManager : IDownloadManager
         Download active = record with { Status = DownloadStatusCodes.Active, Error = null };
         await _repository.UpdateAsync(active, cancellationToken).ConfigureAwait(false);
         RaiseStatus(id, from, DownloadStatus.Active);
+
+        // A media-variant download (HLS today, TASK-154) takes the segments->concat path instead of plain
+        // segmented HTTP; Progressive/null falls through to the normal path below.
+        if (active.MediaKind is { } kindValue && (MediaKind)kindValue != MediaKind.Progressive)
+        {
+            return await RunMediaDownloadAsync(id, active, (MediaKind)kindValue, cancellationToken)
+                .ConfigureAwait(false);
+        }
 
         // Seed the resume checkpoint from any persisted segments so this run fetches only the missing gaps.
         ReceivedRanges received = await LoadReceivedAsync(id, cancellationToken).ConfigureAwait(false);
@@ -501,6 +516,112 @@ internal sealed partial class DownloadManager : IDownloadManager
 
     private readonly record struct ProxyOverridePersistence(
         int? Kind, string? Host, int? Port, string? Username, string? Domain, string? PasswordSecretRef);
+
+    /// <summary>
+    /// Runs a media-variant download (TASK-154): drives the <see cref="IMediaDownloadCoordinator"/> (HLS today)
+    /// to produce the output file, surfacing segment progress and the same status/persistence lifecycle as a
+    /// plain download. Uses the per-download proxy override and the cookie/referrer headers, like the HTTP path.
+    /// </summary>
+    private async Task<DownloadResult> RunMediaDownloadAsync(
+        long id, Download active, MediaKind kind, CancellationToken cancellationToken)
+    {
+        string outputPath = Path.Combine(active.Directory!, active.Filename!);
+        string workingDirectory = outputPath + ".jdmedia";
+        IReadOnlyList<KeyValuePair<string, string>> headers =
+            await BuildHeadersAsync(active, cancellationToken).ConfigureAwait(false);
+        ProxyConfiguration? proxyOverride = await BuildProxyOverrideAsync(active, cancellationToken)
+            .ConfigureAwait(false);
+
+        var progress = new Progress<MediaDownloadProgress>(p =>
+        {
+            var snapshot = new DownloadProgress
+            {
+                Status = DownloadStatus.Active,
+                DownloadedBytes = p.DownloadedBytes,
+                TotalBytes = null, // HLS segment sizes aren't known up front
+                BytesPerSecond = 0,
+                Fraction = p.Fraction,
+                Resumable = false,
+                Connections = 1,
+            };
+            _latest[id] = snapshot;
+            ProgressChanged?.Invoke(this, new DownloadProgressChangedEventArgs(id, snapshot));
+        });
+
+        try
+        {
+            MediaDownloadOutcome outcome;
+            using (_proxy.BeginDownloadScope(proxyOverride))
+            {
+                outcome = await _mediaCoordinator.DownloadAsync(
+                    new MediaDownloadRequest
+                    {
+                        Kind = kind,
+                        MediaUrl = new Uri(active.Url),
+                        OutputPath = outputPath,
+                        WorkingDirectory = workingDirectory,
+                        Headers = headers,
+                    },
+                    progress,
+                    cancellationToken).ConfigureAwait(false);
+            }
+
+            TryRemoveDirectory(workingDirectory);
+            await TransitionToTerminalAsync(
+                id, active with { TotalBytes = outcome.TotalBytes }, DownloadStatus.Completed,
+                error: null, completedAt: _clock.UtcNow).ConfigureAwait(false);
+
+            var done = DownloadProgress.Create(
+                DownloadStatus.Completed, outcome.TotalBytes, outcome.TotalBytes, 0, resumable: false, connections: 1);
+            _latest[id] = done;
+            ProgressChanged?.Invoke(this, new DownloadProgressChangedEventArgs(id, done));
+            LogCompleted(_logger, id, outcome.TotalBytes);
+
+            return new DownloadResult
+            {
+                TotalBytes = outcome.TotalBytes,
+                FinalUri = new Uri(active.Url),
+                FileName = active.Filename!,
+                SingleConnection = true,
+                InitialSegments = 1,
+                Steals = 0,
+            };
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // A user pause: HLS has no byte-level resume yet (TASK-154 increment ②), so drop the scratch
+            // segments — a resume re-downloads cleanly — and record the paused state.
+            TryRemoveDirectory(workingDirectory);
+            await TransitionToTerminalAsync(id, active, DownloadStatus.Paused, error: null, completedAt: null)
+                .ConfigureAwait(false);
+            throw;
+        }
+        catch (Exception ex)
+        {
+            TryRemoveDirectory(workingDirectory);
+            await TransitionToTerminalAsync(id, active, DownloadStatus.Failed, ex.Message, completedAt: null)
+                .ConfigureAwait(false);
+            LogFailed(_logger, id, ex);
+            throw;
+        }
+    }
+
+    private static void TryRemoveDirectory(string directory)
+    {
+        try
+        {
+            if (Directory.Exists(directory))
+            {
+                Directory.Delete(directory, recursive: true);
+            }
+        }
+        catch (IOException)
+        {
+        }
+        catch (UnauthorizedAccessException)
+        {
+        }
+    }
 
     /// <summary>Rebuilds the resume checkpoint from persisted segment rows (empty for a fresh download).</summary>
     private async Task<ReceivedRanges> LoadReceivedAsync(long id, CancellationToken cancellationToken)

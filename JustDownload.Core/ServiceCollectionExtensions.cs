@@ -164,6 +164,7 @@ public static class ServiceCollectionExtensions
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IMigration, AddDownloadCookieSecretRefMigration>());
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IMigration, AddDownloadRetryCountMigration>());
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IMigration, AddDownloadProxyOverrideMigration>());
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IMigration, AddDownloadMediaKindMigration>());
         services.TryAddSingleton<IMigrationRunner, MigrationRunner>();
 
         // Repositories (TASK-020) — the centralized data-access seam. Stateless over the shared
@@ -336,6 +337,10 @@ public static class ServiceCollectionExtensions
         // registered wherever lifecycle is (idempotent — full AddJustDownloadCore already adds it).
         services.AddJustDownloadSecrets();
 
+        // The manager routes media-variant downloads through the media coordinator (TASK-154), so ensure the
+        // media services are registered wherever lifecycle is (idempotent — full AddJustDownloadCore adds them).
+        services.AddJustDownloadMedia();
+
         // The queue and the retry policy both read settings (max concurrency, max retries), so ensure the
         // settings service is registered wherever lifecycle is (idempotent — full AddJustDownloadCore adds it).
         services.TryAddSingleton<ISettingsService, SettingsService>();
@@ -418,6 +423,9 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<IMediaMuxer, MediaMuxer>();
 
         services.TryAddSingleton<IMediaExtractorRegistry, MediaExtractorRegistry>();
+
+        // Orchestrates a chosen media variant into a tracked download (TASK-154): HLS segments -> concat.
+        services.TryAddSingleton<IMediaDownloadCoordinator, MediaDownloadCoordinator>();
 
         return services;
     }

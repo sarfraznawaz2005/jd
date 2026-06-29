@@ -59,7 +59,7 @@ public sealed class MigrationRunnerTests : IDisposable
 
         int version = runner.Migrate();
 
-        version.Should().Be(5, "the migration head is version 5 after TASK-153");
+        version.Should().Be(6, "the migration head is version 6 after TASK-154");
         GetTableNames(factory).Should().Contain(ExpectedTables);
         GetColumnNames(factory, "downloads").Should().Contain("cookie_secret_ref",
             "the v3 migration adds the keychain cookie reference column");
@@ -67,6 +67,8 @@ public sealed class MigrationRunnerTests : IDisposable
             "the v4 migration adds the auto-retry count column");
         GetColumnNames(factory, "downloads").Should().Contain("proxy_password_secret_ref",
             "the v5 migration adds the per-download proxy override columns");
+        GetColumnNames(factory, "downloads").Should().Contain("media_kind",
+            "the v6 migration adds the media-kind column");
     }
 
     [Fact]
@@ -81,7 +83,7 @@ public sealed class MigrationRunnerTests : IDisposable
         using SqliteConnection connection = factory.CreateOpenConnection();
         using SqliteCommand cmd = connection.CreateCommand();
         cmd.CommandText = "PRAGMA user_version;";
-        Convert.ToInt32(cmd.ExecuteScalar(), CultureInfo.InvariantCulture).Should().Be(5);
+        Convert.ToInt32(cmd.ExecuteScalar(), CultureInfo.InvariantCulture).Should().Be(6);
     }
 
     [Fact]
@@ -99,8 +101,8 @@ public sealed class MigrationRunnerTests : IDisposable
 
         int second = runner.Migrate();
 
-        first.Should().Be(5);
-        second.Should().Be(5);
+        first.Should().Be(6);
+        second.Should().Be(6);
         GetTableNames(factory).Should().Contain(ExpectedTables);
     }
 
@@ -114,8 +116,8 @@ public sealed class MigrationRunnerTests : IDisposable
         int first = await runner.MigrateAsync();
         int second = await runner.MigrateAsync();
 
-        first.Should().Be(5);
-        second.Should().Be(5);
+        first.Should().Be(6);
+        second.Should().Be(6);
         GetTableNames(factory).Should().Contain(ExpectedTables);
     }
 

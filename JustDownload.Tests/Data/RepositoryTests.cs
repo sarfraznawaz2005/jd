@@ -130,6 +130,18 @@ public sealed class RepositoryTests : IDisposable
     }
 
     [Fact]
+    public async Task DownloadRepository_RoundTrips_MediaKind()
+    {
+        var repo = _provider.GetRequiredService<IDownloadRepository>();
+
+        long id = await repo.AddAsync(SampleDownload() with { MediaKind = 1 }); // Hls
+        (await repo.GetAsync(id))!.MediaKind.Should().Be(1);
+
+        long plain = await repo.AddAsync(SampleDownload());
+        (await repo.GetAsync(plain))!.MediaKind.Should().BeNull("a plain download has no media kind");
+    }
+
+    [Fact]
     public async Task DownloadRepository_Update_OnMissingRow_ReturnsFalse()
     {
         var repo = _provider.GetRequiredService<IDownloadRepository>();

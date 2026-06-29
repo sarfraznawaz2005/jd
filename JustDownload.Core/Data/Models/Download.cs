@@ -106,4 +106,12 @@ public sealed record Download
     /// the override has no password.
     /// </summary>
     public string? ProxyPasswordSecretRef { get; init; }
+
+    /// <summary>
+    /// The media download path (TASK-154), stored as the integer value of
+    /// <c>JustDownload.Core.Media.Extraction.MediaKind</c>. <see langword="null"/> or <c>0</c> (Progressive)
+    /// is a plain segmented-HTTP download; <c>1</c> (Hls) routes the start through the media coordinator
+    /// (segments &#8594; concat). The download <see cref="Url"/> is the chosen media playlist/variant URL.
+    /// </summary>
+    public int? MediaKind { get; init; }
 }

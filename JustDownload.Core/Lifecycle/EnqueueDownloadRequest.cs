@@ -1,3 +1,4 @@
+using JustDownload.Core.Media.Extraction;
 using JustDownload.Core.Transport.Proxy;
 
 namespace JustDownload.Core.Lifecycle;
@@ -47,4 +48,12 @@ public sealed record EnqueueDownloadRequest
     /// it in the OS keychain (§5); it is never persisted in the clear.
     /// </summary>
     public ProxyConfiguration? Proxy { get; init; }
+
+    /// <summary>
+    /// The media download path for this download (TASK-154): <see cref="MediaKind.Hls"/> routes the start
+    /// through the media coordinator (segments &#8594; concat); <see langword="null"/> or
+    /// <see cref="MediaKind.Progressive"/> is a plain segmented-HTTP download. <see cref="Url"/> is the chosen
+    /// media playlist/variant URL.
+    /// </summary>
+    public MediaKind? MediaKind { get; init; }
 }
