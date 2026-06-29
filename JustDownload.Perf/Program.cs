@@ -9,13 +9,16 @@ using Microsoft.Extensions.DependencyInjection;
 // Performance-budget probe (TASK-015). Measures engine cold-start, idle RAM, and (when --bundle is given)
 // the published bundle size, compares them to perf-budget.json, prints a report, and exits non-zero only
 // when a *gated* KPI (the bundle size) regresses.
+//
+// --bundle accepts either the compressed installer artifact (a .zip — the K3 "installer/bundle" metric,
+// TASK-075) or a publish directory (its files are summed). Prefer the installer: that is what users download.
 
-string? bundleDir = null;
+string? bundlePath = null;
 for (int i = 0; i < args.Length - 1; i++)
 {
     if (args[i] == "--bundle")
     {
-        bundleDir = args[i + 1];
+        bundlePath = args[i + 1];
     }
 }
 
@@ -51,11 +54,15 @@ GC.WaitForPendingFinalizers();
 GC.Collect();
 double idleRamMb = Process.GetCurrentProcess().WorkingSet64 / 1024.0 / 1024.0;
 
-// --- Bundle: total size of the published output, when provided. ---------------------------------
+// --- Bundle: size of the compressed installer (a file) or a publish directory, when provided. ----
 double? bundleMb = null;
-if (bundleDir is not null && Directory.Exists(bundleDir))
+if (bundlePath is not null && File.Exists(bundlePath))
 {
-    long bytes = Directory.EnumerateFiles(bundleDir, "*", SearchOption.AllDirectories)
+    bundleMb = new FileInfo(bundlePath).Length / 1024.0 / 1024.0;
+}
+else if (bundlePath is not null && Directory.Exists(bundlePath))
+{
+    long bytes = Directory.EnumerateFiles(bundlePath, "*", SearchOption.AllDirectories)
         .Sum(f => new FileInfo(f).Length);
     bundleMb = bytes / 1024.0 / 1024.0;
 }

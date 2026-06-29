@@ -1,5 +1,5 @@
 {
-  "$comment": "Performance budget (TASK-015, PRD KPIs). 'limits' are the PRD targets. 'gated' lists the KPIs that fail CI on regression — only 'bundle' is gated because a GUI app's cold-start and idle RAM can't be measured reliably on a headless CI runner (no display, runner variance); those are measured and recorded as baselines but not hard-failed. 'baseline' holds the last locally-recorded measurements for tracking drift over time.",
+  "$comment": "Performance budget (TASK-015, PRD KPIs). 'limits' are the PRD targets. 'gated' lists the KPIs that fail CI on regression — only 'bundle' is gated because a GUI app's cold-start and idle RAM can't be measured reliably on a headless CI runner (no display, runner variance); those are measured and recorded as baselines but not hard-failed. 'bundle' is the COMPRESSED installer/download the probe is pointed at (--bundle <zip>), per K3 and the TASK-075 distribution decision (framework-dependent + ReadyToRun). 'baseline' holds the last locally-recorded measurements for tracking drift over time.",
   "limits": {
     "coldStartMs": 1500,
     "idleRamMb": 90,
@@ -11,8 +11,8 @@
   "baseline": {
     "coldStartMs": 145,
     "idleRamMb": 29,
-    "bundleMb": 30,
+    "bundleMb": 21,
     "recordedOn": "2026-06-29",
-    "bundleConfig": "framework-dependent, single-RID (win-x64), JustDownload.App"
+    "bundleConfig": "framework-dependent + R2R, compressed installer (zip). Per-RID: win-x64 19.4MB, linux-x64 17.4MB, osx-x64 20.7MB, osx-arm64 20.2MB. Extracted folders 40-50MB."
   }
 }

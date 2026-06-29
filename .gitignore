@@ -49,3 +49,6 @@ Thumbs.db
 
 # ---- Secrets / signing keys (NEVER commit) ----
 .keys/
+
+# Publish output (TASK-075)
+artifacts/
