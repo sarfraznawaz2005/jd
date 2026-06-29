@@ -352,6 +352,9 @@ public static class ServiceCollectionExtensions
         // View/remove saved keychain credentials for the Authentication settings (TASK-126).
         services.TryAddSingleton<Security.ISavedCredentialsService, Security.SavedCredentialsService>();
 
+        // Import a URL list / export the queue as M3U/CSV/JSON (TASK-140).
+        services.TryAddSingleton<IDownloadListTransfer, DownloadListTransfer>();
+
         // Download queue (TASK-072, US-16): enforces the max-concurrent limit and priority order, starting
         // queued downloads through the manager as slots free up. Singleton so one queue owns scheduling.
         services.TryAddSingleton<IDownloadQueueService, DownloadQueueService>();

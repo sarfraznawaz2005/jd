@@ -4,12 +4,14 @@ using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Input.Platform;
 using Avalonia.Markup.Xaml;
+using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using JustDownload.App.Services;
 using JustDownload.App.ViewModels;
 using JustDownload.App.Views;
 using JustDownload.Core;
 using JustDownload.Core.Diagnostics;
+using JustDownload.Core.Lifecycle;
 using JustDownload.Core.NativeMessaging;
 using JustDownload.Core.Settings;
 using JustDownload.Core.Throttling;
@@ -89,6 +91,10 @@ public partial class App : Application
 
             // The toolbar "Browsers" intent opens the browser-integration panel (TASK-093).
             mainViewModel.BrowsersRequested += (_, _) => _ = ShowBrowsersDialogAsync(window);
+
+            // Import a URL list / export the queue as M3U/CSV/JSON (TASK-140).
+            mainViewModel.ImportListRequested += (_, _) => _ = ImportListAsync(window, mainViewModel);
+            mainViewModel.ExportListRequested += (_, _) => _ = ExportListAsync(window);
 
             // A URL — dropped on the app (TASK-062) or forwarded by a second launch (TASK-061) — opens the
             // new-download dialog prefilled.
@@ -232,6 +238,44 @@ public partial class App : Application
 
         var dialog = new NewDownloadWindow { DataContext = viewModel };
         await dialog.ShowDialog(owner);
+    }
+
+    private static readonly FilePickerFileType DownloadListFileType =
+        new("Download lists") { Patterns = ["*.m3u", "*.m3u8", "*.csv", "*.json"] };
+
+    private async Task ImportListAsync(Window owner, MainWindowViewModel mainViewModel)
+    {
+        IReadOnlyList<IStorageFile> files = await owner.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+        {
+            Title = "Import URL list",
+            AllowMultiple = false,
+            FileTypeFilter = [DownloadListFileType],
+        });
+
+        if (files.Count == 0 || files[0].TryGetLocalPath() is not { } path)
+        {
+            return;
+        }
+
+        string folder = Services.GetRequiredService<IDownloadFolderProvider>().GetBaseFolder();
+        await Services.GetRequiredService<IDownloadListTransfer>().ImportAsync(path, folder);
+        await mainViewModel.Downloads.LoadAsync(); // reflect the newly-queued downloads
+    }
+
+    private async Task ExportListAsync(Window owner)
+    {
+        IStorageFile? file = await owner.StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
+        {
+            Title = "Export queue",
+            SuggestedFileName = "downloads.m3u",
+            DefaultExtension = "m3u",
+            FileTypeChoices = [DownloadListFileType],
+        });
+
+        if (file?.TryGetLocalPath() is { } path)
+        {
+            await Services.GetRequiredService<IDownloadListTransfer>().ExportAsync(path);
+        }
     }
 
     private async Task ShowBrowsersDialogAsync(Window owner)

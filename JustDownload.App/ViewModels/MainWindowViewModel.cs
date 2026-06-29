@@ -151,6 +151,12 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <summary>Raised when the user opens the Browsers panel (extension/browser integration).</summary>
     public event EventHandler? BrowsersRequested;
 
+    /// <summary>Raised to import a URL list into the queue (TASK-140); the shell runs the open-file picker.</summary>
+    public event EventHandler? ImportListRequested;
+
+    /// <summary>Raised to export the queue as a download list (TASK-140); the shell runs the save-file picker.</summary>
+    public event EventHandler? ExportListRequested;
+
     /// <summary>Cycles the application theme (Light → Dark → System).</summary>
     [RelayCommand]
     private void ToggleTheme() => _theme.Toggle();
@@ -175,6 +181,14 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     [RelayCommand]
     private void ShowBrowsers() => BrowsersRequested?.Invoke(this, EventArgs.Empty);
 
+    /// <summary>Imports a URL list (M3U/CSV/JSON) into the queue (TASK-140).</summary>
+    [RelayCommand]
+    private void ImportList() => ImportListRequested?.Invoke(this, EventArgs.Empty);
+
+    /// <summary>Exports the queue as a download list (M3U/CSV/JSON) (TASK-140).</summary>
+    [RelayCommand]
+    private void ExportList() => ExportListRequested?.Invoke(this, EventArgs.Empty);
+
     /// <summary>Opens the command palette (Ctrl/Cmd+K).</summary>
     [RelayCommand]
     private void OpenPalette() => Palette.Open();
@@ -195,6 +209,10 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                 "density", "compact", "comfortable", "layout"),
             new("Change limits…", "Actions", () => SettingsRequested?.Invoke(this, EventArgs.Empty),
                 "settings", "preferences", "limit", "speed", "connections", "concurrent"),
+            new("Import URL list…", "Actions", () => ImportListRequested?.Invoke(this, EventArgs.Empty),
+                "import", "list", "m3u", "csv", "json", "urls", "queue"),
+            new("Export queue…", "Actions", () => ExportListRequested?.Invoke(this, EventArgs.Empty),
+                "export", "list", "m3u", "csv", "json", "queue", "backup"),
         };
 
         foreach (SidebarNodeViewModel node in Sidebar.Nodes)
