@@ -1,6 +1,7 @@
 using System.Text.Json;
 using JustDownload.Core.Data.Models;
 using JustDownload.Core.Data.Repositories;
+using JustDownload.Core.Logging;
 using JustDownload.Core.Settings;
 using Microsoft.Extensions.Logging;
 
@@ -139,7 +140,7 @@ internal sealed partial class ExtensionMessageHandler : INativeMessageHandler
             cancellationToken).ConfigureAwait(false);
 
         await _launcher.EnsureRunningAsync(cancellationToken).ConfigureAwait(false);
-        LogQueued(_logger, url);
+        LogQueued(_logger, SafeLogUrl.Of(url));
     }
 
     private async Task<string> GetSettingsAsync(CancellationToken cancellationToken)
@@ -171,6 +172,6 @@ internal sealed partial class ExtensionMessageHandler : INativeMessageHandler
     [LoggerMessage(EventId = 1, Level = LogLevel.Information, Message = "Synced {Count} blacklisted site(s) from the extension.")]
     private static partial void LogSynced(ILogger logger, int count);
 
-    [LoggerMessage(EventId = 2, Level = LogLevel.Information, Message = "Queued handed-off link {Url} for the desktop app.")]
-    private static partial void LogQueued(ILogger logger, string url);
+    [LoggerMessage(EventId = 2, Level = LogLevel.Information, Message = "Queued a handed-off link from {Source} for the desktop app.")]
+    private static partial void LogQueued(ILogger logger, string source);
 }

@@ -3,6 +3,7 @@ using JustDownload.Core.Abstractions;
 using JustDownload.Core.Data.Models;
 using JustDownload.Core.Data.Repositories;
 using JustDownload.Core.Downloading;
+using JustDownload.Core.Logging;
 using JustDownload.Core.Security;
 using JustDownload.Core.Transport;
 using Microsoft.Extensions.Logging;
@@ -110,7 +111,7 @@ internal sealed partial class DownloadManager : IDownloadManager
         };
 
         long id = await _repository.AddAsync(record, cancellationToken).ConfigureAwait(false);
-        LogEnqueued(_logger, id, record.Url);
+        LogEnqueued(_logger, id, SafeLogUrl.Of(record.Url));
         RaiseStatus(id, previous: null, DownloadStatus.Queued);
         return id;
     }
@@ -651,8 +652,8 @@ internal sealed partial class DownloadManager : IDownloadManager
         }
     }
 
-    [LoggerMessage(EventId = 1, Level = LogLevel.Information, Message = "Enqueued download {Id}: {Url}.")]
-    private static partial void LogEnqueued(ILogger logger, long id, string url);
+    [LoggerMessage(EventId = 1, Level = LogLevel.Information, Message = "Enqueued download {Id} from {Source}.")]
+    private static partial void LogEnqueued(ILogger logger, long id, string source);
 
     [LoggerMessage(EventId = 2, Level = LogLevel.Information, Message = "Download {Id} completed ({Bytes} bytes).")]
     private static partial void LogCompleted(ILogger logger, long id, long bytes);

@@ -4,6 +4,7 @@ using JustDownload.Core.Data.Models;
 using JustDownload.Core.Data.Repositories;
 using JustDownload.Core.NativeMessaging;
 using JustDownload.Core.Settings;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
@@ -66,9 +67,34 @@ public sealed class ExtensionMessageHandlerTests
     }
 
     private static ExtensionMessageHandler Build(
-        IBlacklistRepository repo, IExtensionInbox? inbox = null, IAppLauncher? launcher = null) =>
+        IBlacklistRepository repo,
+        IExtensionInbox? inbox = null,
+        IAppLauncher? launcher = null,
+        ILogger<ExtensionMessageHandler>? logger = null) =>
         new(repo, inbox ?? new FakeInbox(), launcher ?? new CountingLauncher(), new StubSettings(),
-            NullLogger<ExtensionMessageHandler>.Instance);
+            logger ?? NullLogger<ExtensionMessageHandler>.Instance);
+
+    private sealed class RecordingLogger<T> : ILogger<T>
+    {
+        public List<string> Messages { get; } = [];
+
+        public IDisposable BeginScope<TState>(TState state) where TState : notnull => NullScope.Instance;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(
+            LogLevel logLevel, EventId eventId, TState state, Exception? exception,
+            Func<TState, Exception?, string> formatter) => Messages.Add(formatter(state, exception));
+
+        private sealed class NullScope : IDisposable
+        {
+            public static readonly NullScope Instance = new();
+
+            public void Dispose()
+            {
+            }
+        }
+    }
 
     private sealed class StubSettings : ISettingsService
     {
@@ -148,5 +174,25 @@ public sealed class ExtensionMessageHandlerTests
         inbox.Links[0].Referrer.Should().Be("https://x/p");
         inbox.Links[0].Cookies.Should().Be("sid=1");
         launcher.Calls.Should().Be(1, "the app is launched/ensured running for the handed-off link");
+    }
+
+    [Fact]
+    public async Task DownloadLink_LogsHostOnly_NeverTheSignedQueryString()
+    {
+        // TASK-099, §5: a handed-off media URL often carries signed tokens in its query string; they must
+        // never reach the host log.
+        var logger = new RecordingLogger<ExtensionMessageHandler>();
+        ExtensionMessageHandler handler = Build(new InMemoryBlacklist(), logger: logger);
+        const string signed =
+            "https://cdn.example.com/video.mp4?token=SUPERSECRET123&X-Amz-Signature=deadbeef&Expires=99";
+
+        await handler.HandleAsync($"{{\"type\":\"download_link\",\"url\":\"{signed}\"}}");
+
+        string log = string.Join("\n", logger.Messages);
+        log.Should().Contain("cdn.example.com", "the source host is still logged for diagnostics");
+        log.Should().NotContain("SUPERSECRET123");
+        log.Should().NotContain("X-Amz-Signature");
+        log.Should().NotContain("token=");
+        log.Should().NotContain("?", "the query string is dropped entirely");
     }
 }
