@@ -24,6 +24,7 @@ public sealed partial class SettingsViewModel : ViewModelBase
     private readonly ISettingsTransfer _transfer;
     private readonly JustDownload.Core.Transport.Proxy.IProxyTester _proxyTester;
     private readonly JustDownload.Core.IPortableEnvironment _portable;
+    private readonly ISavedCredentialsService _savedCredentials;
 
     [ObservableProperty]
     private SettingsSectionViewModel _selectedSection;
@@ -40,7 +41,8 @@ public sealed partial class SettingsViewModel : ViewModelBase
         ISecretStore secrets,
         ISettingsTransfer transfer,
         JustDownload.Core.Transport.Proxy.IProxyTester proxyTester,
-        JustDownload.Core.IPortableEnvironment portable)
+        JustDownload.Core.IPortableEnvironment portable,
+        ISavedCredentialsService savedCredentials)
     {
         ArgumentNullException.ThrowIfNull(settings);
         ArgumentNullException.ThrowIfNull(theme);
@@ -50,6 +52,7 @@ public sealed partial class SettingsViewModel : ViewModelBase
         ArgumentNullException.ThrowIfNull(transfer);
         ArgumentNullException.ThrowIfNull(proxyTester);
         ArgumentNullException.ThrowIfNull(portable);
+        ArgumentNullException.ThrowIfNull(savedCredentials);
         _settings = settings;
         _theme = theme;
         _folderRules = folderRules;
@@ -58,6 +61,7 @@ public sealed partial class SettingsViewModel : ViewModelBase
         _transfer = transfer;
         _proxyTester = proxyTester;
         _portable = portable;
+        _savedCredentials = savedCredentials;
 
         PopulateSections();
         _selectedSection = Sections[0];
@@ -73,11 +77,8 @@ public sealed partial class SettingsViewModel : ViewModelBase
         Sections.Add(new SettingsSectionViewModel("General", "IconSetGeneral", new GeneralSettingsViewModel(_settings, _theme)));
         Sections.Add(new SettingsSectionViewModel("Connections", "IconSetConnections", new ConnectionsSettingsViewModel(_settings)));
         Sections.Add(new SettingsSectionViewModel("Proxy", "IconSetProxy", new ProxySettingsViewModel(_settings, _secrets, _proxyTester)));
-        Sections.Add(new SettingsSectionViewModel("Authentication", "IconSetAuth", new InfoSettingsViewModel(
-            "Authentication",
-            "Site and proxy credentials are entered when a download needs them and are stored securely in the "
-            + "OS keychain (DPAPI / macOS Keychain / libsecret) — never in plain text.",
-            "There are no global credentials to configure here.")));
+        Sections.Add(new SettingsSectionViewModel(
+            "Authentication", "IconSetAuth", new AuthenticationSettingsViewModel(_savedCredentials)));
         Sections.Add(new SettingsSectionViewModel("Categories", "IconSetCategories", new CategoriesSettingsViewModel(_settings, _folderRules)));
         Sections.Add(new SettingsSectionViewModel(
             "Browsers", "IconSetBrowsers", new BrowsersViewModel(_nativeHostInstaller, _portable)));

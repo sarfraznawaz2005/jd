@@ -38,7 +38,7 @@ public sealed class SettingsViewModelTests
     [Fact]
     public void AllSevenSections_ArePresent_InOrder()
     {
-        var vm = new SettingsViewModel(Settings(), Substitute.For<IThemeService>(), CategoryFolderRules.CreateDefault(), Substitute.For<JustDownload.Core.NativeMessaging.INativeHostInstaller>(), Substitute.For<JustDownload.Core.Security.ISecretStore>(), Substitute.For<ISettingsTransfer>(), Substitute.For<IProxyTester>(), Substitute.For<JustDownload.Core.IPortableEnvironment>());
+        var vm = new SettingsViewModel(Settings(), Substitute.For<IThemeService>(), CategoryFolderRules.CreateDefault(), Substitute.For<JustDownload.Core.NativeMessaging.INativeHostInstaller>(), Substitute.For<JustDownload.Core.Security.ISecretStore>(), Substitute.For<ISettingsTransfer>(), Substitute.For<IProxyTester>(), Substitute.For<JustDownload.Core.IPortableEnvironment>(), Substitute.For<JustDownload.Core.Security.ISavedCredentialsService>());
 
         vm.Sections.Select(s => s.Label).Should()
             .Equal("General", "Connections", "Proxy", "Authentication", "Categories", "Browsers", "Advanced");
@@ -49,7 +49,7 @@ public sealed class SettingsViewModelTests
     [Fact]
     public void Select_SwitchesActiveSection()
     {
-        var vm = new SettingsViewModel(Settings(), Substitute.For<IThemeService>(), CategoryFolderRules.CreateDefault(), Substitute.For<JustDownload.Core.NativeMessaging.INativeHostInstaller>(), Substitute.For<JustDownload.Core.Security.ISecretStore>(), Substitute.For<ISettingsTransfer>(), Substitute.For<IProxyTester>(), Substitute.For<JustDownload.Core.IPortableEnvironment>());
+        var vm = new SettingsViewModel(Settings(), Substitute.For<IThemeService>(), CategoryFolderRules.CreateDefault(), Substitute.For<JustDownload.Core.NativeMessaging.INativeHostInstaller>(), Substitute.For<JustDownload.Core.Security.ISecretStore>(), Substitute.For<ISettingsTransfer>(), Substitute.For<IProxyTester>(), Substitute.For<JustDownload.Core.IPortableEnvironment>(), Substitute.For<JustDownload.Core.Security.ISavedCredentialsService>());
         SettingsSectionViewModel connections = vm.Sections.Single(s => s.Label == "Connections");
 
         vm.SelectCommand.Execute(connections);
@@ -63,7 +63,7 @@ public sealed class SettingsViewModelTests
         new(settings, Substitute.For<IThemeService>(), CategoryFolderRules.CreateDefault(),
             Substitute.For<JustDownload.Core.NativeMessaging.INativeHostInstaller>(),
             Substitute.For<ISecretStore>(), transfer, Substitute.For<IProxyTester>(),
-            Substitute.For<JustDownload.Core.IPortableEnvironment>());
+            Substitute.For<JustDownload.Core.IPortableEnvironment>(), Substitute.For<JustDownload.Core.Security.ISavedCredentialsService>());
 
     [Fact]
     public async Task ExportToAsync_ExportsCurrentSettings_AndReportsSuccess()

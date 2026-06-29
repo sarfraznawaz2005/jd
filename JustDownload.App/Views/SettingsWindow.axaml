@@ -255,6 +255,30 @@
       </StackPanel>
     </DataTemplate>
 
+    <!-- Authentication (TASK-126) -->
+    <DataTemplate DataType="vm:AuthenticationSettingsViewModel">
+      <StackPanel Spacing="14">
+        <TextBlock Text="Authentication" Classes="SettingsHeading" />
+        <TextBlock Text="Credentials are stored in the OS keychain (DPAPI / macOS Keychain / libsecret) — never in plain text. Here you can review and revoke what's saved; the secret values are never shown."
+                   Classes="SettingsHint" TextWrapping="Wrap" />
+        <TextBlock Text="No saved credentials." Classes="SettingsHint"
+                   IsVisible="{Binding HasNoSavedCredentials}" />
+        <ItemsControl ItemsSource="{Binding Credentials}">
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="vm:SavedCredentialRow">
+              <Grid ColumnDefinitions="*,Auto" Margin="0,3">
+                <TextBlock Grid.Column="0" Text="{Binding Description}" VerticalAlignment="Center"
+                           TextWrapping="Wrap" Foreground="{DynamicResource TextBrush}" />
+                <Button Grid.Column="1" Classes="App" Content="Remove"
+                        Command="{Binding $parent[ItemsControl].((vm:AuthenticationSettingsViewModel)DataContext).RemoveCommand}"
+                        CommandParameter="{Binding}" />
+              </Grid>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+      </StackPanel>
+    </DataTemplate>
+
     <!-- Advanced (TASK-127) -->
     <DataTemplate DataType="vm:AdvancedSettingsViewModel">
       <StackPanel Spacing="18">

@@ -349,6 +349,9 @@ public static class ServiceCollectionExtensions
         // Pre-download duplicate detection for the New URL dialog (TASK-139).
         services.TryAddSingleton<IDuplicateDownloadCheck, DuplicateDownloadCheck>();
 
+        // View/remove saved keychain credentials for the Authentication settings (TASK-126).
+        services.TryAddSingleton<Security.ISavedCredentialsService, Security.SavedCredentialsService>();
+
         // Download queue (TASK-072, US-16): enforces the max-concurrent limit and priority order, starting
         // queued downloads through the manager as slots free up. Singleton so one queue owns scheduling.
         services.TryAddSingleton<IDownloadQueueService, DownloadQueueService>();
