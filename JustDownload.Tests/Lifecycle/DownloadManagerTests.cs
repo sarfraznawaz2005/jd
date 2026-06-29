@@ -174,6 +174,43 @@ public sealed class DownloadManagerTests : IDisposable
     }
 
     [Fact]
+    public async Task PerDownloadProxyOverride_IsUsedForThePreflightProbe_NotJustTheTransfer()
+    {
+        // The global proxy is dead; only the per-download override can reach the origin. If the validator
+        // probe ignored the override (TASK-157) it would fail on the dead global and the download couldn't
+        // capture validators / complete. Success here proves the probe routes through the override.
+        byte[] body = Bytes(64 * 1024);
+        await using var origin = new LoopbackHttpServer { Body = body, SupportRanges = true };
+        await using var socks = new LoopbackSocksProxy();
+
+        var proxyService = _provider.GetRequiredService<IProxyService>();
+        proxyService.SetGlobalProxy(new ProxyConfiguration(ProxyKind.Socks5, "127.0.0.1", ClosedLoopbackPort()));
+
+        long id = await Manager.EnqueueAsync(new EnqueueDownloadRequest
+        {
+            Url = origin.Url("f.bin"),
+            DestinationDirectory = _tempDir,
+            FileName = "via-override-probe.bin",
+            Proxy = new ProxyConfiguration(ProxyKind.Socks5, "127.0.0.1", socks.Port),
+        });
+
+        DownloadResult result = await Manager.StartAsync(id);
+
+        (await File.ReadAllBytesAsync(Path.Combine(_tempDir, "via-override-probe.bin"))).Should().Equal(body);
+        Download? saved = await Repository.GetAsync(id);
+        saved!.TotalBytes.Should().Be(body.Length, "the probe captured validators through the override proxy");
+    }
+
+    private static int ClosedLoopbackPort()
+    {
+        var listener = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0);
+        listener.Start();
+        int port = ((System.Net.IPEndPoint)listener.LocalEndpoint).Port;
+        listener.Stop();
+        return port;
+    }
+
+    [Fact]
     public async Task StartAsync_OnNetworkFailure_TransitionsToError_AndRecordsMessage()
     {
         // The .invalid TLD never resolves (RFC 2606), so the probe fails deterministically with no network.

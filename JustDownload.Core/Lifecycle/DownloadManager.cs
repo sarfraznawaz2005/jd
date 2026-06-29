@@ -35,6 +35,7 @@ internal sealed partial class DownloadManager : IDownloadManager
     private readonly SegmentationOptions _segmentationOptions;
     private readonly ISecretStore _secretStore;
     private readonly IRetryBackoff _backoff;
+    private readonly IProxyService _proxy;
     private readonly IClock _clock;
     private readonly ILogger<DownloadManager> _logger;
     private readonly ConcurrentDictionary<long, DownloadProgress> _latest = new();
@@ -49,6 +50,7 @@ internal sealed partial class DownloadManager : IDownloadManager
         SegmentationOptions segmentationOptions,
         ISecretStore secretStore,
         IRetryBackoff backoff,
+        IProxyService proxy,
         IClock clock,
         ILogger<DownloadManager> logger)
     {
@@ -59,6 +61,7 @@ internal sealed partial class DownloadManager : IDownloadManager
         ArgumentNullException.ThrowIfNull(segmentationOptions);
         ArgumentNullException.ThrowIfNull(secretStore);
         ArgumentNullException.ThrowIfNull(backoff);
+        ArgumentNullException.ThrowIfNull(proxy);
         ArgumentNullException.ThrowIfNull(clock);
         ArgumentNullException.ThrowIfNull(logger);
         _repository = repository;
@@ -68,6 +71,7 @@ internal sealed partial class DownloadManager : IDownloadManager
         _segmentationOptions = segmentationOptions;
         _secretStore = secretStore;
         _backoff = backoff;
+        _proxy = proxy;
         _clock = clock;
         _logger = logger;
     }
@@ -180,7 +184,8 @@ internal sealed partial class DownloadManager : IDownloadManager
             {
                 // Detect an already-expired link and capture the resume validators (ETag/size) before
                 // fetching, so a later renew can prove identity (TASK-032).
-                active = await PrepareForDownloadAsync(active, headers, cancellationToken).ConfigureAwait(false);
+                active = await PrepareForDownloadAsync(active, headers, proxyOverride, cancellationToken)
+                    .ConfigureAwait(false);
 
                 int connections = active.MaxConnections ?? _segmentationOptions.DefaultConnections;
                 var estimator = new SpeedEstimator();
@@ -336,6 +341,9 @@ internal sealed partial class DownloadManager : IDownloadManager
         {
             IReadOnlyList<KeyValuePair<string, string>> renewHeaders =
                 await BuildHeadersAsync(record, cancellationToken).ConfigureAwait(false);
+            ProxyConfiguration? renewProxy = await BuildProxyOverrideAsync(record, cancellationToken)
+                .ConfigureAwait(false);
+            using IDisposable proxyScope = _proxy.BeginDownloadScope(renewProxy);
             probe = await _probe.ProbeAsync(newUrl, renewHeaders, cancellationToken).ConfigureAwait(false);
         }
         catch (ResourceProbeException ex) when (ExpiryDetection.IsExpiryStatusCode(ex.StatusCode))
@@ -374,6 +382,7 @@ internal sealed partial class DownloadManager : IDownloadManager
     private async Task<Download> PrepareForDownloadAsync(
         Download active,
         IReadOnlyList<KeyValuePair<string, string>> headers,
+        ProxyConfiguration? proxyOverride,
         CancellationToken cancellationToken)
     {
         var uri = new Uri(active.Url);
@@ -389,6 +398,9 @@ internal sealed partial class DownloadManager : IDownloadManager
 
         try
         {
+            // Probe through the per-download proxy override (TASK-157) so the validator capture uses the same
+            // route as the transfer — otherwise an origin reachable only via the override wouldn't be probed.
+            using IDisposable proxyScope = _proxy.BeginDownloadScope(proxyOverride);
             ResourceProbeResult probe = await _probe.ProbeAsync(uri, headers, cancellationToken).ConfigureAwait(false);
             Download withValidators = active with { ETag = probe.ETag, TotalBytes = probe.TotalLength };
             await _repository.UpdateAsync(withValidators, cancellationToken).ConfigureAwait(false);
