@@ -353,6 +353,37 @@ public sealed class SettingsViewModelTests
     }
 
     [Fact]
+    public void Connections_PerCategoryLimit_PersistsCanonicalString()
+    {
+        ISettingsService settings = Settings();
+        var vm = new ConnectionsSettingsViewModel(settings);
+
+        vm.CategoryLimits.Should().NotBeEmpty();
+        CategoryLimitItem video = vm.CategoryLimits.Single(c => c.Category == "Video");
+        CategoryLimitItem audio = vm.CategoryLimits.Single(c => c.Category == "Audio");
+
+        video.Limit = 2;
+        audio.Limit = 1;
+
+        Persisted(settings, new AppSettings()).CategoryConcurrencyLimits.Should().Be("Audio=1;Video=2");
+    }
+
+    [Fact]
+    public void Connections_PerCategoryLimit_HydratesFromSettings_AndClearsToNullWhenAllZero()
+    {
+        ISettingsService settings = Settings(new AppSettings { CategoryConcurrencyLimits = "Video=3" });
+        var vm = new ConnectionsSettingsViewModel(settings);
+
+        vm.CategoryLimits.Single(c => c.Category == "Video").Limit.Should().Be(3);
+        vm.CategoryLimits.Single(c => c.Category == "Audio").Limit.Should().Be(0, "unlisted categories are unlimited");
+
+        // Clearing the only cap persists null (no per-category caps), not an empty string.
+        vm.CategoryLimits.Single(c => c.Category == "Video").Limit = 0;
+        Persisted(settings, new AppSettings { CategoryConcurrencyLimits = "Video=3" })
+            .CategoryConcurrencyLimits.Should().BeNull();
+    }
+
+    [Fact]
     public void Categories_PersistOrganizeAndRoot_AndListsFolders()
     {
         ISettingsService settings = Settings();

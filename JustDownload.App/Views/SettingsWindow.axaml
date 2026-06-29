@@ -133,6 +133,24 @@
                      FontSize="11" Foreground="{DynamicResource RedBrush}" />
           <TextBlock Text="{Binding SpeedLimitDisplay, StringFormat='Current: {0}'}" Classes="SettingsHint" />
         </StackPanel>
+        <StackPanel Spacing="6">
+          <TextBlock Text="Per-category limits" Classes="StatKey" />
+          <TextBlock Text="Cap how many downloads of a type run at once so one kind doesn't hog bandwidth (0 = unlimited)."
+                     Classes="SettingsHint" />
+          <ItemsControl ItemsSource="{Binding CategoryLimits}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:CategoryLimitItem">
+                <Grid ColumnDefinitions="140,160" Margin="0,2">
+                  <TextBlock Grid.Column="0" Text="{Binding Category}" VerticalAlignment="Center"
+                             Foreground="{DynamicResource TextBrush}" />
+                  <NumericUpDown Grid.Column="1" Value="{Binding Limit, Mode=TwoWay}" Minimum="0"
+                                 Maximum="{Binding $parent[ItemsControl].((vm:ConnectionsSettingsViewModel)DataContext).MaxCategoryConcurrent}"
+                                 Increment="1" Width="150" HorizontalAlignment="Left" />
+                </Grid>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </StackPanel>
       </StackPanel>
     </DataTemplate>
 

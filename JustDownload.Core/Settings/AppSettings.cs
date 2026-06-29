@@ -96,6 +96,14 @@ public sealed record AppSettings
     /// </summary>
     public bool AutoExtractArchives { get; init; }
 
+    /// <summary>
+    /// Per-category concurrent-download caps (TASK-141) in the canonical form <c>Video=2;Compressed=1</c>
+    /// (parsed by <c>CategoryConcurrency</c>). A category absent from the list is uncapped (bounded only by
+    /// the global <see cref="MaxConcurrentDownloads"/>). <see langword="null"/>/empty means no per-category
+    /// caps — the default.
+    /// </summary>
+    public string? CategoryConcurrencyLimits { get; init; }
+
     /// <summary>The global proxy kind applied to downloads (TASK-125). Default <see cref="ProxyKind.None"/>.</summary>
     public ProxyKind ProxyKind { get; init; } = ProxyKind.None;
 

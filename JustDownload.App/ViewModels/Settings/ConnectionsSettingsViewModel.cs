@@ -1,4 +1,7 @@
+using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
+using JustDownload.Core.Categorization;
+using JustDownload.Core.Lifecycle;
 using JustDownload.Core.Settings;
 
 namespace JustDownload.App.ViewModels.Settings;
@@ -46,8 +49,24 @@ public sealed partial class ConnectionsSettingsViewModel : ViewModelBase
         _speedLimitMegabytesPerSecond = current.GlobalSpeedLimitBytesPerSecond > 0
             ? Math.Round((double)current.GlobalSpeedLimitBytesPerSecond / BytesPerMegabyte, 1)
             : 1.0;
+
+        IReadOnlyDictionary<string, int> caps = CategoryConcurrency.Parse(current.CategoryConcurrencyLimits);
+        CategoryLimits = new ObservableCollection<CategoryLimitItem>(
+            CappableCategories.Select(c =>
+                new CategoryLimitItem(c.ToString(), caps.GetValueOrDefault(c.ToString()), PersistCategoryLimits)));
         _suppress = false;
     }
+
+    /// <summary>The concrete categories that can be given a concurrency cap (everything except the catch-all).</summary>
+    private static IReadOnlyList<FileCategory> CappableCategories { get; } =
+        [FileCategory.Video, FileCategory.Audio, FileCategory.Document, FileCategory.Compressed,
+         FileCategory.Program, FileCategory.Image];
+
+    /// <summary>Per-category concurrent-download caps (TASK-141); <c>0</c> means unlimited for that category.</summary>
+    public ObservableCollection<CategoryLimitItem> CategoryLimits { get; }
+
+    /// <summary>The largest per-category cap the UI allows (the global concurrent ceiling).</summary>
+    public int MaxCategoryConcurrent { get; } = MaxConcurrent;
 
     /// <summary>The valid range for connections per download (dynamic segmentation, 1–32).</summary>
     public const int MinConnections = 1;
@@ -111,5 +130,22 @@ public sealed partial class ConnectionsSettingsViewModel : ViewModelBase
             ? (long)Math.Round(SpeedLimitMegabytesPerSecond * BytesPerMegabyte)
             : 0;
         _ = _settings.UpdateAsync(s => s with { GlobalSpeedLimitBytesPerSecond = bytes });
+    }
+
+    private void PersistCategoryLimits()
+    {
+        if (_suppress)
+        {
+            return;
+        }
+
+        Dictionary<string, int> caps = CategoryLimits
+            .Where(item => item.Limit > 0)
+            .ToDictionary(item => item.Category, item => item.Limit, StringComparer.Ordinal);
+        string canonical = CategoryConcurrency.Format(caps);
+        _ = _settings.UpdateAsync(s => s with
+        {
+            CategoryConcurrencyLimits = canonical.Length == 0 ? null : canonical,
+        });
     }
 }

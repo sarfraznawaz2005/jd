@@ -44,12 +44,13 @@ public sealed class DownloadQueueServiceTests : IDisposable
         _repo = _provider.GetRequiredService<IDownloadRepository>();
     }
 
-    private async Task<long> EnqueueAsync(int priority) => await _repo.AddAsync(new Download
+    private async Task<long> EnqueueAsync(int priority, string? category = null) => await _repo.AddAsync(new Download
     {
         Url = "https://example.com/f.bin",
         Status = DownloadStatusCodes.Queued,
         CreatedAt = new DateTimeOffset(2026, 6, 28, 0, 0, priority % 60, TimeSpan.Zero),
         Priority = priority,
+        CategoryType = category,
     });
 
     private static ISettingsService SettingsWithMax(int max)
@@ -184,6 +185,48 @@ public sealed class DownloadQueueServiceTests : IDisposable
         await WaitUntilAsync(() => manager.StartOrder.Count == 5, TimeSpan.FromSeconds(5));
         manager.PeakConcurrency.Should().Be(2, "no more than the limit ever ran at once");
         manager.StartOrder.Should().BeEquivalentTo(ids, "every queued download eventually runs");
+    }
+
+    [Fact]
+    public async Task StartAsync_EnforcesPerCategoryCaps()
+    {
+        var manager = new GatedManager(_repo);
+        var settings = Substitute.For<ISettingsService>();
+        settings.Current.Returns(new AppSettings { MaxConcurrentDownloads = 5, CategoryConcurrencyLimits = "Video=1" });
+        using var queue = new DownloadQueueService(manager, _repo, settings, NullLogger<DownloadQueueService>.Instance);
+
+        var videoIds = new List<long>();
+        for (int i = 0; i < 3; i++)
+        {
+            videoIds.Add(await EnqueueAsync(priority: 0, category: "Video"));
+        }
+
+        var programIds = new List<long>();
+        for (int i = 0; i < 2; i++)
+        {
+            programIds.Add(await EnqueueAsync(priority: 0, category: "Program"));
+        }
+
+        await queue.StartAsync();
+
+        // Global max is 5, but Video is capped at 1 — so 1 video + 2 programs run; the other 2 videos wait.
+        await WaitUntilAsync(() => queue.RunningIds.Count == 3, TimeSpan.FromSeconds(3));
+        queue.RunningIds.Count(id => videoIds.Contains(id)).Should().Be(1, "Video is capped at 1 concurrent");
+        queue.RunningIds.Count(id => programIds.Contains(id)).Should().Be(2, "Program is uncapped");
+
+        // Releasing the running video lets the next video run — still one at a time.
+        long runningVideo = queue.RunningIds.First(id => videoIds.Contains(id));
+        manager.Release(runningVideo);
+        await WaitUntilAsync(
+            () => manager.StartOrder.Count(id => videoIds.Contains(id)) == 2, TimeSpan.FromSeconds(3));
+        queue.RunningIds.Count(id => videoIds.Contains(id)).Should().Be(1, "still only one Video runs at a time");
+
+        foreach (long id in videoIds.Concat(programIds))
+        {
+            manager.Release(id);
+        }
+
+        await WaitUntilAsync(() => manager.StartOrder.Count == 5, TimeSpan.FromSeconds(5));
     }
 
     [Fact]

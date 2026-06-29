@@ -17,7 +17,7 @@ namespace JustDownload.Core.Lifecycle;
 internal sealed partial class DownloadQueueService : IDownloadQueueService, IDisposable
 {
     private readonly object _gate = new();
-    private readonly Dictionary<long, CancellationTokenSource> _running = [];
+    private readonly Dictionary<long, RunSlot> _running = [];
     private readonly SemaphoreSlim _pumpLock = new(1, 1);
     private readonly IDownloadManager _manager;
     private readonly IDownloadRepository _repository;
@@ -64,16 +64,16 @@ internal sealed partial class DownloadQueueService : IDownloadQueueService, IDis
     {
         _enabled = false;
 
-        CancellationTokenSource[] running;
+        RunSlot[] running;
         lock (_gate)
         {
             running = _running.Values.ToArray();
         }
 
         // Cancelling each run's token makes the manager pause it (checkpoint preserved).
-        foreach (CancellationTokenSource cts in running)
+        foreach (RunSlot slot in running)
         {
-            cts.Cancel();
+            slot.Cts.Cancel();
         }
 
         return Task.CompletedTask;
@@ -129,6 +129,12 @@ internal sealed partial class DownloadQueueService : IDownloadQueueService, IDis
                 return;
             }
 
+            // Per-category caps (TASK-141): a category at its cap is skipped so a lower-priority download of a
+            // different (uncapped) category can take the free global slot instead of blocking the pump.
+            IReadOnlyDictionary<string, int> caps =
+                CategoryConcurrency.Parse(_settings.Current.CategoryConcurrencyLimits);
+            Dictionary<string, int> runningByCategory = SnapshotRunningByCategory();
+
             IReadOnlyList<Download> queued = await _repository
                 .GetByStatusOrderedByPriorityAsync(DownloadStatusCodes.Queued, cancellationToken)
                 .ConfigureAwait(false);
@@ -140,9 +146,17 @@ internal sealed partial class DownloadQueueService : IDownloadQueueService, IDis
                     break;
                 }
 
-                if (TryBeginRun(download.Id))
+                string category = download.CategoryType ?? string.Empty;
+                if (caps.TryGetValue(category, out int cap)
+                    && runningByCategory.GetValueOrDefault(category) >= cap)
+                {
+                    continue; // this category is full — try the next queued download
+                }
+
+                if (TryBeginRun(download.Id, category))
                 {
                     slots--;
+                    runningByCategory[category] = runningByCategory.GetValueOrDefault(category) + 1;
                 }
             }
         }
@@ -161,7 +175,21 @@ internal sealed partial class DownloadQueueService : IDownloadQueueService, IDis
         }
     }
 
-    private bool TryBeginRun(long id)
+    private Dictionary<string, int> SnapshotRunningByCategory()
+    {
+        var counts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        lock (_gate)
+        {
+            foreach (RunSlot slot in _running.Values)
+            {
+                counts[slot.Category] = counts.GetValueOrDefault(slot.Category) + 1;
+            }
+        }
+
+        return counts;
+    }
+
+    private bool TryBeginRun(long id, string category)
     {
         CancellationTokenSource cts;
         lock (_gate)
@@ -172,7 +200,7 @@ internal sealed partial class DownloadQueueService : IDownloadQueueService, IDis
             }
 
             cts = new CancellationTokenSource();
-            _running[id] = cts;
+            _running[id] = new RunSlot(cts, category);
         }
 
         _ = RunAsync(id, cts);
@@ -219,9 +247,9 @@ internal sealed partial class DownloadQueueService : IDownloadQueueService, IDis
 
         lock (_gate)
         {
-            foreach (CancellationTokenSource cts in _running.Values)
+            foreach (RunSlot slot in _running.Values)
             {
-                cts.Dispose();
+                slot.Cts.Dispose();
             }
 
             _running.Clear();
@@ -229,6 +257,8 @@ internal sealed partial class DownloadQueueService : IDownloadQueueService, IDis
 
         _pumpLock.Dispose();
     }
+
+    private readonly record struct RunSlot(CancellationTokenSource Cts, string Category);
 
     [LoggerMessage(EventId = 1, Level = LogLevel.Warning, Message = "Queued download {Id} failed to run.")]
     private static partial void LogRunFailed(ILogger logger, long id, Exception exception);
