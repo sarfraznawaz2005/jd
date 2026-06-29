@@ -255,6 +255,27 @@
       </StackPanel>
     </DataTemplate>
 
+    <!-- Advanced (TASK-127) -->
+    <DataTemplate DataType="vm:AdvancedSettingsViewModel">
+      <StackPanel Spacing="18">
+        <TextBlock Text="Advanced" Classes="SettingsHeading" />
+        <StackPanel Spacing="4">
+          <TextBlock Text="Logging level" Classes="StatKey" />
+          <TextBlock Text="How much detail the app logs. Debug is verbose for diagnostics; Warning is near-silent. Takes effect immediately."
+                     Classes="SettingsHint" />
+          <ComboBox ItemsSource="{Binding LogLevels}" SelectedItem="{Binding LogLevel, Mode=TwoWay}"
+                    Width="200" HorizontalAlignment="Left" />
+        </StackPanel>
+        <StackPanel Spacing="8">
+          <TextBlock Text="Privacy" Classes="StatKey" />
+          <TextBlock Text="Logs redact credentials, tokens, and signed-URL query strings."
+                     Classes="SettingsHint" TextWrapping="Wrap" />
+          <TextBlock Text="There is no telemetry and no phone-home; the only network traffic is your downloads and an opt-in update check."
+                     Classes="SettingsHint" TextWrapping="Wrap" />
+        </StackPanel>
+      </StackPanel>
+    </DataTemplate>
+
   </Window.DataTemplates>
 
   <Grid ColumnDefinitions="208,*" RowDefinitions="*,Auto">

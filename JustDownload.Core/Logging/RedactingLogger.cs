@@ -12,18 +12,23 @@ internal sealed class RedactingLogger : ILogger
 {
     private readonly ILogger _inner;
     private readonly ISecretRedactor _redactor;
+    private readonly ILogLevelSwitch _levelSwitch;
 
-    public RedactingLogger(ILogger inner, ISecretRedactor redactor)
+    public RedactingLogger(ILogger inner, ISecretRedactor redactor, ILogLevelSwitch levelSwitch)
     {
         _inner = inner;
         _redactor = redactor;
+        _levelSwitch = levelSwitch;
     }
 
     public IDisposable? BeginScope<TState>(TState state)
         where TState : notnull
         => _inner.BeginScope(state);
 
-    public bool IsEnabled(LogLevel logLevel) => _inner.IsEnabled(logLevel);
+    // The runtime level switch is the authority (TASK-127); the inner logger is configured wide-open so the
+    // switch can both raise and lower verbosity live.
+    public bool IsEnabled(LogLevel logLevel) =>
+        logLevel >= _levelSwitch.Minimum && _inner.IsEnabled(logLevel);
 
     public void Log<TState>(
         LogLevel logLevel,
@@ -33,6 +38,11 @@ internal sealed class RedactingLogger : ILogger
         Func<TState, Exception?, string> formatter)
     {
         ArgumentNullException.ThrowIfNull(formatter);
+
+        if (!IsEnabled(logLevel))
+        {
+            return; // honor the live switch even for direct Log() calls that skip the IsEnabled pre-check
+        }
 
         // Redact the final rendered message. We wrap the caller's formatter so the masking applies
         // to the fully-composed string (template + structured values) that the sink would print.

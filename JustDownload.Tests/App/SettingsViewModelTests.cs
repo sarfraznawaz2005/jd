@@ -401,6 +401,24 @@ public sealed class SettingsViewModelTests
     }
 
     [Fact]
+    public void Advanced_LogLevel_PersistsAndHydrates()
+    {
+        ISettingsService settings = Settings();
+        var vm = new AdvancedSettingsViewModel(settings);
+
+        vm.LogLevel.Should().Be(Microsoft.Extensions.Logging.LogLevel.Information, "default");
+        vm.LogLevels.Should().Contain(Microsoft.Extensions.Logging.LogLevel.Debug);
+
+        vm.LogLevel = Microsoft.Extensions.Logging.LogLevel.Warning;
+        Persisted(settings, new AppSettings()).MinimumLogLevel
+            .Should().Be(Microsoft.Extensions.Logging.LogLevel.Warning);
+
+        var hydrated = new AdvancedSettingsViewModel(
+            Settings(new AppSettings { MinimumLogLevel = Microsoft.Extensions.Logging.LogLevel.Error }));
+        hydrated.LogLevel.Should().Be(Microsoft.Extensions.Logging.LogLevel.Error);
+    }
+
+    [Fact]
     public void HydrationDoesNotWriteBack()
     {
         ISettingsService settings = Settings(new AppSettings { ConnectionsPerDownload = 8 });

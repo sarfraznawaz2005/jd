@@ -40,6 +40,7 @@ public partial class App : Application
             .AddSingleton<ClipboardMonitor>()
             .AddSingleton<IAutostartService>(_ => new WindowsAutostartService())
             .AddSingleton<AutostartController>()
+            .AddSingleton<LogLevelController>()
             .AddSingleton<StatusSummaryViewModel>()
             .AddSingleton<DownloadsListViewModel>()
             .AddSingleton<DownloadDetailViewModel>()
@@ -302,6 +303,7 @@ public partial class App : Application
         _ = Services.GetRequiredService<GlobalProxyController>().ApplyCurrentAsync();
         Services.GetRequiredService<ClipboardMonitor>().ApplyEnabled();
         Services.GetRequiredService<AutostartController>().ApplyCurrent();
+        Services.GetRequiredService<LogLevelController>().ApplyCurrent();
     }
 
     /// <summary>

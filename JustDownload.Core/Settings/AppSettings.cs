@@ -1,4 +1,5 @@
 using JustDownload.Core.Transport.Proxy;
+using Microsoft.Extensions.Logging;
 
 namespace JustDownload.Core.Settings;
 
@@ -124,4 +125,10 @@ public sealed record AppSettings
     /// on demand when the proxy is applied (TASK-125). <see langword="null"/> when the proxy has no password.
     /// </summary>
     public string? ProxyPasswordSecretRef { get; init; }
+
+    /// <summary>
+    /// The minimum log level the app emits (TASK-127, Advanced settings). Applied live through the logging
+    /// switch and persisted across restarts. Default <see cref="LogLevel.Information"/>.
+    /// </summary>
+    public LogLevel MinimumLogLevel { get; init; } = LogLevel.Information;
 }

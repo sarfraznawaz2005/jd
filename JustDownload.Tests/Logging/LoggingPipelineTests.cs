@@ -72,6 +72,32 @@ public class LoggingPipelineTests
     }
 
     [Fact]
+    public void Pipeline_LevelSwitch_ChangesVerbosityLive_BothWays()
+    {
+        (ServiceProvider provider, CapturingLoggerProvider sink) = BuildPipeline(); // default Information
+        using (provider)
+        {
+            ILogger logger = provider.GetRequiredService<ILogger<LoggingPipelineTests>>();
+            var levelSwitch = provider.GetRequiredService<ILogLevelSwitch>();
+
+            logger.IsEnabled(LogLevel.Debug).Should().BeFalse("Debug is below the default Information");
+
+            // Lower the threshold at runtime — Debug now flows (proves the switch, not a fixed startup filter).
+            levelSwitch.Minimum = LogLevel.Debug;
+            logger.IsEnabled(LogLevel.Debug).Should().BeTrue();
+            logger.LogDebug("now visible");
+
+            // Raise it — Information is suppressed again.
+            levelSwitch.Minimum = LogLevel.Warning;
+            logger.IsEnabled(LogLevel.Information).Should().BeFalse();
+            logger.LogInformation("now hidden");
+            logger.LogWarning("kept");
+
+            sink.Entries.Select(e => e.Message).Should().BeEquivalentTo(["now visible", "kept"]);
+        }
+    }
+
+    [Fact]
     public void Pipeline_MinimumLevel_IsConfigurable()
     {
         (ServiceProvider provider, CapturingLoggerProvider sink) =

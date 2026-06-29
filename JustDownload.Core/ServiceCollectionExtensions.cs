@@ -114,9 +114,11 @@ public static class ServiceCollectionExtensions
 
         services.TryAddSingleton<ISecretRedactor, SecretRedactor>();
 
-        // Build the standard logging infrastructure (filter options, provider plumbing) and apply
-        // the configurable minimum level.
-        services.AddLogging(builder => builder.SetMinimumLevel(options.MinimumLevel));
+        // A runtime-mutable minimum-level authority (TASK-127), seeded from the configured level. The inner
+        // logger is left wide-open (Trace) so the switch — consulted by every RedactingLogger — can raise or
+        // lower verbosity live from settings without rebuilding the factory.
+        services.TryAddSingleton<ILogLevelSwitch>(new LogLevelSwitch(options.MinimumLevel));
+        services.AddLogging(builder => builder.SetMinimumLevel(LogLevel.Trace));
 
         // Decorate ILoggerFactory so every logger redacts secrets before reaching any provider.
         // Registered last so it wins resolution; Logger<T> (the ILogger<> implementation) then
@@ -128,7 +130,8 @@ public static class ServiceCollectionExtensions
                 sp.GetServices<ILoggerProvider>(),
                 sp.GetRequiredService<IOptionsMonitor<LoggerFilterOptions>>());
 
-            return new RedactingLoggerFactory(inner, sp.GetRequiredService<ISecretRedactor>());
+            return new RedactingLoggerFactory(
+                inner, sp.GetRequiredService<ISecretRedactor>(), sp.GetRequiredService<ILogLevelSwitch>());
         });
 
         services.TryAddSingleton<IGlobalErrorHandler, GlobalErrorHandler>();

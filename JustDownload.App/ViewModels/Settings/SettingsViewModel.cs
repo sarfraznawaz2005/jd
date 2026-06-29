@@ -81,11 +81,8 @@ public sealed partial class SettingsViewModel : ViewModelBase
         Sections.Add(new SettingsSectionViewModel("Categories", "IconSetCategories", new CategoriesSettingsViewModel(_settings, _folderRules)));
         Sections.Add(new SettingsSectionViewModel(
             "Browsers", "IconSetBrowsers", new BrowsersViewModel(_nativeHostInstaller, _portable)));
-        Sections.Add(new SettingsSectionViewModel("Advanced", "IconSetAdvanced", new InfoSettingsViewModel(
-            "Advanced",
-            "Logs redact credentials, tokens, and signed-URL query strings.",
-            "There is no telemetry and no phone-home; the only network traffic is your downloads and an opt-in "
-            + "update check.")));
+        Sections.Add(new SettingsSectionViewModel(
+            "Advanced", "IconSetAdvanced", new AdvancedSettingsViewModel(_settings)));
     }
 
     /// <summary>
