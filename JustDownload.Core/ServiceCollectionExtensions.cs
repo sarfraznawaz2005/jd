@@ -165,6 +165,7 @@ public static class ServiceCollectionExtensions
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IMigration, AddDownloadRetryCountMigration>());
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IMigration, AddDownloadProxyOverrideMigration>());
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IMigration, AddDownloadMediaKindMigration>());
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IMigration, AddDownloadMediaStreamsMigration>());
         services.TryAddSingleton<IMigrationRunner, MigrationRunner>();
 
         // Repositories (TASK-020) — the centralized data-access seam. Stateless over the shared

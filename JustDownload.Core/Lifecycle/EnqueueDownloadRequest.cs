@@ -1,4 +1,5 @@
 using JustDownload.Core.Media.Extraction;
+using JustDownload.Core.Settings;
 using JustDownload.Core.Transport.Proxy;
 
 namespace JustDownload.Core.Lifecycle;
@@ -56,4 +57,13 @@ public sealed record EnqueueDownloadRequest
     /// media playlist/variant URL.
     /// </summary>
     public MediaKind? MediaKind { get; init; }
+
+    /// <summary>
+    /// The audio stream URL for a separate-streams/DASH media download (TASK-154); <see cref="Url"/> is the
+    /// video stream. <see langword="null"/> for HLS/progressive.
+    /// </summary>
+    public Uri? MediaAudioUrl { get; init; }
+
+    /// <summary>The preferred output container for a muxed media download (TASK-154); <see langword="null"/> = muxer default.</summary>
+    public MediaContainer? MediaContainer { get; init; }
 }

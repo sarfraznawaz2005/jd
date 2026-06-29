@@ -204,6 +204,77 @@ public sealed class DownloadManagerTests : IDisposable
     }
 
     [Fact]
+    public async Task MediaDownload_SeparateStreams_DownloadsBothAndMuxes_ToFfprobeValidOutput()
+    {
+        // AC[0]: a separate video+audio variant downloads end-to-end and muxes into one ffprobe-valid file.
+        var ffmpeg = _provider.GetRequiredService<JustDownload.Core.Media.IFfmpegLocator>();
+        if (await ffmpeg.LocateAsync() is null)
+        {
+            return; // ffmpeg/ffprobe not installed on this host.
+        }
+
+        string videoFixture = Path.Combine(AppContext.BaseDirectory, "Fixtures", "sample.ts");
+        if (!File.Exists(videoFixture))
+        {
+            return;
+        }
+
+        // Generate a short AAC audio track to pair with the H.264 .ts video fixture.
+        string audioFile = Path.Combine(_tempDir, "tone.m4a");
+        var gen = await _provider.GetRequiredService<JustDownload.Core.Media.IFfmpegRunner>().RunAsync(
+            ["-y", "-f", "lavfi", "-i", "sine=frequency=440:duration=1", "-c:a", "aac", audioFile]);
+        if (!gen.Succeeded)
+        {
+            return;
+        }
+
+        await using var videoServer = new LoopbackHttpServer { Body = await File.ReadAllBytesAsync(videoFixture), SupportRanges = true };
+        await using var audioServer = new LoopbackHttpServer { Body = await File.ReadAllBytesAsync(audioFile), SupportRanges = true };
+
+        long id = await Manager.EnqueueAsync(new EnqueueDownloadRequest
+        {
+            Url = videoServer.Url("v.ts"),
+            MediaAudioUrl = audioServer.Url("a.m4a"),
+            MediaKind = JustDownload.Core.Media.Extraction.MediaKind.SeparateStreams,
+            MediaContainer = JustDownload.Core.Settings.MediaContainer.Mkv,
+            DestinationDirectory = _tempDir,
+            FileName = "muxed.mkv",
+        });
+
+        await Manager.StartAsync(id);
+
+        string output = Path.Combine(_tempDir, "muxed.mkv");
+        File.Exists(output).Should().BeTrue();
+        (await Repository.GetAsync(id))!.Status.Should().Be(DownloadStatusCodes.Completed);
+
+        string streams = await ProbeCodecsAsync(output);
+        streams.Should().Contain("video", "the muxed file has the video stream");
+        streams.Should().Contain("audio", "the muxed file has the audio stream");
+    }
+
+    private static async Task<string> ProbeCodecsAsync(string path)
+    {
+        var psi = new System.Diagnostics.ProcessStartInfo("ffprobe")
+        {
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+        };
+        psi.ArgumentList.Add("-v");
+        psi.ArgumentList.Add("error");
+        psi.ArgumentList.Add("-show_entries");
+        psi.ArgumentList.Add("stream=codec_type");
+        psi.ArgumentList.Add("-of");
+        psi.ArgumentList.Add("csv=p=0");
+        psi.ArgumentList.Add(path);
+
+        using var process = System.Diagnostics.Process.Start(psi)!;
+        string output = await process.StandardOutput.ReadToEndAsync();
+        await process.WaitForExitAsync();
+        return output;
+    }
+
+    [Fact]
     public async Task PerDownloadProxyOverride_IsUsedForThePreflightProbe_NotJustTheTransfer()
     {
         // The global proxy is dead; only the per-download override can reach the origin. If the validator

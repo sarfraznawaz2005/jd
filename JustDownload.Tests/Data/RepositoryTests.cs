@@ -134,11 +134,22 @@ public sealed class RepositoryTests : IDisposable
     {
         var repo = _provider.GetRequiredService<IDownloadRepository>();
 
-        long id = await repo.AddAsync(SampleDownload() with { MediaKind = 1 }); // Hls
-        (await repo.GetAsync(id))!.MediaKind.Should().Be(1);
+        long id = await repo.AddAsync(SampleDownload() with
+        {
+            MediaKind = 3, // SeparateStreams
+            MediaAudioUrl = "https://x.example/audio.m4a",
+            MediaContainer = 1, // Mp4
+        });
+        Download? read = await repo.GetAsync(id);
+        read!.MediaKind.Should().Be(3);
+        read.MediaAudioUrl.Should().Be("https://x.example/audio.m4a");
+        read.MediaContainer.Should().Be(1);
 
         long plain = await repo.AddAsync(SampleDownload());
-        (await repo.GetAsync(plain))!.MediaKind.Should().BeNull("a plain download has no media kind");
+        Download? plainRead = await repo.GetAsync(plain);
+        plainRead!.MediaKind.Should().BeNull("a plain download has no media kind");
+        plainRead.MediaAudioUrl.Should().BeNull();
+        plainRead.MediaContainer.Should().BeNull();
     }
 
     [Fact]

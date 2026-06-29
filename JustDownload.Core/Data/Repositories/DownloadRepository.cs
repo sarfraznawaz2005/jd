@@ -16,7 +16,7 @@ internal sealed class DownloadRepository : IDownloadRepository
         "etag, last_modified, created_at, completed_at, error, max_connections, speed_limit, priority, " +
         "cookie_secret_ref, retry_count, " +
         "proxy_kind, proxy_host, proxy_port, proxy_username, proxy_domain, proxy_password_secret_ref, " +
-        "media_kind";
+        "media_kind, media_audio_url, media_container";
 
     private readonly IDbConnectionFactory _connectionFactory;
 
@@ -40,13 +40,13 @@ internal sealed class DownloadRepository : IDownloadRepository
                  etag, last_modified, created_at, completed_at, error, max_connections, speed_limit, priority,
                  cookie_secret_ref, retry_count,
                  proxy_kind, proxy_host, proxy_port, proxy_username, proxy_domain, proxy_password_secret_ref,
-                 media_kind)
+                 media_kind, media_audio_url, media_container)
             VALUES
                 ($url, $referrer, $filename, $dir, $total_bytes, $status, $category_type, $category_status,
                  $etag, $last_modified, $created_at, $completed_at, $error, $max_connections, $speed_limit,
                  $priority, $cookie_secret_ref, $retry_count,
                  $proxy_kind, $proxy_host, $proxy_port, $proxy_username, $proxy_domain, $proxy_password_secret_ref,
-                 $media_kind);
+                 $media_kind, $media_audio_url, $media_container);
             SELECT last_insert_rowid();
             """;
         BindWritableColumns(command, download);
@@ -110,7 +110,7 @@ internal sealed class DownloadRepository : IDownloadRepository
                 proxy_kind = $proxy_kind, proxy_host = $proxy_host, proxy_port = $proxy_port,
                 proxy_username = $proxy_username, proxy_domain = $proxy_domain,
                 proxy_password_secret_ref = $proxy_password_secret_ref,
-                media_kind = $media_kind
+                media_kind = $media_kind, media_audio_url = $media_audio_url, media_container = $media_container
             WHERE id = $id;
             """;
         BindWritableColumns(command, download);
@@ -161,6 +161,8 @@ internal sealed class DownloadRepository : IDownloadRepository
         command.Parameters.AddWithValue(
             "$proxy_password_secret_ref", (object?)download.ProxyPasswordSecretRef ?? DBNull.Value);
         command.Parameters.AddWithValue("$media_kind", (object?)download.MediaKind ?? DBNull.Value);
+        command.Parameters.AddWithValue("$media_audio_url", (object?)download.MediaAudioUrl ?? DBNull.Value);
+        command.Parameters.AddWithValue("$media_container", (object?)download.MediaContainer ?? DBNull.Value);
     }
 
     private static Download Map(SqliteDataReader reader) => new()
@@ -191,6 +193,8 @@ internal sealed class DownloadRepository : IDownloadRepository
         ProxyDomain = reader.GetNullableString(23),
         ProxyPasswordSecretRef = reader.GetNullableString(24),
         MediaKind = reader.GetNullableInt32(25),
+        MediaAudioUrl = reader.GetNullableString(26),
+        MediaContainer = reader.GetNullableInt32(27),
     };
 
     public async Task<IReadOnlyList<Download>> GetByStatusOrderedByPriorityAsync(

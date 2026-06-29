@@ -114,4 +114,16 @@ public sealed record Download
     /// (segments &#8594; concat). The download <see cref="Url"/> is the chosen media playlist/variant URL.
     /// </summary>
     public int? MediaKind { get; init; }
+
+    /// <summary>
+    /// The audio stream URL for a separate-streams/DASH media download (TASK-154); the video stream is
+    /// <see cref="Url"/>. <see langword="null"/> for plain, HLS, or progressive downloads.
+    /// </summary>
+    public string? MediaAudioUrl { get; init; }
+
+    /// <summary>
+    /// The preferred output container for a muxed media download (TASK-154), as the integer value of
+    /// <c>JustDownload.Core.Settings.MediaContainer</c>. <see langword="null"/> uses the muxer default (MKV).
+    /// </summary>
+    public int? MediaContainer { get; init; }
 }

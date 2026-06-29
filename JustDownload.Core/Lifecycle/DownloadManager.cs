@@ -7,6 +7,7 @@ using JustDownload.Core.Logging;
 using JustDownload.Core.Media;
 using JustDownload.Core.Media.Extraction;
 using JustDownload.Core.Security;
+using JustDownload.Core.Settings;
 using JustDownload.Core.Transport;
 using JustDownload.Core.Transport.Auth;
 using JustDownload.Core.Transport.Proxy;
@@ -132,6 +133,8 @@ internal sealed partial class DownloadManager : IDownloadManager
             ProxyDomain = proxy.Domain,
             ProxyPasswordSecretRef = proxy.PasswordSecretRef,
             MediaKind = request.MediaKind is { } kind ? (int)kind : null,
+            MediaAudioUrl = request.MediaAudioUrl?.ToString(),
+            MediaContainer = request.MediaContainer is { } container ? (int)container : null,
         };
 
         long id = await _repository.AddAsync(record, cancellationToken).ConfigureAwait(false);
@@ -538,9 +541,9 @@ internal sealed partial class DownloadManager : IDownloadManager
             {
                 Status = DownloadStatus.Active,
                 DownloadedBytes = p.DownloadedBytes,
-                TotalBytes = null, // HLS segment sizes aren't known up front
+                TotalBytes = null, // media segment/stream sizes aren't known up front
                 BytesPerSecond = 0,
-                Fraction = p.Fraction,
+                Fraction = p.Fraction > 0 ? p.Fraction : null, // 0 = indeterminate (e.g. separate streams)
                 Resumable = false,
                 Connections = 1,
             };
@@ -558,6 +561,8 @@ internal sealed partial class DownloadManager : IDownloadManager
                     {
                         Kind = kind,
                         MediaUrl = new Uri(active.Url),
+                        AudioUrl = string.IsNullOrEmpty(active.MediaAudioUrl) ? null : new Uri(active.MediaAudioUrl),
+                        Container = active.MediaContainer is { } c ? (MediaContainer)c : MediaContainer.Mkv,
                         OutputPath = outputPath,
                         WorkingDirectory = workingDirectory,
                         Headers = headers,

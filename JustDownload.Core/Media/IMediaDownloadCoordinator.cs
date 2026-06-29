@@ -1,4 +1,5 @@
 using JustDownload.Core.Media.Extraction;
+using JustDownload.Core.Settings;
 
 namespace JustDownload.Core.Media;
 
@@ -8,8 +9,14 @@ public sealed record MediaDownloadRequest
     /// <summary>The media path: currently <see cref="MediaKind.Hls"/> (others land in later increments).</summary>
     public required MediaKind Kind { get; init; }
 
-    /// <summary>The media playlist/variant URL to download.</summary>
+    /// <summary>The media playlist/variant URL to download (the video stream for separate-streams).</summary>
     public required Uri MediaUrl { get; init; }
+
+    /// <summary>The audio stream URL for a separate-streams download, or <see langword="null"/> (HLS).</summary>
+    public Uri? AudioUrl { get; init; }
+
+    /// <summary>The preferred output container when muxing separate streams. Default <see cref="MediaContainer.Mkv"/>.</summary>
+    public MediaContainer Container { get; init; } = MediaContainer.Mkv;
 
     /// <summary>The final output file path.</summary>
     public required string OutputPath { get; init; }
