@@ -70,6 +70,16 @@
           <TextBlock Text="The tray icon keeps JustDownload running; choose Quit from its menu to exit."
                      Classes="SettingsHint" />
         </StackPanel>
+        <StackPanel Spacing="6">
+          <TextBlock Text="Clipboard" Classes="StatKey" />
+          <StackPanel Orientation="Horizontal" Spacing="12">
+            <ToggleSwitch IsChecked="{Binding MonitorClipboard, Mode=TwoWay}" />
+            <TextBlock Text="Offer to download links copied to the clipboard" VerticalAlignment="Center"
+                       Foreground="{DynamicResource TextBrush}" />
+          </StackPanel>
+          <TextBlock Text="When on, copying a http(s)/ftp(s) link opens the New URL dialog prefilled."
+                     Classes="SettingsHint" />
+        </StackPanel>
       </StackPanel>
     </DataTemplate>
 

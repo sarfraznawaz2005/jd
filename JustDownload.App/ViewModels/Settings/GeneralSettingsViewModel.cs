@@ -39,6 +39,9 @@ public sealed partial class GeneralSettingsViewModel : ViewModelBase
     [ObservableProperty]
     private bool _closeToTray;
 
+    [ObservableProperty]
+    private bool _monitorClipboard;
+
     public GeneralSettingsViewModel(ISettingsService settings, IThemeService theme)
     {
         ArgumentNullException.ThrowIfNull(settings);
@@ -55,6 +58,7 @@ public sealed partial class GeneralSettingsViewModel : ViewModelBase
         _defaultDownloadFolder = current.DefaultDownloadDirectory ?? string.Empty;
         _startMinimizedToTray = current.StartMinimizedToTray;
         _closeToTray = current.CloseToTray;
+        _monitorClipboard = current.MonitorClipboard;
         _suppress = false;
     }
 
@@ -157,6 +161,14 @@ public sealed partial class GeneralSettingsViewModel : ViewModelBase
         if (!_suppress)
         {
             _ = _settings.UpdateAsync(s => s with { CloseToTray = value });
+        }
+    }
+
+    partial void OnMonitorClipboardChanged(bool value)
+    {
+        if (!_suppress)
+        {
+            _ = _settings.UpdateAsync(s => s with { MonitorClipboard = value });
         }
     }
 }

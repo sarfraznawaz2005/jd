@@ -131,4 +131,17 @@ public sealed class SettingsSerializerOrganizeTests
         restored.ProxyHost.Should().BeNull();
         restored.ProxyPasswordSecretRef.Should().BeNull();
     }
+
+    [Fact]
+    public void RoundTrips_MonitorClipboard_AndDefaultsOff()
+    {
+        IReadOnlyDictionary<string, string> stored =
+            SettingsSerializer.ToStorage(new AppSettings { MonitorClipboard = true });
+        SettingsSerializer.FromStorage(
+            stored.ToDictionary(kv => kv.Key, kv => (string?)kv.Value), NullLogger.Instance)
+            .MonitorClipboard.Should().BeTrue();
+
+        SettingsSerializer.FromStorage(new Dictionary<string, string?>(), NullLogger.Instance)
+            .MonitorClipboard.Should().BeFalse();
+    }
 }

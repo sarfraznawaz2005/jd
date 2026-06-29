@@ -18,6 +18,9 @@ public sealed class ClipboardService : IClipboardService
     }
 
     /// <inheritdoc />
+    public string? LastCopiedText { get; private set; }
+
+    /// <inheritdoc />
     public async Task CopyAsync(string? text)
     {
         if (string.IsNullOrEmpty(text))
@@ -29,6 +32,14 @@ public sealed class ClipboardService : IClipboardService
         if (clipboard is not null)
         {
             await clipboard.SetTextAsync(text).ConfigureAwait(false);
+            LastCopiedText = text;
         }
+    }
+
+    /// <inheritdoc />
+    public async Task<string?> GetTextAsync()
+    {
+        IClipboard? clipboard = _clipboardProvider();
+        return clipboard is null ? null : await clipboard.TryGetTextAsync().ConfigureAwait(false);
     }
 }

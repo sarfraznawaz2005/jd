@@ -75,6 +75,12 @@ public sealed record AppSettings
     /// </summary>
     public bool CloseToTray { get; init; }
 
+    /// <summary>
+    /// Whether the app watches the clipboard and offers to download a copied supported URL (TASK-133).
+    /// Opt-in — default <see langword="false"/>.
+    /// </summary>
+    public bool MonitorClipboard { get; init; }
+
     /// <summary>The global proxy kind applied to downloads (TASK-125). Default <see cref="ProxyKind.None"/>.</summary>
     public ProxyKind ProxyKind { get; init; } = ProxyKind.None;
 

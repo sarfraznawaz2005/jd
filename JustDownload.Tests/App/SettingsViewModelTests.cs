@@ -110,6 +110,21 @@ public sealed class SettingsViewModelTests
     }
 
     [Fact]
+    public void General_MonitorClipboard_PersistsAndHydrates()
+    {
+        ISettingsService settings = Settings();
+        var vm = new GeneralSettingsViewModel(settings, Substitute.For<IThemeService>());
+
+        vm.MonitorClipboard.Should().BeFalse("off by default");
+        vm.MonitorClipboard = true;
+        Persisted(settings, new AppSettings()).MonitorClipboard.Should().BeTrue();
+
+        var hydrated = new GeneralSettingsViewModel(
+            Settings(new AppSettings { MonitorClipboard = true }), Substitute.For<IThemeService>());
+        hydrated.MonitorClipboard.Should().BeTrue();
+    }
+
+    [Fact]
     public void General_DefaultDownloadFolderPersists_AndEmptyClearsToNull()
     {
         ISettingsService settings = Settings();

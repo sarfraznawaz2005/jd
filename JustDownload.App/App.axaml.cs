@@ -36,6 +36,7 @@ public partial class App : Application
             .AddSingleton<IFileRevealer, FileRevealer>()
             .AddSingleton<IDownloadFolderProvider, DownloadFolderProvider>()
             .AddSingleton<IClipboardService>(_ => new ClipboardService(GetActiveClipboard))
+            .AddSingleton<ClipboardMonitor>()
             .AddSingleton<StatusSummaryViewModel>()
             .AddSingleton<DownloadsListViewModel>()
             .AddSingleton<DownloadDetailViewModel>()
@@ -92,6 +93,10 @@ public partial class App : Application
             // A browser-extension hand-off (TASK-091) opens the dialog prefilled and carries the captured
             // referrer/cookies into the download so authenticated/signed links succeed.
             mainViewModel.DownloadHandoffRequested += (_, handoff) => _ = ShowNewDownloadDialogAsync(window, handoff);
+
+            // Opt-in clipboard watcher (TASK-133): a copied supported URL opens the dialog prefilled.
+            ClipboardMonitor clipboardMonitor = Services.GetRequiredService<ClipboardMonitor>();
+            clipboardMonitor.UrlDetected += (_, url) => mainViewModel.RequestDownloadForUrl(url);
 
             WireCloseToTray(desktop, window);
 
@@ -291,6 +296,7 @@ public partial class App : Application
             .SetMode(current.Theme == AppTheme.Dark ? ThemeMode.Dark : ThemeMode.Light);
         Services.GetRequiredService<GlobalSpeedLimitController>().ApplyCurrent();
         _ = Services.GetRequiredService<GlobalProxyController>().ApplyCurrentAsync();
+        Services.GetRequiredService<ClipboardMonitor>().ApplyEnabled();
     }
 
     /// <summary>
