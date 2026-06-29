@@ -74,6 +74,14 @@ public sealed partial class NewDownloadViewModel : ViewModelBase
     [ObservableProperty]
     private string? _detectionMessage;
 
+    /// <summary>
+    /// A prominent warning shown when a pre-queue HEAD probe found the link itself is bad — a 404/410/403 or an
+    /// expired signed URL (TASK-142) — so the user catches a broken link before queuing. <see langword="null"/>
+    /// when the link is fine or only a transient/network issue occurred (that uses <see cref="DetectionMessage"/>).
+    /// </summary>
+    [ObservableProperty]
+    private string? _urlWarning;
+
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(CanSubmit))]
     [NotifyPropertyChangedFor(nameof(ProxyOverrideError))]
@@ -214,6 +222,7 @@ public sealed partial class NewDownloadViewModel : ViewModelBase
 
         IsDetecting = true;
         DetectionMessage = null;
+        UrlWarning = null;
         try
         {
             ResourceProbeResult result = await _probe.ProbeAsync(uri, headers: null, cts.Token).ConfigureAwait(true);
@@ -229,10 +238,17 @@ public sealed partial class NewDownloadViewModel : ViewModelBase
         {
             // Superseded by a newer detection — ignore.
         }
+        catch (ResourceProbeException ex) when (ex.StatusCode > 0)
+        {
+            // The server answered, but the resource is bad (404/410/403/expiry): warn clearly before the user
+            // queues a download that can't succeed (TASK-142).
+            LogDetectFailed(_logger, uri, ex);
+            UrlWarning = DescribeProbeFailure(ex.StatusCode);
+        }
         catch (Exception ex)
         {
-            // Any probe failure (timeout, transport, parse, …) surfaces the same guidance rather than
-            // escaping as an unobserved exception and silently resetting the form (no silent failures, §1).
+            // A transient/transport failure (timeout, DNS, parse, …): can't auto-read, but the link might still
+            // be fine, so this is guidance rather than a hard warning (no silent failures, §1).
             LogDetectFailed(_logger, uri, ex);
             DetectionMessage = "Couldn't read this link automatically — check the URL or enter the details manually.";
         }
@@ -350,6 +366,18 @@ public sealed partial class NewDownloadViewModel : ViewModelBase
 
     /// <summary>Whether the current URL is a well-formed http(s) URL worth auto-detecting (the view triggers it).</summary>
     public bool CanDetect => TryGetValidUri(Url, out _);
+
+    /// <summary>Maps a probe failure status to a clear, human-readable warning (TASK-142).</summary>
+    private static string DescribeProbeFailure(int statusCode) => statusCode switch
+    {
+        404 or 410 => $"This link looks broken — the server returned {statusCode} (not found). Check the URL before downloading.",
+        401 or 403 => $"This link needs authorization — the server returned {statusCode}. It may be expired or require sign-in.",
+        >= 500 => $"The server is having trouble — it returned {statusCode}. The download may fail; try again later.",
+        _ => $"This link may not be downloadable — the server returned {statusCode}.",
+    };
+
+    // Editing the URL invalidates the previous probe's verdict until the next detect runs.
+    partial void OnUrlChanged(string value) => UrlWarning = null;
 
     partial void OnFileNameChanged(string value) => _fileNameTouched = true;
 

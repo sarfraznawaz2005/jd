@@ -92,8 +92,10 @@ public sealed class NewDownloadViewModelTests
     }
 
     [Fact]
-    public async Task DetectAsync_ProbeFailure_SurfacesMessage_AndDoesNotThrow()
+    public async Task DetectAsync_BadResource_WarnsBeforeQueuing_AndDoesNotThrow()
     {
+        // A server error status (404) means the link itself is bad — TASK-142 surfaces a prominent pre-queue
+        // warning (UrlWarning), distinct from the soft "couldn't read" guidance used for transient failures.
         var h = new Harness();
         h.Probe.ProbeAsync(Arg.Any<Uri>(), Arg.Any<IReadOnlyList<KeyValuePair<string, string>>?>(), Arg.Any<CancellationToken>())
             .Returns<Task<ResourceProbeResult>>(_ => throw new ResourceProbeException(new Uri("https://host.example/missing.bin"), 404));
@@ -102,8 +104,40 @@ public sealed class NewDownloadViewModelTests
 
         await vm.DetectAsync();
 
-        vm.DetectionMessage.Should().Contain("Couldn't read");
+        vm.UrlWarning.Should().NotBeNull();
+        vm.UrlWarning.Should().Contain("404");
+        vm.DetectionMessage.Should().BeNull("a bad resource warns, it isn't a soft couldn't-read hint");
         vm.IsDetecting.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task DetectAsync_BadResource_ThenEditingUrl_ClearsTheWarning()
+    {
+        var h = new Harness();
+        h.Probe.ProbeAsync(Arg.Any<Uri>(), Arg.Any<IReadOnlyList<KeyValuePair<string, string>>?>(), Arg.Any<CancellationToken>())
+            .Returns<Task<ResourceProbeResult>>(_ => throw new ResourceProbeException(new Uri("https://host.example/missing.bin"), 410));
+        var vm = h.Build();
+        vm.Url = "https://host.example/missing.bin";
+        await vm.DetectAsync();
+        vm.UrlWarning.Should().NotBeNull();
+
+        vm.Url = "https://host.example/other.bin"; // editing invalidates the previous verdict
+
+        vm.UrlWarning.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task DetectAsync_GoodResource_LeavesNoWarning()
+    {
+        var h = new Harness();
+        h.SetProbe("file.bin", 1234, ranges: true);
+        var vm = h.Build();
+        vm.Url = "https://host.example/file.bin";
+
+        await vm.DetectAsync();
+
+        vm.UrlWarning.Should().BeNull();
+        vm.DetectionMessage.Should().NotBeNull();
     }
 
     [Fact]

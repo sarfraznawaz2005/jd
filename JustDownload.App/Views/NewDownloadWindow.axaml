@@ -26,6 +26,11 @@
                Watermark="https://example.com/file.zip" />
       <TextBlock Text="{Binding UrlError}" IsVisible="{Binding UrlError, Converter={x:Static ObjectConverters.IsNotNull}}"
                  FontSize="11" Foreground="{DynamicResource RedBrush}" />
+      <Border IsVisible="{Binding UrlWarning, Converter={x:Static ObjectConverters.IsNotNull}}"
+              BorderBrush="{DynamicResource RedBrush}" BorderThickness="1" CornerRadius="4" Padding="8,6">
+        <TextBlock Text="{Binding UrlWarning}" TextWrapping="Wrap" FontSize="11.5"
+                   Foreground="{DynamicResource RedBrush}" />
+      </Border>
     </StackPanel>
 
     <!-- File name + Category -->
