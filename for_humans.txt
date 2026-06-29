@@ -8,6 +8,7 @@ AI Agents must ignore contents of this file:
 - extensino window issues (on refresh page app works not on normal navigation on youtube checked)
 - size, Added, etc. should be updated (everywhere where applicable) as soon as download is completed in realtime
 - UI/UX
+- make sure there is no ui-blocking or app hanging stuff we need to fix, identify if we need to fix any areas
 - check settings, all work
 - what happens if download url already exists in listing and user initiates new download assuming status is stopped vs paused vs completed, etc.
 - check for updates
@@ -16,7 +17,6 @@ AI Agents must ignore contents of this file:
 - dev name (extensions, etc.), app branding, etc.
 - check app readiness (including browser extensions) for real distribution to users and tell me if it will work for them as is or we need to fix anything before that.
 
-small N+1 batching tasks (TASK-105/106/107)
 
 
 ==================================================================

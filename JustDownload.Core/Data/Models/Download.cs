@@ -73,4 +73,11 @@ public sealed record Download
     /// header so authenticated/signed media downloads succeed.
     /// </summary>
     public string? CookieSecretRef { get; init; }
+
+    /// <summary>
+    /// How many times the engine has auto-retried a transient failure for this download (TASK-131).
+    /// Persisted so the count survives restarts and is visible to the UI; <c>0</c> for a download that
+    /// has never been retried.
+    /// </summary>
+    public int RetryCount { get; init; }
 }

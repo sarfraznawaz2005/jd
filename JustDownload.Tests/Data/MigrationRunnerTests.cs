@@ -59,10 +59,12 @@ public sealed class MigrationRunnerTests : IDisposable
 
         int version = runner.Migrate();
 
-        version.Should().Be(3, "the migration head is version 3 after TASK-091");
+        version.Should().Be(4, "the migration head is version 4 after TASK-131");
         GetTableNames(factory).Should().Contain(ExpectedTables);
         GetColumnNames(factory, "downloads").Should().Contain("cookie_secret_ref",
             "the v3 migration adds the keychain cookie reference column");
+        GetColumnNames(factory, "downloads").Should().Contain("retry_count",
+            "the v4 migration adds the auto-retry count column");
     }
 
     [Fact]
@@ -77,7 +79,7 @@ public sealed class MigrationRunnerTests : IDisposable
         using SqliteConnection connection = factory.CreateOpenConnection();
         using SqliteCommand cmd = connection.CreateCommand();
         cmd.CommandText = "PRAGMA user_version;";
-        Convert.ToInt32(cmd.ExecuteScalar(), CultureInfo.InvariantCulture).Should().Be(3);
+        Convert.ToInt32(cmd.ExecuteScalar(), CultureInfo.InvariantCulture).Should().Be(4);
     }
 
     [Fact]
@@ -95,8 +97,8 @@ public sealed class MigrationRunnerTests : IDisposable
 
         int second = runner.Migrate();
 
-        first.Should().Be(3);
-        second.Should().Be(3);
+        first.Should().Be(4);
+        second.Should().Be(4);
         GetTableNames(factory).Should().Contain(ExpectedTables);
     }
 
@@ -110,8 +112,8 @@ public sealed class MigrationRunnerTests : IDisposable
         int first = await runner.MigrateAsync();
         int second = await runner.MigrateAsync();
 
-        first.Should().Be(3);
-        second.Should().Be(3);
+        first.Should().Be(4);
+        second.Should().Be(4);
         GetTableNames(factory).Should().Contain(ExpectedTables);
     }
 

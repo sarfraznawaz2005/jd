@@ -14,7 +14,7 @@ internal sealed class DownloadRepository : IDownloadRepository
     private const string Columns =
         "id, url, referrer, filename, dir, total_bytes, status, category_type, category_status, " +
         "etag, last_modified, created_at, completed_at, error, max_connections, speed_limit, priority, " +
-        "cookie_secret_ref";
+        "cookie_secret_ref, retry_count";
 
     private readonly IDbConnectionFactory _connectionFactory;
 
@@ -36,11 +36,11 @@ internal sealed class DownloadRepository : IDownloadRepository
             INSERT INTO downloads
                 (url, referrer, filename, dir, total_bytes, status, category_type, category_status,
                  etag, last_modified, created_at, completed_at, error, max_connections, speed_limit, priority,
-                 cookie_secret_ref)
+                 cookie_secret_ref, retry_count)
             VALUES
                 ($url, $referrer, $filename, $dir, $total_bytes, $status, $category_type, $category_status,
                  $etag, $last_modified, $created_at, $completed_at, $error, $max_connections, $speed_limit,
-                 $priority, $cookie_secret_ref);
+                 $priority, $cookie_secret_ref, $retry_count);
             SELECT last_insert_rowid();
             """;
         BindWritableColumns(command, download);
@@ -100,7 +100,7 @@ internal sealed class DownloadRepository : IDownloadRepository
                 category_status = $category_status, etag = $etag, last_modified = $last_modified,
                 created_at = $created_at, completed_at = $completed_at, error = $error,
                 max_connections = $max_connections, speed_limit = $speed_limit, priority = $priority,
-                cookie_secret_ref = $cookie_secret_ref
+                cookie_secret_ref = $cookie_secret_ref, retry_count = $retry_count
             WHERE id = $id;
             """;
         BindWritableColumns(command, download);
@@ -142,6 +142,7 @@ internal sealed class DownloadRepository : IDownloadRepository
         command.Parameters.AddWithValue("$speed_limit", (object?)download.SpeedLimit ?? DBNull.Value);
         command.Parameters.AddWithValue("$priority", download.Priority);
         command.Parameters.AddWithValue("$cookie_secret_ref", (object?)download.CookieSecretRef ?? DBNull.Value);
+        command.Parameters.AddWithValue("$retry_count", download.RetryCount);
     }
 
     private static Download Map(SqliteDataReader reader) => new()
@@ -164,6 +165,7 @@ internal sealed class DownloadRepository : IDownloadRepository
         SpeedLimit = reader.GetNullableInt64(15),
         Priority = reader.GetInt32(16),
         CookieSecretRef = reader.GetNullableString(17),
+        RetryCount = reader.GetInt32(18),
     };
 
     public async Task<IReadOnlyList<Download>> GetByStatusOrderedByPriorityAsync(

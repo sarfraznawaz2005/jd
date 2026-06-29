@@ -20,6 +20,12 @@ public sealed record AppSettings
     public int ConnectionsPerDownload { get; init; } = 8;
 
     /// <summary>
+    /// How many times a download auto-retries a transient (network) failure before giving up, with
+    /// exponential backoff between attempts (TASK-131). <c>0</c> disables auto-retry. Default <c>5</c>.
+    /// </summary>
+    public int MaxDownloadRetries { get; init; } = 5;
+
+    /// <summary>
     /// Global download speed cap in bytes per second. <c>0</c> means unlimited (the default).
     /// </summary>
     public long GlobalSpeedLimitBytesPerSecond { get; init; }

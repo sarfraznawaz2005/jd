@@ -6,6 +6,7 @@ using JustDownload.Core.Data.Models;
 using JustDownload.Core.Data.Repositories;
 using JustDownload.Core.Downloading;
 using JustDownload.Core.Lifecycle;
+using JustDownload.Tests.Fakes;
 using JustDownload.Tests.Transport;
 using Microsoft.Extensions.DependencyInjection;
 using NSubstitute;
@@ -47,6 +48,9 @@ public sealed class DownloadManagerTests : IDisposable
         services.AddJustDownloadTransport();
         services.AddJustDownloadDownloading();
         services.AddJustDownloadLifecycle();
+        // No auto-retry here so the failure-path tests fail fast and deterministically; retry behaviour is
+        // covered by DownloadRetryTests (TASK-131).
+        services.AddSingleton<IRetryBackoff>(new FakeRetryBackoff(0));
         _provider = services.BuildServiceProvider();
         _provider.GetRequiredService<IMigrationRunner>().Migrate();
     }

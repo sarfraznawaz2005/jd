@@ -31,6 +31,7 @@ internal sealed partial class DownloadManager : IDownloadManager
     private readonly IResourceProbe _probe;
     private readonly SegmentationOptions _segmentationOptions;
     private readonly ISecretStore _secretStore;
+    private readonly IRetryBackoff _backoff;
     private readonly IClock _clock;
     private readonly ILogger<DownloadManager> _logger;
     private readonly ConcurrentDictionary<long, DownloadProgress> _latest = new();
@@ -44,6 +45,7 @@ internal sealed partial class DownloadManager : IDownloadManager
         IResourceProbe probe,
         SegmentationOptions segmentationOptions,
         ISecretStore secretStore,
+        IRetryBackoff backoff,
         IClock clock,
         ILogger<DownloadManager> logger)
     {
@@ -53,6 +55,7 @@ internal sealed partial class DownloadManager : IDownloadManager
         ArgumentNullException.ThrowIfNull(probe);
         ArgumentNullException.ThrowIfNull(segmentationOptions);
         ArgumentNullException.ThrowIfNull(secretStore);
+        ArgumentNullException.ThrowIfNull(backoff);
         ArgumentNullException.ThrowIfNull(clock);
         ArgumentNullException.ThrowIfNull(logger);
         _repository = repository;
@@ -61,6 +64,7 @@ internal sealed partial class DownloadManager : IDownloadManager
         _probe = probe;
         _segmentationOptions = segmentationOptions;
         _secretStore = secretStore;
+        _backoff = backoff;
         _clock = clock;
         _logger = logger;
     }
@@ -148,73 +152,108 @@ internal sealed partial class DownloadManager : IDownloadManager
         using var checkpointCts = new CancellationTokenSource();
         Task checkpointLoop = CheckpointLoopAsync(id, received, checkpointCts.Token);
 
+        // Auto-retry transient (network) failures with exponential backoff, resuming from the checkpoint so
+        // only the missing gaps are re-fetched (TASK-131). Permanent failures — auth, expiry, resume-refused
+        // — and a user pause are never retried.
         DownloadResult result;
-        try
+        int retries = 0;
+        while (true)
         {
-            // Detect an already-expired link and capture the resume validators (ETag/size) before fetching,
-            // so a later renew can prove identity (TASK-032).
-            active = await PrepareForDownloadAsync(active, headers, cancellationToken).ConfigureAwait(false);
+            try
+            {
+                // Detect an already-expired link and capture the resume validators (ETag/size) before
+                // fetching, so a later renew can prove identity (TASK-032).
+                active = await PrepareForDownloadAsync(active, headers, cancellationToken).ConfigureAwait(false);
 
-            int connections = active.MaxConnections ?? _segmentationOptions.DefaultConnections;
-            var estimator = new SpeedEstimator();
-            var sink = new ProgressSink(this, id, estimator, active.TotalBytes, active.TotalBytes is > 0, connections);
-            var connectionSink = new ConnectionProgressSink(this, id);
+                int connections = active.MaxConnections ?? _segmentationOptions.DefaultConnections;
+                var estimator = new SpeedEstimator();
+                var sink = new ProgressSink(
+                    this, id, estimator, active.TotalBytes, active.TotalBytes is > 0, connections);
+                var connectionSink = new ConnectionProgressSink(this, id);
 
-            result = await _downloader.DownloadAsync(
-                downloadRequest, sink, received, connectionSink, connections: null, cancellationToken)
-                .ConfigureAwait(false);
-        }
-        catch (OperationCanceledException)
-        {
-            // Cancellation is a pause: persist the exact offsets reached, then mark Paused. The partial file
-            // and these segment rows let a resume continue without re-fetching.
-            await StopCheckpointLoopAsync(checkpointCts, checkpointLoop).ConfigureAwait(false);
-            await PersistSegmentsAsync(id, received, CancellationToken.None).ConfigureAwait(false);
-            await TransitionToTerminalAsync(id, active, DownloadStatus.Paused, error: null, completedAt: null)
-                .ConfigureAwait(false);
-            throw;
-        }
-        catch (DownloadExpiredException ex)
-        {
-            // The link expired: keep the checkpoint so a renew with a fresh URL can resume the bytes.
-            await StopCheckpointLoopAsync(checkpointCts, checkpointLoop).ConfigureAwait(false);
-            await PersistSegmentsAsync(id, received, CancellationToken.None).ConfigureAwait(false);
-            await TransitionToTerminalAsync(id, active, DownloadStatus.Expired, ex.Message, completedAt: null)
-                .ConfigureAwait(false);
-            LogExpired(_logger, id);
-            throw;
-        }
-        catch (ResourceProbeException ex) when (ExpiryDetection.IsExpiryStatusCode(ex.StatusCode))
-        {
-            // The probe (e.g. when resuming a download whose validators were already captured) hit an expiry
-            // status — surface it as Expired and keep the checkpoint for a renew.
-            await StopCheckpointLoopAsync(checkpointCts, checkpointLoop).ConfigureAwait(false);
-            await PersistSegmentsAsync(id, received, CancellationToken.None).ConfigureAwait(false);
-            await TransitionToTerminalAsync(id, active, DownloadStatus.Expired, ex.Message, completedAt: null)
-                .ConfigureAwait(false);
-            LogExpired(_logger, id);
-            throw new DownloadExpiredException(ex.Message, ex);
-        }
-        catch (ResumeNotSupportedException ex)
-        {
-            // The server rejected the resume offset: the partial bytes are unusable, so drop the checkpoint
-            // (the next start is a clean restart from zero) and surface a restart-required failure.
-            await StopCheckpointLoopAsync(checkpointCts, checkpointLoop).ConfigureAwait(false);
-            await ClearSegmentsAsync(id).ConfigureAwait(false);
-            await TransitionToTerminalAsync(id, active, DownloadStatus.Failed, ex.Message, completedAt: null)
-                .ConfigureAwait(false);
-            LogFailed(_logger, id, ex);
-            throw;
-        }
-        catch (Exception ex)
-        {
-            // A failed download keeps its checkpoint so a retry resumes rather than restarts.
-            await StopCheckpointLoopAsync(checkpointCts, checkpointLoop).ConfigureAwait(false);
-            await PersistSegmentsAsync(id, received, CancellationToken.None).ConfigureAwait(false);
-            await TransitionToTerminalAsync(id, active, DownloadStatus.Failed, ex.Message, completedAt: null)
-                .ConfigureAwait(false);
-            LogFailed(_logger, id, ex);
-            throw;
+                result = await _downloader.DownloadAsync(
+                    downloadRequest, sink, received, connectionSink, connections: null, cancellationToken)
+                    .ConfigureAwait(false);
+                break;
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                // A user pause: persist the exact offsets reached, then mark Paused. The partial file and
+                // these segment rows let a resume continue without re-fetching.
+                await StopCheckpointLoopAsync(checkpointCts, checkpointLoop).ConfigureAwait(false);
+                await PersistSegmentsAsync(id, received, CancellationToken.None).ConfigureAwait(false);
+                await TransitionToTerminalAsync(id, active, DownloadStatus.Paused, error: null, completedAt: null)
+                    .ConfigureAwait(false);
+                throw;
+            }
+            catch (DownloadExpiredException ex)
+            {
+                // The link expired: keep the checkpoint so a renew with a fresh URL can resume the bytes.
+                await StopCheckpointLoopAsync(checkpointCts, checkpointLoop).ConfigureAwait(false);
+                await PersistSegmentsAsync(id, received, CancellationToken.None).ConfigureAwait(false);
+                await TransitionToTerminalAsync(id, active, DownloadStatus.Expired, ex.Message, completedAt: null)
+                    .ConfigureAwait(false);
+                LogExpired(_logger, id);
+                throw;
+            }
+            catch (ResourceProbeException ex) when (ExpiryDetection.IsExpiryStatusCode(ex.StatusCode))
+            {
+                // The probe (e.g. when resuming a download whose validators were already captured) hit an
+                // expiry status — surface it as Expired and keep the checkpoint for a renew.
+                await StopCheckpointLoopAsync(checkpointCts, checkpointLoop).ConfigureAwait(false);
+                await PersistSegmentsAsync(id, received, CancellationToken.None).ConfigureAwait(false);
+                await TransitionToTerminalAsync(id, active, DownloadStatus.Expired, ex.Message, completedAt: null)
+                    .ConfigureAwait(false);
+                LogExpired(_logger, id);
+                throw new DownloadExpiredException(ex.Message, ex);
+            }
+            catch (ResumeNotSupportedException ex)
+            {
+                // The server rejected the resume offset: the partial bytes are unusable, so drop the
+                // checkpoint (the next start is a clean restart from zero) and surface a restart-required
+                // failure.
+                await StopCheckpointLoopAsync(checkpointCts, checkpointLoop).ConfigureAwait(false);
+                await ClearSegmentsAsync(id).ConfigureAwait(false);
+                await TransitionToTerminalAsync(id, active, DownloadStatus.Failed, ex.Message, completedAt: null)
+                    .ConfigureAwait(false);
+                LogFailed(_logger, id, ex);
+                throw;
+            }
+            catch (Exception ex) when (retries < _backoff.MaxRetries && TransientFailure.IsTransient(ex))
+            {
+                // Transient network glitch: record the retry (persisted), keep the checkpoint, wait the
+                // backoff, then loop to resume. The download stays Active across the wait.
+                retries++;
+                active = active with { RetryCount = retries };
+                await _repository.UpdateAsync(active, CancellationToken.None).ConfigureAwait(false);
+                await PersistSegmentsAsync(id, received, CancellationToken.None).ConfigureAwait(false);
+                LogRetrying(_logger, id, retries, ex);
+
+                try
+                {
+                    await Task.Delay(_backoff.DelayFor(retries), cancellationToken).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    // Paused while waiting to retry — treat as a clean pause.
+                    await StopCheckpointLoopAsync(checkpointCts, checkpointLoop).ConfigureAwait(false);
+                    await PersistSegmentsAsync(id, received, CancellationToken.None).ConfigureAwait(false);
+                    await TransitionToTerminalAsync(
+                        id, active, DownloadStatus.Paused, error: null, completedAt: null).ConfigureAwait(false);
+                    throw;
+                }
+            }
+            catch (Exception ex)
+            {
+                // A permanent failure, or transient with retries exhausted, keeps its checkpoint so a manual
+                // retry resumes rather than restarts.
+                await StopCheckpointLoopAsync(checkpointCts, checkpointLoop).ConfigureAwait(false);
+                await PersistSegmentsAsync(id, received, CancellationToken.None).ConfigureAwait(false);
+                await TransitionToTerminalAsync(id, active, DownloadStatus.Failed, ex.Message, completedAt: null)
+                    .ConfigureAwait(false);
+                LogFailed(_logger, id, ex);
+                throw;
+            }
         }
 
         await StopCheckpointLoopAsync(checkpointCts, checkpointLoop).ConfigureAwait(false);
@@ -626,4 +665,10 @@ internal sealed partial class DownloadManager : IDownloadManager
 
     [LoggerMessage(EventId = 5, Level = LogLevel.Information, Message = "Download {Id} renewed (sameResource={SameResource}).")]
     private static partial void LogRenewed(ILogger logger, long id, bool sameResource);
+
+    [LoggerMessage(
+        EventId = 6,
+        Level = LogLevel.Warning,
+        Message = "Download {Id} hit a transient failure; retry {Retry} after backoff.")]
+    private static partial void LogRetrying(ILogger logger, long id, int retry, Exception exception);
 }

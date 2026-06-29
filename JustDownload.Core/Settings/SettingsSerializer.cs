@@ -13,6 +13,7 @@ internal static partial class SettingsSerializer
 {
     internal const string MaxConcurrentDownloadsKey = "downloads.max_concurrent";
     internal const string ConnectionsPerDownloadKey = "downloads.connections_per_download";
+    internal const string MaxDownloadRetriesKey = "downloads.max_retries";
     internal const string GlobalSpeedLimitKey = "downloads.global_speed_limit";
     internal const string DefaultVideoQualityKey = "media.default_video_quality";
     internal const string DefaultContainerKey = "media.default_container";
@@ -38,6 +39,8 @@ internal static partial class SettingsSerializer
                 settings.MaxConcurrentDownloads.ToString(CultureInfo.InvariantCulture),
             [ConnectionsPerDownloadKey] =
                 settings.ConnectionsPerDownload.ToString(CultureInfo.InvariantCulture),
+            [MaxDownloadRetriesKey] =
+                settings.MaxDownloadRetries.ToString(CultureInfo.InvariantCulture),
             [GlobalSpeedLimitKey] =
                 settings.GlobalSpeedLimitBytesPerSecond.ToString(CultureInfo.InvariantCulture),
             [DefaultVideoQualityKey] = settings.DefaultVideoQuality.ToString(),
@@ -73,6 +76,8 @@ internal static partial class SettingsSerializer
                 ParseInt(stored, MaxConcurrentDownloadsKey, defaults.MaxConcurrentDownloads, logger),
             ConnectionsPerDownload =
                 ParseInt(stored, ConnectionsPerDownloadKey, defaults.ConnectionsPerDownload, logger),
+            MaxDownloadRetries =
+                ParseInt(stored, MaxDownloadRetriesKey, defaults.MaxDownloadRetries, logger),
             GlobalSpeedLimitBytesPerSecond =
                 ParseLong(stored, GlobalSpeedLimitKey, defaults.GlobalSpeedLimitBytesPerSecond, logger),
             DefaultVideoQuality =

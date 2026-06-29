@@ -143,6 +143,7 @@ public static class ServiceCollectionExtensions
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IMigration, InitialSchemaMigration>());
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IMigration, AddDownloadPriorityMigration>());
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IMigration, AddDownloadCookieSecretRefMigration>());
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IMigration, AddDownloadRetryCountMigration>());
         services.TryAddSingleton<IMigrationRunner, MigrationRunner>();
 
         // Repositories (TASK-020) — the centralized data-access seam. Stateless over the shared
@@ -310,6 +311,14 @@ public static class ServiceCollectionExtensions
         // The manager resolves cookies from the OS keychain (TASK-091), so ensure the secret store is
         // registered wherever lifecycle is (idempotent — full AddJustDownloadCore already adds it).
         services.AddJustDownloadSecrets();
+
+        // The queue and the retry policy both read settings (max concurrency, max retries), so ensure the
+        // settings service is registered wherever lifecycle is (idempotent — full AddJustDownloadCore adds it).
+        services.TryAddSingleton<ISettingsService, SettingsService>();
+
+        // Auto-retry policy for transient (network) failures (TASK-131): exponential backoff, retry count
+        // from settings. Singleton — stateless over the settings snapshot.
+        services.TryAddSingleton<IRetryBackoff, ExponentialBackoff>();
 
         services.TryAddSingleton<IDownloadManager, DownloadManager>();
 
