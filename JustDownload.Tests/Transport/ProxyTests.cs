@@ -11,9 +11,9 @@ namespace JustDownload.Tests.Transport;
 
 /// <summary>
 /// Proxy support (TASK-034, US-6): configuration → handler URI (including the SOCKS5 scheme that resolves
-/// DNS remotely, AC1), the global/per-download resolver, the proxy-keyed client pool, and an end-to-end
-/// HTTP-proxy route through a loopback proxy with a runtime toggle (AC0/AC2). Full SOCKS server routing is
-/// covered by the fixture task; here the SOCKS path is verified at the configuration boundary.
+/// DNS remotely, AC1), the global/per-download resolver, the proxy-keyed client pool, an end-to-end
+/// HTTP-proxy route through a loopback proxy with a runtime toggle (AC0/AC2), and an end-to-end SOCKS5 route
+/// through a loopback SOCKS proxy that proves traffic is actually tunnelled (TASK-115).
 /// </summary>
 public sealed class ProxyTests : IDisposable
 {
@@ -132,6 +132,28 @@ public sealed class ProxyTests : IDisposable
 
         (await File.ReadAllBytesAsync(direct)).Should().Equal(body);
         proxy.RequestedUrls.Count.Should().Be(beforeToggle, "after toggling the proxy off, traffic goes direct (AC2)");
+    }
+
+    [Fact]
+    public async Task GlobalSocks5Proxy_RoutesTrafficThroughTheProxy_ByteCorrect()
+    {
+        // Proves SOCKS5 actually tunnels the transfer (TASK-115), not just that the URI scheme maps.
+        byte[] body = Bytes(128 * 1024);
+        await using var origin = new LoopbackHttpServer { Body = body, SupportRanges = true };
+        await using var socks = new LoopbackSocksProxy();
+        using ServiceProvider provider = BuildProvider();
+        var downloader = provider.GetRequiredService<ISegmentedDownloader>();
+        var proxyService = provider.GetRequiredService<IProxyService>();
+
+        proxyService.SetGlobalProxy(new ProxyConfiguration(ProxyKind.Socks5, "127.0.0.1", socks.Port));
+        string dest = Path.Combine(_dir, "via-socks.bin");
+        await downloader.DownloadAsync(new DownloadRequest { Url = origin.Url("f.bin"), DestinationPath = dest });
+
+        (await File.ReadAllBytesAsync(dest)).Should().Equal(body, "the file downloaded byte-correct over SOCKS5");
+        int originPort = origin.Url("f.bin").Port;
+        socks.ConnectedTargets.Should().NotBeEmpty("traffic was tunnelled through the SOCKS5 proxy");
+        socks.ConnectedTargets.Should().OnlyContain(t => t.EndsWith($":{originPort}", StringComparison.Ordinal),
+            "every tunnelled connection targeted the origin server");
     }
 
     [Fact]
