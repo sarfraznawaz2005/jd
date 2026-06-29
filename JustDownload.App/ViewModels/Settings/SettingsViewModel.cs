@@ -74,7 +74,7 @@ public sealed partial class SettingsViewModel : ViewModelBase
     private void PopulateSections()
     {
         Sections.Clear();
-        Sections.Add(new SettingsSectionViewModel("General", "IconSetGeneral", new GeneralSettingsViewModel(_settings, _theme)));
+        Sections.Add(new SettingsSectionViewModel("General", "IconSetGeneral", new GeneralSettingsViewModel(_settings, _theme, _portable)));
         Sections.Add(new SettingsSectionViewModel("Connections", "IconSetConnections", new ConnectionsSettingsViewModel(_settings)));
         Sections.Add(new SettingsSectionViewModel("Proxy", "IconSetProxy", new ProxySettingsViewModel(_settings, _secrets, _proxyTester)));
         Sections.Add(new SettingsSectionViewModel(
