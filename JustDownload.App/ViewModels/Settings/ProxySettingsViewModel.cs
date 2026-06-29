@@ -2,6 +2,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using JustDownload.Core.Security;
 using JustDownload.Core.Settings;
+using JustDownload.Core.Transport.Auth;
 using JustDownload.Core.Transport.Proxy;
 
 namespace JustDownload.App.ViewModels.Settings;
@@ -17,21 +18,25 @@ public sealed partial class ProxySettingsViewModel : ViewModelBase
 {
     private readonly ISettingsService _settings;
     private readonly ISecretStore _secrets;
+    private readonly IProxyTester _proxyTester;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(ProxyError))]
     [NotifyPropertyChangedFor(nameof(RequiresHost))]
     [NotifyCanExecuteChangedFor(nameof(SaveCommand))]
+    [NotifyCanExecuteChangedFor(nameof(TestCommand))]
     private ProxyKind _proxyKind;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(ProxyError))]
     [NotifyCanExecuteChangedFor(nameof(SaveCommand))]
+    [NotifyCanExecuteChangedFor(nameof(TestCommand))]
     private string _host;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(ProxyError))]
     [NotifyCanExecuteChangedFor(nameof(SaveCommand))]
+    [NotifyCanExecuteChangedFor(nameof(TestCommand))]
     private int _port;
 
     [ObservableProperty]
@@ -49,12 +54,14 @@ public sealed partial class ProxySettingsViewModel : ViewModelBase
     [ObservableProperty]
     private string? _status;
 
-    public ProxySettingsViewModel(ISettingsService settings, ISecretStore secrets)
+    public ProxySettingsViewModel(ISettingsService settings, ISecretStore secrets, IProxyTester proxyTester)
     {
         ArgumentNullException.ThrowIfNull(settings);
         ArgumentNullException.ThrowIfNull(secrets);
+        ArgumentNullException.ThrowIfNull(proxyTester);
         _settings = settings;
         _secrets = secrets;
+        _proxyTester = proxyTester;
 
         AppSettings current = settings.Current;
         _proxyKind = current.ProxyKind;
@@ -128,6 +135,51 @@ public sealed partial class ProxySettingsViewModel : ViewModelBase
         Password = string.Empty; // never keep the plaintext in the field
         HasStoredPassword = !string.IsNullOrEmpty(secretRef);
         Status = "Proxy settings saved.";
+    }
+
+    private bool CanTest => ProxyError is null && ProxyKind != ProxyKind.None;
+
+    /// <summary>
+    /// Probes the currently-entered proxy config (including a just-typed but unsaved password, else the
+    /// stored one) and reports the result inline (TASK-152).
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(CanTest))]
+    private async Task TestAsync(CancellationToken cancellationToken)
+    {
+        Status = "Testing proxy…";
+        ProxyConfiguration config = await BuildCurrentConfigAsync(cancellationToken).ConfigureAwait(true);
+        ProxyTestResult result = await _proxyTester.TestAsync(config, cancellationToken).ConfigureAwait(true);
+        Status = result.Message;
+    }
+
+    private async Task<ProxyConfiguration> BuildCurrentConfigAsync(CancellationToken cancellationToken)
+    {
+        string? host = string.IsNullOrWhiteSpace(Host) ? null : Host.Trim();
+        if (ProxyKind == ProxyKind.None || host is null)
+        {
+            return ProxyConfiguration.None;
+        }
+
+        string? username = string.IsNullOrWhiteSpace(Username) ? null : Username.Trim();
+        NetworkCredentials? credentials = null;
+        if (username is not null)
+        {
+            string? password = !string.IsNullOrEmpty(Password)
+                ? Password
+                : await ResolveStoredPasswordAsync(cancellationToken).ConfigureAwait(true);
+            string? domain = string.IsNullOrWhiteSpace(Domain) ? null : Domain.Trim();
+            credentials = new NetworkCredentials(username, password ?? string.Empty, domain);
+        }
+
+        return new ProxyConfiguration(ProxyKind, host, Port, credentials);
+    }
+
+    private async Task<string?> ResolveStoredPasswordAsync(CancellationToken cancellationToken)
+    {
+        string? secretRef = _settings.Current.ProxyPasswordSecretRef;
+        return string.IsNullOrEmpty(secretRef)
+            ? null
+            : await _secrets.RetrieveAsync(secretRef, cancellationToken).ConfigureAwait(true);
     }
 
     private async Task DeleteSecretAsync(string? secretRef)

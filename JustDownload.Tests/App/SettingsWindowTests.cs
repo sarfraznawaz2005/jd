@@ -9,6 +9,7 @@ using JustDownload.Core.Categorization;
 using JustDownload.Core.NativeMessaging;
 using JustDownload.Core.Security;
 using JustDownload.Core.Settings;
+using JustDownload.Core.Transport.Proxy;
 using NSubstitute;
 using Xunit;
 
@@ -25,7 +26,7 @@ public sealed class SettingsWindowTests
         var vm = new SettingsViewModel(
             settings, new ThemeService(), CategoryFolderRules.CreateDefault(),
             Substitute.For<INativeHostInstaller>(), Substitute.For<ISecretStore>(),
-            Substitute.For<ISettingsTransfer>());
+            Substitute.For<ISettingsTransfer>(), Substitute.For<IProxyTester>());
         var window = new SettingsWindow { DataContext = vm };
         window.Show();
 

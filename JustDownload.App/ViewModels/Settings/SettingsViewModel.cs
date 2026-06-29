@@ -22,6 +22,7 @@ public sealed partial class SettingsViewModel : ViewModelBase
     private readonly JustDownload.Core.NativeMessaging.INativeHostInstaller _nativeHostInstaller;
     private readonly ISecretStore _secrets;
     private readonly ISettingsTransfer _transfer;
+    private readonly JustDownload.Core.Transport.Proxy.IProxyTester _proxyTester;
 
     [ObservableProperty]
     private SettingsSectionViewModel _selectedSection;
@@ -36,7 +37,8 @@ public sealed partial class SettingsViewModel : ViewModelBase
         CategoryFolderRules folderRules,
         JustDownload.Core.NativeMessaging.INativeHostInstaller nativeHostInstaller,
         ISecretStore secrets,
-        ISettingsTransfer transfer)
+        ISettingsTransfer transfer,
+        JustDownload.Core.Transport.Proxy.IProxyTester proxyTester)
     {
         ArgumentNullException.ThrowIfNull(settings);
         ArgumentNullException.ThrowIfNull(theme);
@@ -44,12 +46,14 @@ public sealed partial class SettingsViewModel : ViewModelBase
         ArgumentNullException.ThrowIfNull(nativeHostInstaller);
         ArgumentNullException.ThrowIfNull(secrets);
         ArgumentNullException.ThrowIfNull(transfer);
+        ArgumentNullException.ThrowIfNull(proxyTester);
         _settings = settings;
         _theme = theme;
         _folderRules = folderRules;
         _nativeHostInstaller = nativeHostInstaller;
         _secrets = secrets;
         _transfer = transfer;
+        _proxyTester = proxyTester;
 
         PopulateSections();
         _selectedSection = Sections[0];
@@ -64,7 +68,7 @@ public sealed partial class SettingsViewModel : ViewModelBase
         Sections.Clear();
         Sections.Add(new SettingsSectionViewModel("General", "IconSetGeneral", new GeneralSettingsViewModel(_settings, _theme)));
         Sections.Add(new SettingsSectionViewModel("Connections", "IconSetConnections", new ConnectionsSettingsViewModel(_settings)));
-        Sections.Add(new SettingsSectionViewModel("Proxy", "IconSetProxy", new ProxySettingsViewModel(_settings, _secrets)));
+        Sections.Add(new SettingsSectionViewModel("Proxy", "IconSetProxy", new ProxySettingsViewModel(_settings, _secrets, _proxyTester)));
         Sections.Add(new SettingsSectionViewModel("Authentication", "IconSetAuth", new InfoSettingsViewModel(
             "Authentication",
             "Site and proxy credentials are entered when a download needs them and are stored securely in the "

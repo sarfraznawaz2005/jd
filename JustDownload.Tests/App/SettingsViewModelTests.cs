@@ -38,7 +38,7 @@ public sealed class SettingsViewModelTests
     [Fact]
     public void AllSevenSections_ArePresent_InOrder()
     {
-        var vm = new SettingsViewModel(Settings(), Substitute.For<IThemeService>(), CategoryFolderRules.CreateDefault(), Substitute.For<JustDownload.Core.NativeMessaging.INativeHostInstaller>(), Substitute.For<JustDownload.Core.Security.ISecretStore>(), Substitute.For<ISettingsTransfer>());
+        var vm = new SettingsViewModel(Settings(), Substitute.For<IThemeService>(), CategoryFolderRules.CreateDefault(), Substitute.For<JustDownload.Core.NativeMessaging.INativeHostInstaller>(), Substitute.For<JustDownload.Core.Security.ISecretStore>(), Substitute.For<ISettingsTransfer>(), Substitute.For<IProxyTester>());
 
         vm.Sections.Select(s => s.Label).Should()
             .Equal("General", "Connections", "Proxy", "Authentication", "Categories", "Browsers", "Advanced");
@@ -49,7 +49,7 @@ public sealed class SettingsViewModelTests
     [Fact]
     public void Select_SwitchesActiveSection()
     {
-        var vm = new SettingsViewModel(Settings(), Substitute.For<IThemeService>(), CategoryFolderRules.CreateDefault(), Substitute.For<JustDownload.Core.NativeMessaging.INativeHostInstaller>(), Substitute.For<JustDownload.Core.Security.ISecretStore>(), Substitute.For<ISettingsTransfer>());
+        var vm = new SettingsViewModel(Settings(), Substitute.For<IThemeService>(), CategoryFolderRules.CreateDefault(), Substitute.For<JustDownload.Core.NativeMessaging.INativeHostInstaller>(), Substitute.For<JustDownload.Core.Security.ISecretStore>(), Substitute.For<ISettingsTransfer>(), Substitute.For<IProxyTester>());
         SettingsSectionViewModel connections = vm.Sections.Single(s => s.Label == "Connections");
 
         vm.SelectCommand.Execute(connections);
@@ -62,7 +62,7 @@ public sealed class SettingsViewModelTests
     private static SettingsViewModel Build(ISettingsService settings, ISettingsTransfer transfer) =>
         new(settings, Substitute.For<IThemeService>(), CategoryFolderRules.CreateDefault(),
             Substitute.For<JustDownload.Core.NativeMessaging.INativeHostInstaller>(),
-            Substitute.For<ISecretStore>(), transfer);
+            Substitute.For<ISecretStore>(), transfer, Substitute.For<IProxyTester>());
 
     [Fact]
     public async Task ExportToAsync_ExportsCurrentSettings_AndReportsSuccess()
@@ -385,7 +385,7 @@ public sealed class SettingsViewModelTests
         ISettingsService settings = Settings();
         var secrets = Substitute.For<ISecretStore>();
         secrets.StoreAsync("s3cret", Arg.Any<CancellationToken>()).Returns("ref-new");
-        var vm = new ProxySettingsViewModel(settings, secrets);
+        var vm = new ProxySettingsViewModel(settings, secrets, Substitute.For<IProxyTester>());
 
         vm.ProxyKind = ProxyKind.Http;
         vm.Host = "proxy.local";
@@ -422,7 +422,7 @@ public sealed class SettingsViewModelTests
         };
         ISettingsService settings = Settings(current);
         var secrets = Substitute.For<ISecretStore>();
-        var vm = new ProxySettingsViewModel(settings, secrets);
+        var vm = new ProxySettingsViewModel(settings, secrets, Substitute.For<IProxyTester>());
 
         vm.HasStoredPassword.Should().BeTrue("hydration reflects a stored password");
         await vm.SaveCommand.ExecuteAsync(null); // password left blank
@@ -443,7 +443,7 @@ public sealed class SettingsViewModelTests
         };
         ISettingsService settings = Settings(current);
         var secrets = Substitute.For<ISecretStore>();
-        var vm = new ProxySettingsViewModel(settings, secrets) { ProxyKind = ProxyKind.None };
+        var vm = new ProxySettingsViewModel(settings, secrets, Substitute.For<IProxyTester>()) { ProxyKind = ProxyKind.None };
 
         await vm.SaveCommand.ExecuteAsync(null);
 
@@ -456,7 +456,7 @@ public sealed class SettingsViewModelTests
     [Fact]
     public void Proxy_MissingHost_ShowsError_AndBlocksSave()
     {
-        var vm = new ProxySettingsViewModel(Settings(), Substitute.For<ISecretStore>())
+        var vm = new ProxySettingsViewModel(Settings(), Substitute.For<ISecretStore>(), Substitute.For<IProxyTester>())
         {
             ProxyKind = ProxyKind.Http,
             Host = string.Empty,
@@ -464,5 +464,66 @@ public sealed class SettingsViewModelTests
 
         vm.ProxyError.Should().NotBeNull();
         vm.SaveCommand.CanExecute(null).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Proxy_Test_ProbesEnteredConfig_AndShowsResult()
+    {
+        var tester = Substitute.For<IProxyTester>();
+        tester.TestAsync(Arg.Any<ProxyConfiguration>(), Arg.Any<CancellationToken>())
+            .Returns(new ProxyTestResult(true, "Connected through the proxy (204 No Content)."));
+        var vm = new ProxySettingsViewModel(Settings(), Substitute.For<ISecretStore>(), tester)
+        {
+            ProxyKind = ProxyKind.Http,
+            Host = "proxy.local",
+            Port = 8080,
+            Username = "user",
+            Password = "pw",
+        };
+
+        vm.TestCommand.CanExecute(null).Should().BeTrue();
+        await vm.TestCommand.ExecuteAsync(null);
+
+        await tester.Received(1).TestAsync(
+            Arg.Is<ProxyConfiguration>(c => c.Kind == ProxyKind.Http && c.Host == "proxy.local" && c.Port == 8080
+                && c.Credentials != null && c.Credentials.Username == "user" && c.Credentials.Password == "pw"),
+            Arg.Any<CancellationToken>());
+        vm.Status.Should().Be("Connected through the proxy (204 No Content).");
+    }
+
+    [Fact]
+    public async Task Proxy_Test_BlankPassword_ResolvesTheStoredSecret()
+    {
+        var current = new AppSettings
+        {
+            ProxyKind = ProxyKind.Http,
+            ProxyHost = "proxy.local",
+            ProxyPort = 3128,
+            ProxyUsername = "user",
+            ProxyPasswordSecretRef = "ref1",
+        };
+        var secrets = Substitute.For<ISecretStore>();
+        secrets.RetrieveAsync("ref1", Arg.Any<CancellationToken>()).Returns("stored-pw");
+        var tester = Substitute.For<IProxyTester>();
+        tester.TestAsync(Arg.Any<ProxyConfiguration>(), Arg.Any<CancellationToken>())
+            .Returns(new ProxyTestResult(true, "ok"));
+        var vm = new ProxySettingsViewModel(Settings(current), secrets, tester); // password field left blank
+
+        await vm.TestCommand.ExecuteAsync(null);
+
+        await tester.Received(1).TestAsync(
+            Arg.Is<ProxyConfiguration>(c => c.Credentials != null && c.Credentials.Password == "stored-pw"),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public void Proxy_Test_IsDisabled_WhenNoProxyConfigured()
+    {
+        var vm = new ProxySettingsViewModel(Settings(), Substitute.For<ISecretStore>(), Substitute.For<IProxyTester>())
+        {
+            ProxyKind = ProxyKind.None,
+        };
+
+        vm.TestCommand.CanExecute(null).Should().BeFalse();
     }
 }

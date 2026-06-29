@@ -271,6 +271,10 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<IProxyService, ProxyService>();
         services.TryAddSingleton<IHttpClientProvider, HttpClientProvider>();
 
+        // Proxy connectivity test for the settings panel (TASK-152): one user-initiated probe through the
+        // entered proxy config, reporting reachable / 407 / unreachable.
+        services.TryAddSingleton<IProxyTester, ProxyTester>();
+
         // HTTP/proxy authentication (TASK-035, US-7): the per-download credential flow. .NET answers
         // Basic/Digest/NTLM challenges from the credentials carried on the pooled handler.
         services.TryAddSingleton<ICredentialContext, CredentialContext>();

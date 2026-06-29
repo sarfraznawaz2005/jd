@@ -177,6 +177,7 @@
                    FontSize="11" Foreground="{DynamicResource RedBrush}" />
         <StackPanel Orientation="Horizontal" Spacing="12">
           <Button Classes="App Accent" Content="Save proxy" Command="{Binding SaveCommand}" HorizontalAlignment="Left" />
+          <Button Classes="App" Content="Test connection" Command="{Binding TestCommand}" HorizontalAlignment="Left" />
           <TextBlock Text="{Binding Status}" VerticalAlignment="Center"
                      IsVisible="{Binding Status, Converter={x:Static ObjectConverters.IsNotNull}}"
                      Foreground="{DynamicResource GreenBrush}" />
