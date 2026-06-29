@@ -429,6 +429,25 @@ public sealed class SettingsViewModelTests
     }
 
     [Fact]
+    public void Advanced_OnCompletionCommand_PersistsAndHydrates_AndBlankClearsToNull()
+    {
+        ISettingsService settings = Settings();
+        var vm = new AdvancedSettingsViewModel(settings);
+
+        vm.OnCompletionCommand.Should().BeEmpty("none by default");
+        vm.OnCompletionCommand = @"C:\Tools\scan.exe";
+        Persisted(settings, new AppSettings()).OnCompletionCommand.Should().Be(@"C:\Tools\scan.exe");
+
+        vm.OnCompletionCommand = "   ";
+        Persisted(settings, new AppSettings { OnCompletionCommand = "x" }).OnCompletionCommand
+            .Should().BeNull("blank disables the hook");
+
+        var hydrated = new AdvancedSettingsViewModel(
+            Settings(new AppSettings { OnCompletionCommand = @"C:\Tools\scan.exe" }));
+        hydrated.OnCompletionCommand.Should().Be(@"C:\Tools\scan.exe");
+    }
+
+    [Fact]
     public void HydrationDoesNotWriteBack()
     {
         ISettingsService settings = Settings(new AppSettings { ConnectionsPerDownload = 8 });

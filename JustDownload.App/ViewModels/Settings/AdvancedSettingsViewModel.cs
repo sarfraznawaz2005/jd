@@ -18,6 +18,9 @@ public sealed partial class AdvancedSettingsViewModel : ViewModelBase
     [ObservableProperty]
     private LogLevel _logLevel;
 
+    [ObservableProperty]
+    private string _onCompletionCommand;
+
     public AdvancedSettingsViewModel(ISettingsService settings)
     {
         ArgumentNullException.ThrowIfNull(settings);
@@ -25,6 +28,7 @@ public sealed partial class AdvancedSettingsViewModel : ViewModelBase
 
         _suppress = true;
         _logLevel = settings.Current.MinimumLogLevel;
+        _onCompletionCommand = settings.Current.OnCompletionCommand ?? string.Empty;
         _suppress = false;
     }
 
@@ -37,6 +41,15 @@ public sealed partial class AdvancedSettingsViewModel : ViewModelBase
         if (!_suppress)
         {
             _ = _settings.UpdateAsync(s => s with { MinimumLogLevel = value });
+        }
+    }
+
+    partial void OnOnCompletionCommandChanged(string value)
+    {
+        if (!_suppress)
+        {
+            string? command = string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+            _ = _settings.UpdateAsync(s => s with { OnCompletionCommand = command });
         }
     }
 }

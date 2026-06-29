@@ -290,6 +290,13 @@
           <ComboBox ItemsSource="{Binding LogLevels}" SelectedItem="{Binding LogLevel, Mode=TwoWay}"
                     Width="200" HorizontalAlignment="Left" />
         </StackPanel>
+        <StackPanel Spacing="4">
+          <TextBlock Text="Run a program when a download finishes" Classes="StatKey" />
+          <TextBlock Text="The completed file's full path is passed to it as an argument (no shell). Leave blank to disable."
+                     Classes="SettingsHint" TextWrapping="Wrap" />
+          <TextBox Text="{Binding OnCompletionCommand, Mode=TwoWay}"
+                   Watermark="e.g. C:\Tools\scan.exe" HorizontalAlignment="Stretch" />
+        </StackPanel>
         <StackPanel Spacing="8">
           <TextBlock Text="Privacy" Classes="StatKey" />
           <TextBlock Text="Logs redact credentials, tokens, and signed-URL query strings."

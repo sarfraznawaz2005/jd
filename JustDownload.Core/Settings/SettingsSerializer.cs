@@ -30,6 +30,7 @@ internal static partial class SettingsSerializer
     internal const string AutoExtractArchivesKey = "downloads.auto_extract";
     internal const string CategoryConcurrencyLimitsKey = "downloads.category_concurrency";
     internal const string MinimumLogLevelKey = "logging.minimum_level";
+    internal const string OnCompletionCommandKey = "postprocess.on_completion_command";
     internal const string ProxyKindKey = "proxy.kind";
     internal const string ProxyHostKey = "proxy.host";
     internal const string ProxyPortKey = "proxy.port";
@@ -73,6 +74,7 @@ internal static partial class SettingsSerializer
             [AutoExtractArchivesKey] = settings.AutoExtractArchives.ToString(CultureInfo.InvariantCulture),
             [CategoryConcurrencyLimitsKey] = settings.CategoryConcurrencyLimits ?? string.Empty,
             [MinimumLogLevelKey] = settings.MinimumLogLevel.ToString(),
+            [OnCompletionCommandKey] = settings.OnCompletionCommand ?? string.Empty,
             [ProxyKindKey] = settings.ProxyKind.ToString(),
             [ProxyHostKey] = settings.ProxyHost ?? string.Empty,
             [ProxyPortKey] = settings.ProxyPort.ToString(CultureInfo.InvariantCulture),
@@ -128,6 +130,8 @@ internal static partial class SettingsSerializer
             CategoryConcurrencyLimits =
                 ParseOptionalString(stored, CategoryConcurrencyLimitsKey, defaults.CategoryConcurrencyLimits),
             MinimumLogLevel = ParseEnum(stored, MinimumLogLevelKey, defaults.MinimumLogLevel, logger),
+            OnCompletionCommand =
+                ParseOptionalString(stored, OnCompletionCommandKey, defaults.OnCompletionCommand),
             ProxyKind = ParseEnum(stored, ProxyKindKey, defaults.ProxyKind, logger),
             ProxyHost = ParseOptionalString(stored, ProxyHostKey, defaults.ProxyHost),
             ProxyPort = ParseInt(stored, ProxyPortKey, defaults.ProxyPort, logger),

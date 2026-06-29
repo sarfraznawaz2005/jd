@@ -131,4 +131,11 @@ public sealed record AppSettings
     /// switch and persisted across restarts. Default <see cref="LogLevel.Information"/>.
     /// </summary>
     public LogLevel MinimumLogLevel { get; init; } = LogLevel.Information;
+
+    /// <summary>
+    /// An optional program to run when a download completes (TASK-136); the completed file's full path is
+    /// passed to it as a single argument (no shell, so the path is passed safely). <see langword="null"/>/empty
+    /// disables the hook — the default.
+    /// </summary>
+    public string? OnCompletionCommand { get; init; }
 }
