@@ -1,4 +1,4 @@
-// JustDownload — background service worker (MV3)
+// JustDownload — background script (MV3)
 //
 // Forwards links and detected media to the desktop app over Native Messaging,
 // with the auth context (cookies, referrer, user-agent) for authenticated
@@ -7,7 +7,13 @@
 // build on the seams here.
 "use strict";
 
-importScripts("jdcore.js");
+// Load the shared core. Chrome/Edge run this as a service worker, where
+// importScripts pulls jdcore in; Firefox MV3 runs it as an event page that has
+// no importScripts, so its manifest lists jdcore.js first in background.scripts
+// and globalThis.JD is already defined here (TASK-097).
+if (typeof importScripts === "function") {
+  importScripts("jdcore.js");
+}
 
 const api = globalThis.browser ?? globalThis.chrome;
 
