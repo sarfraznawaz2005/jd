@@ -94,6 +94,9 @@ public partial class App : Application
             // The toolbar "Browsers" intent opens the browser-integration panel (TASK-093).
             mainViewModel.BrowsersRequested += (_, _) => _ = ShowBrowsersDialogAsync(window);
 
+            // The add-media intent opens the quality picker, which enqueues the chosen variant (TASK-100).
+            mainViewModel.NewMediaRequested += (_, _) => _ = ShowMediaPickerDialogAsync(window, mainViewModel);
+
             // Import a URL list / export the queue as M3U/CSV/JSON (TASK-140).
             mainViewModel.ImportListRequested += (_, _) => _ = ImportListAsync(window, mainViewModel);
             mainViewModel.ExportListRequested += (_, _) => _ = ExportListAsync(window);
@@ -278,6 +281,19 @@ public partial class App : Application
         if (file?.TryGetLocalPath() is { } path)
         {
             await Services.GetRequiredService<IDownloadListTransfer>().ExportAsync(path);
+        }
+    }
+
+    private async Task ShowMediaPickerDialogAsync(Window owner, MainWindowViewModel mainViewModel)
+    {
+        var dialog = new MediaVariantPickerWindow
+        {
+            DataContext = Services.GetRequiredService<MediaVariantPickerViewModel>(),
+        };
+        object? enqueued = await dialog.ShowDialog<object?>(owner);
+        if (enqueued is true)
+        {
+            await mainViewModel.Downloads.LoadAsync(); // reflect the newly-queued media download
         }
     }
 

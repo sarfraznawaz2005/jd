@@ -12,7 +12,14 @@
 
   <StackPanel Margin="20" Spacing="14">
 
-    <TextBlock Text="Choose quality" FontSize="16" FontWeight="SemiBold" Foreground="{DynamicResource TextBrush}" />
+    <TextBlock Text="Add media" FontSize="16" FontWeight="SemiBold" Foreground="{DynamicResource TextBrush}" />
+
+    <!-- Media URL -->
+    <StackPanel Spacing="5">
+      <TextBlock Text="URL" FontSize="12" Foreground="{DynamicResource TextDimBrush}" />
+      <TextBox Name="UrlBox" Text="{Binding Url, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+               Watermark="https://example.com/ video page or stream" />
+    </StackPanel>
 
     <!-- Loading / message states -->
     <TextBlock Text="Reading media…" IsVisible="{Binding IsLoading}" Foreground="{DynamicResource TextDimBrush}" />
@@ -56,7 +63,7 @@
     <!-- Actions -->
     <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
       <Button Classes="App Ghost" Content="Cancel" Click="OnCancel" />
-      <Button Classes="App Accent" Content="Download" Click="OnConfirm" IsEnabled="{Binding HasVariants}" />
+      <Button Classes="App Accent" Content="Download" Click="OnConfirm" IsEnabled="{Binding CanConfirm}" />
     </StackPanel>
   </StackPanel>
 </Window>

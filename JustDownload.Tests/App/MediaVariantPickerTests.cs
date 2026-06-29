@@ -1,7 +1,10 @@
 using Avalonia.Headless.XUnit;
 using FluentAssertions;
+using JustDownload.App.Services;
 using JustDownload.App.ViewModels;
 using JustDownload.App.Views;
+using JustDownload.Core.Categorization;
+using JustDownload.Core.Lifecycle;
 using JustDownload.Core.Media;
 using JustDownload.Core.Media.Extraction;
 using JustDownload.Core.Settings;
@@ -35,8 +38,21 @@ public sealed class MediaVariantPickerTests
         return settings;
     }
 
-    private static MediaVariantPickerViewModel Build(IMediaExtractorRegistry registry, ISettingsService settings) =>
-        new(registry, settings, NullLogger<MediaVariantPickerViewModel>.Instance);
+    private static MediaVariantPickerViewModel Build(
+        IMediaExtractorRegistry registry,
+        ISettingsService settings,
+        IDownloadManager? manager = null,
+        IDownloadActions? actions = null)
+    {
+        var folders = Substitute.For<IDownloadFolderProvider>();
+        folders.GetFolderForCategory(Arg.Any<FileCategory>()).Returns(@"C:\Downloads\Video");
+        return new MediaVariantPickerViewModel(
+            registry, settings,
+            manager ?? Substitute.For<IDownloadManager>(),
+            actions ?? Substitute.For<IDownloadActions>(),
+            folders,
+            NullLogger<MediaVariantPickerViewModel>.Instance);
+    }
 
     private static MediaSource HlsSource(params int[] heights) => new()
     {
@@ -129,6 +145,81 @@ public sealed class MediaVariantPickerTests
 
         vm.HasVariants.Should().BeFalse();
         vm.Message.Should().Contain("Couldn't find");
+    }
+
+    [Fact]
+    public async Task ConfirmAsync_Hls_EnqueuesMediaDownload_AndStartsIt()
+    {
+        var manager = Substitute.For<IDownloadManager>();
+        manager.EnqueueAsync(Arg.Any<EnqueueDownloadRequest>(), Arg.Any<CancellationToken>()).Returns(42L);
+        var actions = Substitute.For<IDownloadActions>();
+        MediaVariantPickerViewModel vm = Build(
+            RegistryReturning(HlsSource(1080)), SettingsWith(VideoQuality.P1080, MediaContainer.Mkv), manager, actions);
+        await vm.LoadAsync(MediaUrl);
+
+        bool closedEnqueued = false;
+        vm.CloseRequested += (_, ok) => closedEnqueued = ok;
+
+        await vm.ConfirmAsync();
+
+        await manager.Received(1).EnqueueAsync(
+            Arg.Is<EnqueueDownloadRequest>(r =>
+                r.MediaKind == MediaKind.Hls
+                && r.Url == new Uri("https://cdn/1080.m3u8")
+                && r.MediaAudioUrl == null
+                && r.MediaContainer == MediaContainer.Mkv
+                && r.FileName == "1080.mkv"
+                && r.DestinationDirectory == @"C:\Downloads\Video"),
+            Arg.Any<CancellationToken>());
+        actions.Received(1).Start(42L);
+        closedEnqueued.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task ConfirmAsync_SeparateStreams_IncludesTheAudioUrl()
+    {
+        var source = new MediaSource
+        {
+            ExtractorName = "dash",
+            Kind = MediaKind.SeparateStreams,
+            Url = MediaUrl,
+            SuggestedFileName = "clip",
+            Variants = [new VideoVariant("https://cdn/video", 1080, 2_500_000)],
+            AudioVariants = [new AudioVariant("https://cdn/audio", 128_000, "en")],
+        };
+        var manager = Substitute.For<IDownloadManager>();
+        manager.EnqueueAsync(Arg.Any<EnqueueDownloadRequest>(), Arg.Any<CancellationToken>()).Returns(5L);
+        MediaVariantPickerViewModel vm = Build(
+            RegistryReturning(source), SettingsWith(VideoQuality.P1080, MediaContainer.Mp4), manager);
+        await vm.LoadAsync(MediaUrl);
+
+        await vm.ConfirmAsync();
+
+        await manager.Received(1).EnqueueAsync(
+            Arg.Is<EnqueueDownloadRequest>(r =>
+                r.MediaKind == MediaKind.SeparateStreams
+                && r.Url == new Uri("https://cdn/video")
+                && r.MediaAudioUrl == new Uri("https://cdn/audio")
+                && r.MediaContainer == MediaContainer.Mp4
+                && r.FileName == "clip.mp4"),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ConfirmAsync_WithNoSelection_DoesNotEnqueue()
+    {
+        var manager = Substitute.For<IDownloadManager>();
+        MediaVariantPickerViewModel vm = Build(
+            RegistryReturning(null), SettingsWith(VideoQuality.P1080, MediaContainer.Mkv), manager);
+        await vm.LoadAsync(new Uri("https://example.com/page.html")); // no media -> no selection
+
+        bool closedEnqueued = true;
+        vm.CloseRequested += (_, ok) => closedEnqueued = ok;
+
+        await vm.ConfirmAsync();
+
+        await manager.DidNotReceive().EnqueueAsync(Arg.Any<EnqueueDownloadRequest>(), Arg.Any<CancellationToken>());
+        closedEnqueued.Should().BeFalse();
     }
 
     [AvaloniaFact]

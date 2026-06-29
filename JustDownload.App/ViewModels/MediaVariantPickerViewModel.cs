@@ -1,6 +1,10 @@
 using System.Collections.ObjectModel;
+using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using CommunityToolkit.Mvvm.ComponentModel;
+using JustDownload.App.Services;
+using JustDownload.Core.Categorization;
+using JustDownload.Core.Lifecycle;
 using JustDownload.Core.Media;
 using JustDownload.Core.Media.Extraction;
 using JustDownload.Core.Settings;
@@ -36,7 +40,14 @@ public sealed partial class MediaVariantPickerViewModel : ViewModelBase
 {
     private readonly IMediaExtractorRegistry _registry;
     private readonly ISettingsService _settings;
+    private readonly IDownloadManager _manager;
+    private readonly IDownloadActions _actions;
+    private readonly IDownloadFolderProvider _folders;
     private readonly ILogger<MediaVariantPickerViewModel> _logger;
+    private MediaSource? _source;
+
+    [ObservableProperty]
+    private string _url = string.Empty;
 
     [ObservableProperty]
     private bool _isLoading;
@@ -59,16 +70,28 @@ public sealed partial class MediaVariantPickerViewModel : ViewModelBase
     public MediaVariantPickerViewModel(
         IMediaExtractorRegistry registry,
         ISettingsService settings,
+        IDownloadManager manager,
+        IDownloadActions actions,
+        IDownloadFolderProvider folders,
         ILogger<MediaVariantPickerViewModel> logger)
     {
         ArgumentNullException.ThrowIfNull(registry);
         ArgumentNullException.ThrowIfNull(settings);
+        ArgumentNullException.ThrowIfNull(manager);
+        ArgumentNullException.ThrowIfNull(actions);
+        ArgumentNullException.ThrowIfNull(folders);
         ArgumentNullException.ThrowIfNull(logger);
         _registry = registry;
         _settings = settings;
+        _manager = manager;
+        _actions = actions;
+        _folders = folders;
         _logger = logger;
         _selectedContainer = settings.Current.DefaultContainer;
     }
+
+    /// <summary>Raised when the dialog should close; <see langword="true"/> when a media download was enqueued.</summary>
+    public event EventHandler<bool>? CloseRequested;
 
     /// <summary>The video qualities found for the URL, highest-first.</summary>
     public ObservableCollection<VariantOption> Variants { get; } = new();
@@ -86,6 +109,82 @@ public sealed partial class MediaVariantPickerViewModel : ViewModelBase
     /// <summary>Whether any selectable audio renditions were found (separate-streams media).</summary>
     public bool HasAudio => AudioVariants.Count > 0;
 
+    /// <summary>Whether the current <see cref="Url"/> is a well-formed http(s) URL worth extracting (the view triggers it).</summary>
+    public bool CanDetect => TryGetUrl(out _);
+
+    /// <summary>Whether a variant is chosen and can be downloaded.</summary>
+    public bool CanConfirm => SelectedVariant is not null && _source is not null;
+
+    /// <summary>Extracts the media at the current <see cref="Url"/> (called by the view on commit).</summary>
+    public async Task DetectAsync()
+    {
+        if (TryGetUrl(out Uri? uri))
+        {
+            await LoadAsync(uri).ConfigureAwait(true);
+        }
+    }
+
+    /// <summary>
+    /// Enqueues the chosen variant as a media download (TASK-100): video stream + optional audio + container,
+    /// saved into the Video category folder, then starts it. Raises <see cref="CloseRequested"/>.
+    /// </summary>
+    public async Task ConfirmAsync()
+    {
+        if (SelectedVariant is null || _source is null)
+        {
+            CloseRequested?.Invoke(this, false);
+            return;
+        }
+
+        string videoUrl = SelectedVariant.Variant.Id;
+        var request = new EnqueueDownloadRequest
+        {
+            Url = new Uri(videoUrl),
+            DestinationDirectory = _folders.GetFolderForCategory(FileCategory.Video),
+            FileName = MediaFileName(_source.SuggestedFileName, videoUrl, SelectedContainer),
+            CategoryType = FileCategory.Video.ToString(),
+            MediaKind = Kind,
+            MediaAudioUrl = SelectedAudio is { } audio ? new Uri(audio.Variant.Id) : null,
+            MediaContainer = SelectedContainer,
+        };
+
+        long id = await _manager.EnqueueAsync(request).ConfigureAwait(true);
+        _actions.Start(id);
+        CloseRequested?.Invoke(this, true);
+    }
+
+    private bool TryGetUrl([NotNullWhen(true)] out Uri? uri)
+    {
+        uri = null;
+        if (Uri.TryCreate(Url.Trim(), UriKind.Absolute, out Uri? parsed)
+            && (parsed.Scheme == Uri.UriSchemeHttp || parsed.Scheme == Uri.UriSchemeHttps))
+        {
+            uri = parsed;
+            return true;
+        }
+
+        return false;
+    }
+
+    private static string MediaFileName(string? suggested, string videoUrl, MediaContainer container)
+    {
+        string baseName = !string.IsNullOrWhiteSpace(suggested)
+            ? Path.GetFileNameWithoutExtension(suggested)
+            : Path.GetFileNameWithoutExtension(new Uri(videoUrl).AbsolutePath);
+        if (string.IsNullOrWhiteSpace(baseName))
+        {
+            baseName = "video";
+        }
+
+        string extension = container switch
+        {
+            MediaContainer.Mp4 => ".mp4",
+            MediaContainer.Webm => ".webm",
+            _ => ".mkv",
+        };
+        return baseName + extension;
+    }
+
     /// <summary>
     /// Extracts the media at <paramref name="url"/> and populates the pickers, pre-selecting the user's
     /// default quality and container (AC1). Sets <see cref="Message"/> for progressive/unrecognised media.
@@ -99,6 +198,7 @@ public sealed partial class MediaVariantPickerViewModel : ViewModelBase
 
         IsLoading = true;
         Message = null;
+        _source = null;
         Variants.Clear();
         AudioVariants.Clear();
         SelectedVariant = null;
@@ -116,6 +216,7 @@ public sealed partial class MediaVariantPickerViewModel : ViewModelBase
                 return;
             }
 
+            _source = source;
             Kind = source.Kind;
             foreach (VideoVariant variant in source.Variants)
             {

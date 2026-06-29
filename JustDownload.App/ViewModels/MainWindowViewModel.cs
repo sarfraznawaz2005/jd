@@ -151,6 +151,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <summary>Raised when the user opens the Browsers panel (extension/browser integration).</summary>
     public event EventHandler? BrowsersRequested;
 
+    /// <summary>Raised to open the add-media (quality picker) dialog (TASK-100).</summary>
+    public event EventHandler? NewMediaRequested;
+
     /// <summary>Raised to import a URL list into the queue (TASK-140); the shell runs the open-file picker.</summary>
     public event EventHandler? ImportListRequested;
 
@@ -181,6 +184,10 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     [RelayCommand]
     private void ShowBrowsers() => BrowsersRequested?.Invoke(this, EventArgs.Empty);
 
+    /// <summary>Opens the add-media dialog to pick a quality/variant and download it (TASK-100).</summary>
+    [RelayCommand]
+    private void NewMedia() => NewMediaRequested?.Invoke(this, EventArgs.Empty);
+
     /// <summary>Imports a URL list (M3U/CSV/JSON) into the queue (TASK-140).</summary>
     [RelayCommand]
     private void ImportList() => ImportListRequested?.Invoke(this, EventArgs.Empty);
@@ -203,6 +210,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         {
             new("New URL…", "Actions", () => NewDownloadRequested?.Invoke(this, EventArgs.Empty),
                 "new", "add", "download", "url", "link"),
+            new("Add media (choose quality)…", "Actions", () => NewMediaRequested?.Invoke(this, EventArgs.Empty),
+                "media", "video", "quality", "hls", "dash", "stream", "youtube"),
             new("Toggle theme", "Actions", () => _theme.Toggle(),
                 "theme", "dark", "light", "appearance"),
             new("Toggle density", "Actions", () => _density.Toggle(),
