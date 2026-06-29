@@ -84,6 +84,12 @@ public sealed record AppSettings
     /// <summary>Whether the app is registered to launch at OS login (TASK-122). Opt-in — default <see langword="false"/>.</summary>
     public bool LaunchAtStartup { get; init; }
 
+    /// <summary>
+    /// Whether desktop notifications are shown when a download finishes or fails (TASK-123). On by default;
+    /// turn off to silence completion/error toasts.
+    /// </summary>
+    public bool NotificationsEnabled { get; init; } = true;
+
     /// <summary>The global proxy kind applied to downloads (TASK-125). Default <see cref="ProxyKind.None"/>.</summary>
     public ProxyKind ProxyKind { get; init; } = ProxyKind.None;
 

@@ -1,12 +1,14 @@
 using JustDownload.Core.Data.Repositories;
 using JustDownload.Core.Lifecycle;
+using JustDownload.Core.Settings;
 
 namespace JustDownload.App.Services;
 
 /// <summary>
 /// Raises a user notification when a download completes or fails (TASK-061 AC0). It listens to the
 /// <see cref="IDownloadManager"/>'s status changes and, on a terminal transition, looks up the file name and
-/// shows a success/error toast through the <see cref="INotificationService"/>. Start it once at app startup;
+/// shows a success/error toast through the <see cref="INotificationService"/> — unless the user turned
+/// notifications off (<see cref="AppSettings.NotificationsEnabled"/>, TASK-123). Start it once at app startup;
 /// dispose unsubscribes.
 /// </summary>
 public sealed class DownloadNotifier : IDisposable
@@ -14,17 +16,23 @@ public sealed class DownloadNotifier : IDisposable
     private readonly IDownloadManager _manager;
     private readonly IDownloadRepository _repository;
     private readonly INotificationService _notifications;
+    private readonly ISettingsService _settings;
     private bool _disposed;
 
     public DownloadNotifier(
-        IDownloadManager manager, IDownloadRepository repository, INotificationService notifications)
+        IDownloadManager manager,
+        IDownloadRepository repository,
+        INotificationService notifications,
+        ISettingsService settings)
     {
         ArgumentNullException.ThrowIfNull(manager);
         ArgumentNullException.ThrowIfNull(repository);
         ArgumentNullException.ThrowIfNull(notifications);
+        ArgumentNullException.ThrowIfNull(settings);
         _manager = manager;
         _repository = repository;
         _notifications = notifications;
+        _settings = settings;
     }
 
     /// <summary>Begins listening for completion/error transitions.</summary>
@@ -32,7 +40,9 @@ public sealed class DownloadNotifier : IDisposable
 
     private void OnStatusChanged(object? sender, DownloadStatusChangedEventArgs e)
     {
-        if (e.Current is DownloadStatus.Completed or DownloadStatus.Failed)
+        // Honour the opt-out live (read on each event) so toggling it takes effect without a restart.
+        if (_settings.Current.NotificationsEnabled &&
+            e.Current is DownloadStatus.Completed or DownloadStatus.Failed)
         {
             _ = NotifyAsync(e.DownloadId, e.Current);
         }

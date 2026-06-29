@@ -45,6 +45,9 @@ public sealed partial class GeneralSettingsViewModel : ViewModelBase
     [ObservableProperty]
     private bool _launchAtStartup;
 
+    [ObservableProperty]
+    private bool _notificationsEnabled;
+
     public GeneralSettingsViewModel(ISettingsService settings, IThemeService theme)
     {
         ArgumentNullException.ThrowIfNull(settings);
@@ -63,6 +66,7 @@ public sealed partial class GeneralSettingsViewModel : ViewModelBase
         _closeToTray = current.CloseToTray;
         _monitorClipboard = current.MonitorClipboard;
         _launchAtStartup = current.LaunchAtStartup;
+        _notificationsEnabled = current.NotificationsEnabled;
         _suppress = false;
     }
 
@@ -184,6 +188,14 @@ public sealed partial class GeneralSettingsViewModel : ViewModelBase
         if (!_suppress)
         {
             _ = _settings.UpdateAsync(s => s with { LaunchAtStartup = value });
+        }
+    }
+
+    partial void OnNotificationsEnabledChanged(bool value)
+    {
+        if (!_suppress)
+        {
+            _ = _settings.UpdateAsync(s => s with { NotificationsEnabled = value });
         }
     }
 }

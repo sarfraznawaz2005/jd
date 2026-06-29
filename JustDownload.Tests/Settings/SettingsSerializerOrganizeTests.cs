@@ -157,4 +157,17 @@ public sealed class SettingsSerializerOrganizeTests
         SettingsSerializer.FromStorage(new Dictionary<string, string?>(), NullLogger.Instance)
             .LaunchAtStartup.Should().BeFalse();
     }
+
+    [Fact]
+    public void RoundTrips_NotificationsEnabled_AndDefaultsOn()
+    {
+        IReadOnlyDictionary<string, string> stored =
+            SettingsSerializer.ToStorage(new AppSettings { NotificationsEnabled = false });
+        SettingsSerializer.FromStorage(
+            stored.ToDictionary(kv => kv.Key, kv => (string?)kv.Value), NullLogger.Instance)
+            .NotificationsEnabled.Should().BeFalse();
+
+        SettingsSerializer.FromStorage(new Dictionary<string, string?>(), NullLogger.Instance)
+            .NotificationsEnabled.Should().BeTrue("notifications default on");
+    }
 }

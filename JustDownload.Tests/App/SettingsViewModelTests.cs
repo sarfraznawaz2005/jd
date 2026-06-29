@@ -142,6 +142,18 @@ public sealed class SettingsViewModelTests
     }
 
     [Fact]
+    public void General_NotificationsEnabled_DefaultsOn_AndPersists()
+    {
+        ISettingsService settings = Settings();
+        var vm = new GeneralSettingsViewModel(settings, Substitute.For<IThemeService>());
+
+        vm.NotificationsEnabled.Should().BeTrue("notifications are on by default");
+
+        vm.NotificationsEnabled = false;
+        Persisted(settings, new AppSettings()).NotificationsEnabled.Should().BeFalse();
+    }
+
+    [Fact]
     public void General_DefaultDownloadFolderPersists_AndEmptyClearsToNull()
     {
         ISettingsService settings = Settings();

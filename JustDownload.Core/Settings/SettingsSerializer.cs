@@ -26,6 +26,7 @@ internal static partial class SettingsSerializer
     internal const string CloseToTrayKey = "tray.close_to_tray";
     internal const string MonitorClipboardKey = "clipboard.monitor";
     internal const string LaunchAtStartupKey = "startup.launch_at_login";
+    internal const string NotificationsEnabledKey = "notifications.enabled";
     internal const string ProxyKindKey = "proxy.kind";
     internal const string ProxyHostKey = "proxy.host";
     internal const string ProxyPortKey = "proxy.port";
@@ -65,6 +66,7 @@ internal static partial class SettingsSerializer
             [CloseToTrayKey] = settings.CloseToTray.ToString(CultureInfo.InvariantCulture),
             [MonitorClipboardKey] = settings.MonitorClipboard.ToString(CultureInfo.InvariantCulture),
             [LaunchAtStartupKey] = settings.LaunchAtStartup.ToString(CultureInfo.InvariantCulture),
+            [NotificationsEnabledKey] = settings.NotificationsEnabled.ToString(CultureInfo.InvariantCulture),
             [ProxyKindKey] = settings.ProxyKind.ToString(),
             [ProxyHostKey] = settings.ProxyHost ?? string.Empty,
             [ProxyPortKey] = settings.ProxyPort.ToString(CultureInfo.InvariantCulture),
@@ -115,6 +117,7 @@ internal static partial class SettingsSerializer
             CloseToTray = ParseBool(stored, CloseToTrayKey, defaults.CloseToTray, logger),
             MonitorClipboard = ParseBool(stored, MonitorClipboardKey, defaults.MonitorClipboard, logger),
             LaunchAtStartup = ParseBool(stored, LaunchAtStartupKey, defaults.LaunchAtStartup, logger),
+            NotificationsEnabled = ParseBool(stored, NotificationsEnabledKey, defaults.NotificationsEnabled, logger),
             ProxyKind = ParseEnum(stored, ProxyKindKey, defaults.ProxyKind, logger),
             ProxyHost = ParseOptionalString(stored, ProxyHostKey, defaults.ProxyHost),
             ProxyPort = ParseInt(stored, ProxyPortKey, defaults.ProxyPort, logger),

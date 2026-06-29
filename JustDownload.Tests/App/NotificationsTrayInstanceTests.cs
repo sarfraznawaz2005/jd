@@ -5,6 +5,7 @@ using JustDownload.Core.Data.Models;
 using JustDownload.Core.Data.Repositories;
 using JustDownload.Core.Downloading;
 using JustDownload.Core.Lifecycle;
+using JustDownload.Core.Settings;
 using NSubstitute;
 using Xunit;
 
@@ -50,6 +51,13 @@ public sealed class NotificationsTrayInstanceTests
         return repo;
     }
 
+    private static ISettingsService Settings(bool notificationsEnabled = true)
+    {
+        var settings = Substitute.For<ISettingsService>();
+        settings.Current.Returns(new AppSettings { NotificationsEnabled = notificationsEnabled });
+        return settings;
+    }
+
     // --- AC0: notifications ----------------------------------------------------------------------
 
     [Fact]
@@ -57,7 +65,7 @@ public sealed class NotificationsTrayInstanceTests
     {
         var manager = new FakeManager();
         var notifications = new RecordingNotifications();
-        using var notifier = new DownloadNotifier(manager, RepoWithFilename("movie.mp4"), notifications);
+        using var notifier = new DownloadNotifier(manager, RepoWithFilename("movie.mp4"), notifications, Settings());
         notifier.Start();
 
         manager.Raise(1, DownloadStatus.Completed);
@@ -73,7 +81,7 @@ public sealed class NotificationsTrayInstanceTests
     {
         var manager = new FakeManager();
         var notifications = new RecordingNotifications();
-        using var notifier = new DownloadNotifier(manager, RepoWithFilename("iso.img"), notifications);
+        using var notifier = new DownloadNotifier(manager, RepoWithFilename("iso.img"), notifications, Settings());
         notifier.Start();
 
         manager.Raise(2, DownloadStatus.Failed);
@@ -87,7 +95,7 @@ public sealed class NotificationsTrayInstanceTests
     {
         var manager = new FakeManager();
         var notifications = new RecordingNotifications();
-        using var notifier = new DownloadNotifier(manager, RepoWithFilename("x"), notifications);
+        using var notifier = new DownloadNotifier(manager, RepoWithFilename("x"), notifications, Settings());
         notifier.Start();
 
         manager.Raise(1, DownloadStatus.Active);
@@ -95,6 +103,21 @@ public sealed class NotificationsTrayInstanceTests
         await Task.Delay(50);
 
         notifications.Shown.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Notifier_DoesNotNotify_WhenNotificationsDisabled()
+    {
+        var manager = new FakeManager();
+        var notifications = new RecordingNotifications();
+        using var notifier = new DownloadNotifier(
+            manager, RepoWithFilename("x.bin"), notifications, Settings(notificationsEnabled: false));
+        notifier.Start();
+
+        manager.Raise(1, DownloadStatus.Completed);
+        await Task.Delay(50);
+
+        notifications.Shown.Should().BeEmpty("the notifications setting is off (TASK-123)");
     }
 
     // --- AC1: tray menu --------------------------------------------------------------------------

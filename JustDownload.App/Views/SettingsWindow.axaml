@@ -74,6 +74,11 @@
             <TextBlock Text="Launch JustDownload at login" VerticalAlignment="Center"
                        Foreground="{DynamicResource TextBrush}" />
           </StackPanel>
+          <StackPanel Orientation="Horizontal" Spacing="12">
+            <ToggleSwitch IsChecked="{Binding NotificationsEnabled, Mode=TwoWay}" />
+            <TextBlock Text="Show a notification when a download finishes or fails" VerticalAlignment="Center"
+                       Foreground="{DynamicResource TextBrush}" />
+          </StackPanel>
         </StackPanel>
         <StackPanel Spacing="6">
           <TextBlock Text="Clipboard" Classes="StatKey" />
