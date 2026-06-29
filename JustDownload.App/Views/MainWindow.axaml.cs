@@ -1,6 +1,5 @@
 using Avalonia;
 using Avalonia.Controls;
-using Avalonia.Data;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Platform.Storage;
@@ -188,12 +187,26 @@ public partial class MainWindow : Window
             {
                 Header = column.Header?.ToString() ?? "Column",
                 ToggleType = MenuItemToggleType.CheckBox,
+                IsChecked = column.IsVisible,
             };
-            item.Bind(MenuItem.IsCheckedProperty, new Binding(nameof(DataGridColumn.IsVisible))
+
+            // Two-way sync by hand (no reflection Binding) so the app trims cleanly (TASK-075). Setting a
+            // property to its current value doesn't re-raise, so the two handlers can't loop.
+            DataGridColumn boundColumn = column;
+            item.PropertyChanged += (_, e) =>
             {
-                Source = column,
-                Mode = BindingMode.TwoWay,
-            });
+                if (e.Property == MenuItem.IsCheckedProperty)
+                {
+                    boundColumn.IsVisible = item.IsChecked;
+                }
+            };
+            boundColumn.PropertyChanged += (_, e) =>
+            {
+                if (e.Property == DataGridColumn.IsVisibleProperty)
+                {
+                    item.IsChecked = boundColumn.IsVisible;
+                }
+            };
             items.Add(item);
         }
 

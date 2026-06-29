@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Reflection;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -107,9 +106,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             return plus >= 0 ? informational[..plus] : informational;
         }
 
-        return FileVersionInfo.GetVersionInfo(assembly.Location).ProductVersion
-            ?? assembly.GetName().Version?.ToString()
-            ?? "0.0.0";
+        // Fall back to the assembly version. (Avoid FileVersionInfo on assembly.Location — it returns an
+        // empty path in a single-file bundle, so the engine stays single-file-safe, TASK-075.)
+        return assembly.GetName().Version?.ToString() ?? "0.0.0";
     }
 
     /// <summary>Raised when the user invokes "New URL" — the shell opens the new-download dialog (TASK-053).</summary>

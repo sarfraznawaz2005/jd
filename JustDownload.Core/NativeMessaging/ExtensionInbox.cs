@@ -21,9 +21,6 @@ public interface IExtensionInbox
 /// <summary>Default <see cref="IExtensionInbox"/> backed by a JSON file under the app-data directory (TASK-070).</summary>
 public sealed class ExtensionInbox : IExtensionInbox, IDisposable
 {
-    private static readonly JsonSerializerOptions JsonOptions =
-        new(JsonSerializerOptions.Default) { WriteIndented = false };
-
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly string _path;
 
@@ -88,7 +85,8 @@ public sealed class ExtensionInbox : IExtensionInbox, IDisposable
         {
             await using FileStream stream = File.OpenRead(_path);
             List<PendingLink>? links = await JsonSerializer
-                .DeserializeAsync<List<PendingLink>>(stream, JsonOptions, cancellationToken).ConfigureAwait(false);
+                .DeserializeAsync(stream, NativeMessagingJsonContext.Default.ListPendingLink, cancellationToken)
+                .ConfigureAwait(false);
             return links ?? [];
         }
         catch (JsonException)
@@ -101,7 +99,9 @@ public sealed class ExtensionInbox : IExtensionInbox, IDisposable
     {
         Directory.CreateDirectory(Path.GetDirectoryName(_path)!);
         await using FileStream stream = File.Create(_path);
-        await JsonSerializer.SerializeAsync(stream, links, JsonOptions, cancellationToken).ConfigureAwait(false);
+        await JsonSerializer
+            .SerializeAsync(stream, links, NativeMessagingJsonContext.Default.ListPendingLink, cancellationToken)
+            .ConfigureAwait(false);
     }
 
     public void Dispose() => _gate.Dispose();

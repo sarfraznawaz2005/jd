@@ -1,5 +1,4 @@
 using System.Text.Json;
-using System.Text.Json.Nodes;
 
 namespace JustDownload.Core.NativeMessaging.Registration;
 
@@ -11,43 +10,21 @@ namespace JustDownload.Core.NativeMessaging.Registration;
 /// </summary>
 public static class NativeHostManifest
 {
-    // Copy from Default so a type-info resolver is present (required by ToJsonString with custom options).
-    private static readonly JsonSerializerOptions WriteOptions =
-        new(JsonSerializerOptions.Default) { WriteIndented = true };
-
     /// <summary>Builds the manifest JSON for <paramref name="browser"/> from <paramref name="registration"/>.</summary>
     public static string Build(NativeMessagingBrowser browser, NativeHostRegistration registration)
     {
         ArgumentNullException.ThrowIfNull(registration);
 
-        var manifest = new JsonObject
+        bool firefox = browser == NativeMessagingBrowser.Firefox;
+        var manifest = new NativeHostManifestDto
         {
-            ["name"] = registration.Name,
-            ["description"] = registration.Description,
-            ["path"] = registration.ExecutablePath,
-            ["type"] = "stdio",
+            Name = registration.Name,
+            Description = registration.Description,
+            Path = registration.ExecutablePath,
+            AllowedOrigins = firefox ? null : registration.AllowedOrigins,
+            AllowedExtensions = firefox ? registration.AllowedExtensionIds : null,
         };
 
-        if (browser == NativeMessagingBrowser.Firefox)
-        {
-            manifest["allowed_extensions"] = ToArray(registration.AllowedExtensionIds);
-        }
-        else
-        {
-            manifest["allowed_origins"] = ToArray(registration.AllowedOrigins);
-        }
-
-        return manifest.ToJsonString(WriteOptions);
-    }
-
-    private static JsonArray ToArray(IReadOnlyList<string> values)
-    {
-        var array = new JsonArray();
-        foreach (string value in values)
-        {
-            array.Add(value);
-        }
-
-        return array;
+        return JsonSerializer.Serialize(manifest, HostManifestJsonContext.Default.NativeHostManifestDto);
     }
 }

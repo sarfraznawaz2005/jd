@@ -1,5 +1,4 @@
 using System.Text.Json;
-using System.Text.Json.Nodes;
 using JustDownload.Core.Data.Models;
 using JustDownload.Core.Data.Repositories;
 using JustDownload.Core.Settings;
@@ -148,14 +147,13 @@ internal sealed partial class ExtensionMessageHandler : INativeMessageHandler
         // Hydrate from storage so the popup reflects the user's actual app settings (TASK-071 AC2).
         await _settings.LoadAsync(cancellationToken).ConfigureAwait(false);
         AppSettings s = _settings.Current;
-        var payload = new JsonObject
+        var payload = new ExtensionSettingsDto
         {
-            ["type"] = "settings",
-            ["defaultVideoQuality"] = (int)s.DefaultVideoQuality,
-            ["defaultContainer"] = s.DefaultContainer.ToString().ToLowerInvariant(),
-            ["maxConcurrentDownloads"] = s.MaxConcurrentDownloads,
+            DefaultVideoQuality = (int)s.DefaultVideoQuality,
+            DefaultContainer = s.DefaultContainer.ToString().ToLowerInvariant(),
+            MaxConcurrentDownloads = s.MaxConcurrentDownloads,
         };
-        return payload.ToJsonString();
+        return JsonSerializer.Serialize(payload, NativeMessagingJsonContext.Default.ExtensionSettingsDto);
     }
 
     private static string? ReadString(JsonElement root, string name) =>
