@@ -134,6 +134,20 @@
                 <TextBlock Text="Category" Classes="StatKey" />
                 <TextBlock Text="{Binding CategoryDisplay}" Classes="OptionValue" />
               </StackPanel>
+              <StackPanel Spacing="6">
+                <TextBlock Text="Verify checksum" Classes="StatKey" />
+                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                  <TextBox Grid.Column="0"
+                           Watermark="Paste an MD5 or SHA-256 hash"
+                           Text="{Binding ExpectedChecksum}" />
+                  <Button Grid.Column="1"
+                          Content="Verify"
+                          Command="{Binding VerifyChecksumCommand}" />
+                </Grid>
+                <TextBlock Text="{Binding ChecksumStatus}"
+                           Classes="OptionValue"
+                           IsVisible="{Binding ChecksumStatus, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+              </StackPanel>
             </StackPanel>
           </ScrollViewer>
         </TabItem>

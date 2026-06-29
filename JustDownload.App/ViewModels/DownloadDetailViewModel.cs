@@ -4,6 +4,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using JustDownload.App.Formatting;
 using JustDownload.App.Services;
+using JustDownload.Core.Integrity;
 using JustDownload.Core.Lifecycle;
 
 namespace JustDownload.App.ViewModels;
@@ -19,6 +20,7 @@ public sealed partial class DownloadDetailViewModel : ViewModelBase, IDisposable
 {
     private readonly IDownloadManager _manager;
     private readonly IDownloadActions _actions;
+    private readonly IChecksumVerifier _checksums;
     private readonly Dictionary<int, ConnectionRowViewModel> _connectionsById = [];
 
     [ObservableProperty]
@@ -30,7 +32,17 @@ public sealed partial class DownloadDetailViewModel : ViewModelBase, IDisposable
     [NotifyCanExecuteChangedFor(nameof(PauseCommand))]
     [NotifyCanExecuteChangedFor(nameof(CancelCommand))]
     [NotifyCanExecuteChangedFor(nameof(DetachCommand))]
+    [NotifyCanExecuteChangedFor(nameof(VerifyChecksumCommand))]
     private DownloadRowViewModel? _selected;
+
+    /// <summary>The user-entered MD5/SHA-256 hash to verify the completed file against (Options tab, TASK-132).</summary>
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(VerifyChecksumCommand))]
+    private string _expectedChecksum = string.Empty;
+
+    /// <summary>The verification result shown to the user ("✓ Matches", "✗ Does not match", …).</summary>
+    [ObservableProperty]
+    private string _checksumStatus = string.Empty;
 
     [ObservableProperty]
     private string _totalSizeDisplay = "—";
@@ -44,12 +56,14 @@ public sealed partial class DownloadDetailViewModel : ViewModelBase, IDisposable
     [ObservableProperty]
     private int _activeTabIndex;
 
-    public DownloadDetailViewModel(IDownloadManager manager, IDownloadActions actions)
+    public DownloadDetailViewModel(
+        IDownloadManager manager, IDownloadActions actions, IChecksumVerifier? checksums = null)
     {
         ArgumentNullException.ThrowIfNull(manager);
         ArgumentNullException.ThrowIfNull(actions);
         _manager = manager;
         _actions = actions;
+        _checksums = checksums ?? new ChecksumVerifier();
         Segments = new SegmentVisualizationViewModel(BuildStreamSnapshots);
         _manager.ProgressChanged += OnProgressChanged;
         _manager.StatusChanged += OnStatusChanged;
@@ -81,6 +95,8 @@ public sealed partial class DownloadDetailViewModel : ViewModelBase, IDisposable
     public void Select(DownloadRowViewModel? row)
     {
         Selected = row;
+        ExpectedChecksum = string.Empty;
+        ChecksumStatus = string.Empty;
         Connections.Clear();
         _connectionsById.Clear();
         RefreshStats();
@@ -131,6 +147,7 @@ public sealed partial class DownloadDetailViewModel : ViewModelBase, IDisposable
             ResumeCommand.NotifyCanExecuteChanged();
             PauseCommand.NotifyCanExecuteChanged();
             CancelCommand.NotifyCanExecuteChanged();
+            VerifyChecksumCommand.NotifyCanExecuteChanged();
             RefreshConnections();
             UpdateSegmentVisualization();
         });
@@ -213,6 +230,35 @@ public sealed partial class DownloadDetailViewModel : ViewModelBase, IDisposable
 
     [RelayCommand(CanExecute = nameof(HasSelection))]
     private void Detach() => DetachRequested?.Invoke(this, Selected!);
+
+    /// <summary>
+    /// Verifies the completed file against <see cref="ExpectedChecksum"/> (TASK-132) and shows the outcome.
+    /// Enabled only for a completed download with a resolved file path and a non-empty expected hash.
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(CanVerifyChecksum))]
+    private async Task VerifyChecksumAsync(CancellationToken cancellationToken)
+    {
+        if (Selected?.FilePath is not { Length: > 0 } path)
+        {
+            return;
+        }
+
+        ChecksumStatus = "Verifying…";
+        ChecksumResult result = await _checksums.VerifyAsync(path, ExpectedChecksum, cancellationToken);
+        ChecksumStatus = result.Outcome switch
+        {
+            ChecksumOutcome.Match => "✓ Matches",
+            ChecksumOutcome.Mismatch => "✗ Does not match",
+            ChecksumOutcome.UnrecognizedHashFormat => "Unrecognized hash (expected MD5 or SHA-256)",
+            ChecksumOutcome.FileNotFound => "File not found",
+            _ => "—",
+        };
+    }
+
+    private bool CanVerifyChecksum() =>
+        Selected?.IsCompleted == true &&
+        Selected.FilePath is { Length: > 0 } &&
+        !string.IsNullOrWhiteSpace(ExpectedChecksum);
 
     public void Dispose()
     {

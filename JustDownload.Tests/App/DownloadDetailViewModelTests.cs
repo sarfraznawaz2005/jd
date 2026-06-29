@@ -194,4 +194,89 @@ public sealed class DownloadDetailViewModelTests
             manager,
             new DownloadProgressChangedEventArgs(
                 id, DownloadProgress.Create(DownloadStatus.Active, 1, 4_000_000, 1, resumable: true)));
+
+    private static DownloadRowViewModel CompletedRowOverFile(string dir, string fileName) =>
+        new(
+            new Download
+            {
+                Id = 1,
+                Url = "https://host.example/big.iso",
+                Filename = fileName,
+                Directory = dir,
+                TotalBytes = 1000,
+                Status = DownloadStatusCodes.Completed,
+                CreatedAt = Now,
+            },
+            Now,
+            FileCategory.Compressed);
+
+    [AvaloniaFact]
+    public async Task VerifyChecksum_MatchingHash_ShowsMatch()
+    {
+        string dir = Path.Combine(Path.GetTempPath(), "jd-detail-checksum-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        try
+        {
+            byte[] body = System.Security.Cryptography.RandomNumberGenerator.GetBytes(1000);
+            File.WriteAllBytes(Path.Combine(dir, "big.iso"), body);
+            string sha = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(body)).ToLowerInvariant();
+
+            var manager = Substitute.For<IDownloadManager>();
+            manager.GetConnections(Arg.Any<long>()).Returns([]);
+            var vm = new DownloadDetailViewModel(manager, Substitute.For<IDownloadActions>());
+            vm.Select(CompletedRowOverFile(dir, "big.iso"));
+
+            vm.ExpectedChecksum = sha;
+            vm.VerifyChecksumCommand.CanExecute(null).Should().BeTrue();
+            await vm.VerifyChecksumCommand.ExecuteAsync(null);
+
+            vm.ChecksumStatus.Should().Be("✓ Matches");
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [AvaloniaFact]
+    public async Task VerifyChecksum_WrongHash_ShowsMismatch()
+    {
+        string dir = Path.Combine(Path.GetTempPath(), "jd-detail-checksum-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        try
+        {
+            File.WriteAllBytes(Path.Combine(dir, "big.iso"), new byte[] { 1, 2, 3 });
+
+            var manager = Substitute.For<IDownloadManager>();
+            manager.GetConnections(Arg.Any<long>()).Returns([]);
+            var vm = new DownloadDetailViewModel(manager, Substitute.For<IDownloadActions>());
+            vm.Select(CompletedRowOverFile(dir, "big.iso"));
+
+            vm.ExpectedChecksum = new string('a', 64);
+            await vm.VerifyChecksumCommand.ExecuteAsync(null);
+
+            vm.ChecksumStatus.Should().Be("✗ Does not match");
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [AvaloniaFact]
+    public void VerifyChecksum_NotAllowed_WhenNotCompletedOrNoHash()
+    {
+        var manager = Substitute.For<IDownloadManager>();
+        manager.GetConnections(Arg.Any<long>()).Returns([]);
+        var vm = new DownloadDetailViewModel(manager, Substitute.For<IDownloadActions>());
+
+        // Active download with a hash → not verifiable (not complete).
+        vm.Select(Row(status: DownloadStatusCodes.Active));
+        vm.ExpectedChecksum = new string('a', 64);
+        vm.VerifyChecksumCommand.CanExecute(null).Should().BeFalse("only a completed download can be verified");
+
+        // Completed download but no hash entered → not verifiable.
+        vm.Select(Row(status: DownloadStatusCodes.Completed));
+        vm.VerifyChecksumCommand.CanExecute(null).Should().BeFalse("a hash is required");
+    }
 }

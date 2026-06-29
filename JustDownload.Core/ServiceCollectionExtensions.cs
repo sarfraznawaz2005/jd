@@ -5,6 +5,7 @@ using JustDownload.Core.Data.Migrations;
 using JustDownload.Core.Data.Repositories;
 using JustDownload.Core.Diagnostics;
 using JustDownload.Core.Downloading;
+using JustDownload.Core.Integrity;
 using JustDownload.Core.Lifecycle;
 using JustDownload.Core.Logging;
 using JustDownload.Core.Media;
@@ -56,6 +57,9 @@ public static class ServiceCollectionExtensions
 
         services.TryAddSingleton<IClock, SystemClock>();
         services.TryAddSingleton<IAppInfoProvider, AppInfoProvider>();
+
+        // Post-download integrity check against a user/page-supplied MD5/SHA-256 hash (TASK-132). Stateless.
+        services.TryAddSingleton<IChecksumVerifier, ChecksumVerifier>();
 
         services.AddJustDownloadLogging(configureLogging);
         services.AddJustDownloadData();
