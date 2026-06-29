@@ -80,6 +80,9 @@ public static class ServiceCollectionExtensions
         // Changed event are shared by every consumer.
         services.TryAddSingleton<ISettingsService, SettingsService>();
 
+        // Backup/migrate preferences to and from a portable JSON file (TASK-129).
+        services.TryAddSingleton<ISettingsTransfer, SettingsTransfer>();
+
         // Bridges the persisted global speed limit to the shared rate limiter (US-3). Singleton so its
         // Changed subscription lives for the app; the host calls ApplyCurrent() once after settings load.
         services.TryAddSingleton<GlobalSpeedLimitController>();

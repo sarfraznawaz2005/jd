@@ -38,7 +38,7 @@ public sealed class SettingsViewModelTests
     [Fact]
     public void AllSevenSections_ArePresent_InOrder()
     {
-        var vm = new SettingsViewModel(Settings(), Substitute.For<IThemeService>(), CategoryFolderRules.CreateDefault(), Substitute.For<JustDownload.Core.NativeMessaging.INativeHostInstaller>(), Substitute.For<JustDownload.Core.Security.ISecretStore>());
+        var vm = new SettingsViewModel(Settings(), Substitute.For<IThemeService>(), CategoryFolderRules.CreateDefault(), Substitute.For<JustDownload.Core.NativeMessaging.INativeHostInstaller>(), Substitute.For<JustDownload.Core.Security.ISecretStore>(), Substitute.For<ISettingsTransfer>());
 
         vm.Sections.Select(s => s.Label).Should()
             .Equal("General", "Connections", "Proxy", "Authentication", "Categories", "Browsers", "Advanced");
@@ -49,7 +49,7 @@ public sealed class SettingsViewModelTests
     [Fact]
     public void Select_SwitchesActiveSection()
     {
-        var vm = new SettingsViewModel(Settings(), Substitute.For<IThemeService>(), CategoryFolderRules.CreateDefault(), Substitute.For<JustDownload.Core.NativeMessaging.INativeHostInstaller>(), Substitute.For<JustDownload.Core.Security.ISecretStore>());
+        var vm = new SettingsViewModel(Settings(), Substitute.For<IThemeService>(), CategoryFolderRules.CreateDefault(), Substitute.For<JustDownload.Core.NativeMessaging.INativeHostInstaller>(), Substitute.For<JustDownload.Core.Security.ISecretStore>(), Substitute.For<ISettingsTransfer>());
         SettingsSectionViewModel connections = vm.Sections.Single(s => s.Label == "Connections");
 
         vm.SelectCommand.Execute(connections);
@@ -57,6 +57,56 @@ public sealed class SettingsViewModelTests
         vm.SelectedSection.Should().BeSameAs(connections);
         connections.IsSelected.Should().BeTrue();
         vm.Sections[0].IsSelected.Should().BeFalse();
+    }
+
+    private static SettingsViewModel Build(ISettingsService settings, ISettingsTransfer transfer) =>
+        new(settings, Substitute.For<IThemeService>(), CategoryFolderRules.CreateDefault(),
+            Substitute.For<JustDownload.Core.NativeMessaging.INativeHostInstaller>(),
+            Substitute.For<ISecretStore>(), transfer);
+
+    [Fact]
+    public async Task ExportToAsync_ExportsCurrentSettings_AndReportsSuccess()
+    {
+        var transfer = Substitute.For<ISettingsTransfer>();
+        SettingsViewModel vm = Build(Settings(new AppSettings { AutoExtractArchives = true }), transfer);
+
+        await vm.ExportToAsync("out.json");
+
+        await transfer.Received(1).ExportAsync(
+            Arg.Is<AppSettings>(s => s.AutoExtractArchives), "out.json", Arg.Any<CancellationToken>());
+        vm.TransferStatus.Should().Be("Settings exported.");
+    }
+
+    [Fact]
+    public async Task ImportFromAsync_AppliesImported_RebuildsSections_AndReportsSuccess()
+    {
+        var imported = new AppSettings { Theme = AppTheme.Dark, MonitorClipboard = true };
+        var transfer = Substitute.For<ISettingsTransfer>();
+        transfer.ImportAsync("in.json", Arg.Any<CancellationToken>()).Returns(imported);
+        ISettingsService settings = Settings();
+        SettingsViewModel vm = Build(settings, transfer);
+
+        await vm.ImportFromAsync("in.json");
+
+        await settings.Received().UpdateAsync(Arg.Any<Func<AppSettings, AppSettings>>(), Arg.Any<CancellationToken>());
+        Persisted(settings, new AppSettings()).Should().Be(imported);
+        vm.Sections.Select(s => s.Label).Should()
+            .Equal("General", "Connections", "Proxy", "Authentication", "Categories", "Browsers", "Advanced");
+        vm.SelectedSection.Label.Should().Be("General");
+        vm.TransferStatus.Should().Be("Settings imported.");
+    }
+
+    [Fact]
+    public async Task ImportFromAsync_ReportsFailure_OnInvalidFile()
+    {
+        var transfer = Substitute.For<ISettingsTransfer>();
+        transfer.When(t => t.ImportAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()))
+            .Do(_ => throw new InvalidDataException("not a valid export"));
+        SettingsViewModel vm = Build(Settings(), transfer);
+
+        await vm.ImportFromAsync("in.json");
+
+        vm.TransferStatus.Should().StartWith("Import failed");
     }
 
     [Fact]

@@ -28,4 +28,50 @@ public partial class SettingsWindow : Window
             vm.DefaultDownloadFolder = path;
         }
     }
+
+    private static readonly FilePickerFileType SettingsFileType =
+        new("JustDownload settings") { Patterns = ["*.json"] };
+
+    /// <summary>Picks a destination file and exports the current settings to it (TASK-129).</summary>
+    private async void OnExportSettings(object? sender, RoutedEventArgs e)
+    {
+        if (DataContext is not SettingsViewModel vm)
+        {
+            return;
+        }
+
+        IStorageFile? file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
+        {
+            Title = "Export settings",
+            SuggestedFileName = "justdownload-settings.json",
+            DefaultExtension = "json",
+            FileTypeChoices = [SettingsFileType],
+        });
+
+        if (file?.TryGetLocalPath() is { } path)
+        {
+            await vm.ExportToAsync(path);
+        }
+    }
+
+    /// <summary>Picks a settings export file and imports it, restoring the saved preferences (TASK-129).</summary>
+    private async void OnImportSettings(object? sender, RoutedEventArgs e)
+    {
+        if (DataContext is not SettingsViewModel vm)
+        {
+            return;
+        }
+
+        IReadOnlyList<IStorageFile> files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+        {
+            Title = "Import settings",
+            AllowMultiple = false,
+            FileTypeFilter = [SettingsFileType],
+        });
+
+        if (files.Count > 0 && files[0].TryGetLocalPath() is { } path)
+        {
+            await vm.ImportFromAsync(path);
+        }
+    }
 }

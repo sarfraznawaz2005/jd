@@ -24,7 +24,8 @@ public sealed class SettingsWindowTests
         settings.Current.Returns(new AppSettings());
         var vm = new SettingsViewModel(
             settings, new ThemeService(), CategoryFolderRules.CreateDefault(),
-            Substitute.For<INativeHostInstaller>(), Substitute.For<ISecretStore>());
+            Substitute.For<INativeHostInstaller>(), Substitute.For<ISecretStore>(),
+            Substitute.For<ISettingsTransfer>());
         var window = new SettingsWindow { DataContext = vm };
         window.Show();
 

@@ -238,10 +238,10 @@
 
   </Window.DataTemplates>
 
-  <Grid ColumnDefinitions="208,*">
+  <Grid ColumnDefinitions="208,*" RowDefinitions="*,Auto">
 
     <!-- Section nav rail -->
-    <Border Grid.Column="0" Background="{DynamicResource SidebarBrush}"
+    <Border Grid.Row="0" Grid.Column="0" Background="{DynamicResource SidebarBrush}"
             BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,1,0">
       <StackPanel Name="SettingsNav" Margin="8,14">
         <TextBlock Classes="NavLabel" Text="SETTINGS" />
@@ -265,8 +265,26 @@
     </Border>
 
     <!-- Selected section content -->
-    <ScrollViewer Grid.Column="1">
+    <ScrollViewer Grid.Row="0" Grid.Column="1">
       <ContentControl Margin="28,24" Content="{Binding SelectedSection.Content}" />
     </ScrollViewer>
+
+    <!-- Backup / restore footer (TASK-129) -->
+    <Border Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="2"
+            Background="{DynamicResource SidebarBrush}"
+            BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,1,0,0"
+            Padding="16,10">
+      <Grid ColumnDefinitions="Auto,Auto,*">
+        <Button Grid.Column="0" Classes="App" Click="OnExportSettings" Margin="0,0,8,0">
+          <TextBlock Text="Export settings…" VerticalAlignment="Center" />
+        </Button>
+        <Button Grid.Column="1" Classes="App" Click="OnImportSettings">
+          <TextBlock Text="Import settings…" VerticalAlignment="Center" />
+        </Button>
+        <TextBlock Grid.Column="2" Text="{Binding TransferStatus}" VerticalAlignment="Center"
+                   Margin="14,0,0,0" Foreground="{DynamicResource TextDimBrush}"
+                   IsVisible="{Binding TransferStatus, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+      </Grid>
+    </Border>
   </Grid>
 </Window>
