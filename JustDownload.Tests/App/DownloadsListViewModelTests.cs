@@ -353,4 +353,38 @@ public sealed class DownloadsListViewModelTests
 
         vm.Downloads.Should().ContainSingle().Which.FileName.Should().Be("file2.bin");
     }
+
+    // --- Incremental counts (TASK-108) -----------------------------------------------------------
+
+    [AvaloniaFact]
+    public async Task Counts_UpdateIncrementally_OnStatusChange_AndRemove()
+    {
+        var h = new Harness();
+        h.Repository.GetAllAsync(Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<Download>>(new[]
+            {
+                Record(1, DownloadStatusCodes.Completed),
+                Record(2, DownloadStatusCodes.Paused),
+            }));
+        var vm = h.Build();
+        await vm.LoadAsync();
+
+        vm.Counts.All.Should().Be(2);
+        vm.Counts.Completed.Should().Be(1);
+        vm.Counts.Incomplete.Should().Be(1);
+
+        // The paused download completes: the split shifts, the total is unchanged.
+        h.Manager.StatusChanged += Raise.Event<EventHandler<DownloadStatusChangedEventArgs>>(
+            h.Manager, new DownloadStatusChangedEventArgs(2, DownloadStatus.Paused, DownloadStatus.Completed));
+        Dispatcher.UIThread.RunJobs();
+        vm.Counts.Completed.Should().Be(2);
+        vm.Counts.Incomplete.Should().Be(0);
+
+        // Removing the (completed) download drops the total and the completed count.
+        vm.SelectedDownload = vm.Downloads.First(r => r.Id == 1);
+        await vm.RemoveCommand.ExecuteAsync(null);
+        vm.Counts.All.Should().Be(1);
+        vm.Counts.Completed.Should().Be(1, "the one still present is the now-completed #2");
+        vm.Counts.Incomplete.Should().Be(0);
+    }
 }

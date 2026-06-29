@@ -34,6 +34,16 @@ public sealed partial class DownloadsListViewModel : ViewModelBase, IDisposable
     private readonly List<DownloadRowViewModel> _allRows = new();
     private DownloadFilter _filter = DownloadFilter.All;
 
+    // Which rows are currently in the visible Downloads collection — an O(1) membership check so a status
+    // change that doesn't move a row in/out of the filter does no list scan (TASK-108).
+    private readonly HashSet<long> _visibleIds = new();
+
+    // Running counts maintained incrementally so a status change adjusts +1/-1 instead of rescanning the full
+    // set (TASK-108). Category totals only change on add/remove; the completed/incomplete split also on status.
+    private readonly Dictionary<FileCategory, int> _categoryCounts = new();
+    private int _completedCount;
+    private int _incompleteCount;
+
     [ObservableProperty]
     private bool _isLoading;
 
@@ -229,6 +239,7 @@ public sealed partial class DownloadsListViewModel : ViewModelBase, IDisposable
                 _byId[record.Id] = row;
             }
 
+            RecomputeCounts();
             RebuildVisible();
             RaiseCounts();
         }
@@ -270,7 +281,18 @@ public sealed partial class DownloadsListViewModel : ViewModelBase, IDisposable
             {
                 row.ApplyStatus(e.Current);
                 RefreshSelectionCommands(row);
-                // A status change can move a row in/out of a status filter and shifts the status counts.
+
+                // Adjust only the completed/incomplete split (category and total are unchanged by a status
+                // change) — +1/-1 from the previous→current status rather than a full rescan (TASK-108).
+                bool wasCompleted = e.Previous == DownloadStatus.Completed;
+                bool isCompleted = e.Current == DownloadStatus.Completed;
+                if (wasCompleted != isCompleted)
+                {
+                    _completedCount += isCompleted ? 1 : -1;
+                    _incompleteCount += isCompleted ? -1 : 1;
+                }
+
+                // A status change can move a row in/out of a status filter (O(1) check via _visibleIds).
                 ReevaluateMembership(row);
                 RaiseCounts();
             }
@@ -311,9 +333,11 @@ public sealed partial class DownloadsListViewModel : ViewModelBase, IDisposable
             DownloadRowViewModel row = CreateRow(record, now);
             _allRows.Insert(0, row); // newest first, matching the repository order
             _byId[id] = row;
+            AddToCounts(row);
             if (IsVisible(row))
             {
                 Downloads.Insert(0, row);
+                _visibleIds.Add(id);
             }
 
             RaiseListStateChanged();
@@ -397,8 +421,10 @@ public sealed partial class DownloadsListViewModel : ViewModelBase, IDisposable
         DownloadRowViewModel row = SelectedDownload!;
         await _actions.RemoveAsync(row.Id).ConfigureAwait(true);
         Downloads.Remove(row);
+        _visibleIds.Remove(row.Id);
         _allRows.Remove(row);
         _byId.Remove(row.Id);
+        RemoveFromCounts(row);
         if (ReferenceEquals(SelectedDownload, row))
         {
             SelectedDownload = null;
@@ -430,11 +456,13 @@ public sealed partial class DownloadsListViewModel : ViewModelBase, IDisposable
     private void RebuildVisible()
     {
         Downloads.Clear();
+        _visibleIds.Clear();
         foreach (DownloadRowViewModel row in _allRows)
         {
             if (IsVisible(row))
             {
                 Downloads.Add(row);
+                _visibleIds.Add(row.Id);
             }
         }
 
@@ -448,17 +476,24 @@ public sealed partial class DownloadsListViewModel : ViewModelBase, IDisposable
     private void ReevaluateMembership(DownloadRowViewModel row)
     {
         bool shouldShow = IsVisible(row);
-        int visibleIndex = Downloads.IndexOf(row);
-        if (shouldShow && visibleIndex < 0)
+        bool wasVisible = _visibleIds.Contains(row.Id);
+        if (shouldShow == wasVisible)
+        {
+            return; // common case: visibility unchanged — no list scan or mutation (TASK-108)
+        }
+
+        if (shouldShow)
         {
             Downloads.Insert(VisibleInsertIndex(row), row);
-            RaiseListStateChanged();
+            _visibleIds.Add(row.Id);
         }
-        else if (!shouldShow && visibleIndex >= 0)
+        else
         {
-            Downloads.RemoveAt(visibleIndex);
-            RaiseListStateChanged();
+            Downloads.Remove(row);
+            _visibleIds.Remove(row.Id);
         }
+
+        RaiseListStateChanged();
     }
 
     /// <summary>The index in <see cref="Downloads"/> that keeps it in the same (newest-first) order as the full set.</summary>
@@ -484,25 +519,57 @@ public sealed partial class DownloadsListViewModel : ViewModelBase, IDisposable
         CountsChanged?.Invoke(this, EventArgs.Empty);
     }
 
-    private DownloadCounts ComputeCounts()
+    // Snapshot the running counts (a fresh dictionary so a later mutation can't corrupt an emitted snapshot).
+    private DownloadCounts ComputeCounts() =>
+        new(_allRows.Count, new Dictionary<FileCategory, int>(_categoryCounts), _incompleteCount, _completedCount);
+
+    /// <summary>Rebuilds the running counts from the full set — one O(n) pass, used only on load.</summary>
+    private void RecomputeCounts()
     {
-        var byCategory = new Dictionary<FileCategory, int>();
-        int incomplete = 0;
-        int completed = 0;
+        _categoryCounts.Clear();
+        _completedCount = 0;
+        _incompleteCount = 0;
         foreach (DownloadRowViewModel row in _allRows)
         {
-            byCategory[row.Category] = byCategory.GetValueOrDefault(row.Category) + 1;
-            if (row.IsCompleted)
+            AddToCounts(row);
+        }
+    }
+
+    private void AddToCounts(DownloadRowViewModel row)
+    {
+        _categoryCounts[row.Category] = _categoryCounts.GetValueOrDefault(row.Category) + 1;
+        if (row.IsCompleted)
+        {
+            _completedCount++;
+        }
+        else
+        {
+            _incompleteCount++;
+        }
+    }
+
+    private void RemoveFromCounts(DownloadRowViewModel row)
+    {
+        if (_categoryCounts.TryGetValue(row.Category, out int n))
+        {
+            if (n <= 1)
             {
-                completed++;
+                _categoryCounts.Remove(row.Category);
             }
             else
             {
-                incomplete++;
+                _categoryCounts[row.Category] = n - 1;
             }
         }
 
-        return new DownloadCounts(_allRows.Count, byCategory, incomplete, completed);
+        if (row.IsCompleted)
+        {
+            _completedCount--;
+        }
+        else
+        {
+            _incompleteCount--;
+        }
     }
 
     public void Dispose()
