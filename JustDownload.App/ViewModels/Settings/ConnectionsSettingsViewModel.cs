@@ -16,17 +16,21 @@ public sealed partial class ConnectionsSettingsViewModel : ViewModelBase
     private bool _suppress;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ConnectionsPerDownloadError))]
     private int _connectionsPerDownload;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(MaxConcurrentDownloadsError))]
     private int _maxConcurrentDownloads;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(SpeedLimitDisplay))]
+    [NotifyPropertyChangedFor(nameof(SpeedLimitError))]
     private bool _speedLimited;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(SpeedLimitDisplay))]
+    [NotifyPropertyChangedFor(nameof(SpeedLimitError))]
     private double _speedLimitMegabytesPerSecond;
 
     public ConnectionsSettingsViewModel(ISettingsService settings)
@@ -56,21 +60,39 @@ public sealed partial class ConnectionsSettingsViewModel : ViewModelBase
         ? $"{SpeedLimitMegabytesPerSecond:0.0} MB/s"
         : "Unlimited";
 
+    /// <summary>Inline validation for connections-per-download (TASK-128), or null when in range.</summary>
+    public string? ConnectionsPerDownloadError =>
+        ConnectionsPerDownload < MinConnections || ConnectionsPerDownload > MaxConnections
+            ? $"Enter a value between {MinConnections} and {MaxConnections}."
+            : null;
+
+    /// <summary>Inline validation for the concurrent-download cap (TASK-128), or null when in range.</summary>
+    public string? MaxConcurrentDownloadsError =>
+        MaxConcurrentDownloads < MinConcurrent || MaxConcurrentDownloads > MaxConcurrent
+            ? $"Enter a value between {MinConcurrent} and {MaxConcurrent}."
+            : null;
+
+    /// <summary>Inline validation for the speed cap when limiting is on (TASK-128), or null when valid.</summary>
+    public string? SpeedLimitError =>
+        SpeedLimited && SpeedLimitMegabytesPerSecond <= 0
+            ? "Enter a speed greater than 0 MB/s."
+            : null;
+
     partial void OnConnectionsPerDownloadChanged(int value)
     {
-        if (!_suppress)
+        // Surface out-of-range input (TASK-128) and don't persist it; the prior valid value is kept until
+        // the user enters one in range.
+        if (!_suppress && ConnectionsPerDownloadError is null)
         {
-            int clamped = Math.Clamp(value, MinConnections, MaxConnections);
-            _ = _settings.UpdateAsync(s => s with { ConnectionsPerDownload = clamped });
+            _ = _settings.UpdateAsync(s => s with { ConnectionsPerDownload = value });
         }
     }
 
     partial void OnMaxConcurrentDownloadsChanged(int value)
     {
-        if (!_suppress)
+        if (!_suppress && MaxConcurrentDownloadsError is null)
         {
-            int clamped = Math.Clamp(value, MinConcurrent, MaxConcurrent);
-            _ = _settings.UpdateAsync(s => s with { MaxConcurrentDownloads = clamped });
+            _ = _settings.UpdateAsync(s => s with { MaxConcurrentDownloads = value });
         }
     }
 
@@ -80,13 +102,13 @@ public sealed partial class ConnectionsSettingsViewModel : ViewModelBase
 
     private void PersistSpeedLimit()
     {
-        if (_suppress)
+        if (_suppress || SpeedLimitError is not null)
         {
             return;
         }
 
         long bytes = SpeedLimited
-            ? (long)Math.Round(Math.Max(0, SpeedLimitMegabytesPerSecond) * BytesPerMegabyte)
+            ? (long)Math.Round(SpeedLimitMegabytesPerSecond * BytesPerMegabyte)
             : 0;
         _ = _settings.UpdateAsync(s => s with { GlobalSpeedLimitBytesPerSecond = bytes });
     }

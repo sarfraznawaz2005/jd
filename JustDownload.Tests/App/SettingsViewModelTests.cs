@@ -192,13 +192,41 @@ public sealed class SettingsViewModelTests
     }
 
     [Fact]
-    public void Connections_ClampsOutOfRangeValues()
+    public void Connections_OutOfRangeValue_ShowsInlineError_AndDoesNotPersist()
     {
         ISettingsService settings = Settings();
         var vm = new ConnectionsSettingsViewModel(settings);
 
-        vm.ConnectionsPerDownload = 999;
-        Persisted(settings, new AppSettings()).ConnectionsPerDownload.Should().Be(32);
+        vm.ConnectionsPerDownload = 999; // above the 32 max
+        vm.ConnectionsPerDownloadError.Should().NotBeNull();
+        settings.DidNotReceive().UpdateAsync(
+            Arg.Any<Func<AppSettings, AppSettings>>(), Arg.Any<CancellationToken>());
+
+        vm.MaxConcurrentDownloads = 0; // below the 1 min
+        vm.MaxConcurrentDownloadsError.Should().NotBeNull();
+
+        // A subsequent in-range value clears the error and persists.
+        vm.ConnectionsPerDownload = 8;
+        vm.ConnectionsPerDownloadError.Should().BeNull();
+        Persisted(settings, new AppSettings()).ConnectionsPerDownload.Should().Be(8);
+    }
+
+    [Fact]
+    public void Connections_SpeedLimitZeroWhenLimited_ShowsInlineError_AndDoesNotPersistZero()
+    {
+        ISettingsService settings = Settings();
+        var vm = new ConnectionsSettingsViewModel(settings);
+
+        vm.SpeedLimited = true;             // persists the default (valid) limit
+        vm.SpeedLimitMegabytesPerSecond = 0; // limiting on but no positive speed
+
+        vm.SpeedLimitError.Should().NotBeNull();
+        Persisted(settings, new AppSettings()).GlobalSpeedLimitBytesPerSecond
+            .Should().NotBe(0, "the invalid 0 MB/s speed is not persisted; the last valid limit stands");
+
+        vm.SpeedLimitMegabytesPerSecond = 3.0; // valid → clears and persists
+        vm.SpeedLimitError.Should().BeNull();
+        Persisted(settings, new AppSettings()).GlobalSpeedLimitBytesPerSecond.Should().Be(3L * 1024 * 1024);
     }
 
     [Fact]

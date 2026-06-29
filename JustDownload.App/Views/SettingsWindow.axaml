@@ -82,23 +82,30 @@
           <TextBlock Text="Dynamic segmentation splits each download into this many connections (1–32)."
                      Classes="SettingsHint" />
           <NumericUpDown Value="{Binding ConnectionsPerDownload, Mode=TwoWay}"
-                         Minimum="1" Maximum="32" Increment="1"
-                         Width="160" HorizontalAlignment="Left" />
+                         Increment="1" Width="160" HorizontalAlignment="Left" />
+          <TextBlock Text="{Binding ConnectionsPerDownloadError}"
+                     IsVisible="{Binding ConnectionsPerDownloadError, Converter={x:Static ObjectConverters.IsNotNull}}"
+                     FontSize="11" Foreground="{DynamicResource RedBrush}" />
         </StackPanel>
         <StackPanel Spacing="4">
           <TextBlock Text="Maximum concurrent downloads" Classes="StatKey" />
           <NumericUpDown Value="{Binding MaxConcurrentDownloads, Mode=TwoWay}"
-                         Minimum="1" Maximum="16" Increment="1"
-                         Width="160" HorizontalAlignment="Left" />
+                         Increment="1" Width="160" HorizontalAlignment="Left" />
+          <TextBlock Text="{Binding MaxConcurrentDownloadsError}"
+                     IsVisible="{Binding MaxConcurrentDownloadsError, Converter={x:Static ObjectConverters.IsNotNull}}"
+                     FontSize="11" Foreground="{DynamicResource RedBrush}" />
         </StackPanel>
         <StackPanel Spacing="6">
           <TextBlock Text="Global speed limit" Classes="StatKey" />
           <StackPanel Orientation="Horizontal" Spacing="12">
             <ToggleSwitch IsChecked="{Binding SpeedLimited, Mode=TwoWay}" OnContent="Limited" OffContent="Unlimited" />
-            <NumericUpDown Value="{Binding SpeedLimitMegabytesPerSecond, Mode=TwoWay}" Minimum="0.1" Increment="0.5"
+            <NumericUpDown Value="{Binding SpeedLimitMegabytesPerSecond, Mode=TwoWay}" Increment="0.5"
                            IsEnabled="{Binding SpeedLimited}" Width="140" />
             <TextBlock Text="MB/s" VerticalAlignment="Center" Foreground="{DynamicResource TextDimBrush}" />
           </StackPanel>
+          <TextBlock Text="{Binding SpeedLimitError}"
+                     IsVisible="{Binding SpeedLimitError, Converter={x:Static ObjectConverters.IsNotNull}}"
+                     FontSize="11" Foreground="{DynamicResource RedBrush}" />
           <TextBlock Text="{Binding SpeedLimitDisplay, StringFormat='Current: {0}'}" Classes="SettingsHint" />
         </StackPanel>
       </StackPanel>
