@@ -34,6 +34,13 @@
           <TextBlock Text="Default output container" Classes="StatKey" />
           <ComboBox ItemsSource="{Binding Containers}" SelectedItem="{Binding DefaultContainer, Mode=TwoWay}" Width="200" HorizontalAlignment="Left" />
         </StackPanel>
+        <StackPanel Spacing="4">
+          <TextBlock Text="Default download folder" Classes="StatKey" />
+          <TextBlock Text="Leave empty to use the OS Downloads folder. New downloads default here."
+                     Classes="SettingsHint" />
+          <TextBox Text="{Binding DefaultDownloadFolder, Mode=TwoWay, UpdateSourceTrigger=LostFocus}" Width="360"
+                   HorizontalAlignment="Left" />
+        </StackPanel>
         <StackPanel Spacing="10">
           <TextBlock Text="Startup &amp; tray" Classes="StatKey" />
           <StackPanel Orientation="Horizontal" Spacing="12">

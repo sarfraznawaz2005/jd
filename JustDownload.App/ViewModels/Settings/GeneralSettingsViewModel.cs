@@ -29,6 +29,9 @@ public sealed partial class GeneralSettingsViewModel : ViewModelBase
     private MediaContainer _defaultContainer;
 
     [ObservableProperty]
+    private string _defaultDownloadFolder;
+
+    [ObservableProperty]
     private bool _startMinimizedToTray;
 
     [ObservableProperty]
@@ -47,6 +50,7 @@ public sealed partial class GeneralSettingsViewModel : ViewModelBase
         _density = current.Density;
         _defaultVideoQuality = current.DefaultVideoQuality;
         _defaultContainer = current.DefaultContainer;
+        _defaultDownloadFolder = current.DefaultDownloadDirectory ?? string.Empty;
         _startMinimizedToTray = current.StartMinimizedToTray;
         _closeToTray = current.CloseToTray;
         _suppress = false;
@@ -98,6 +102,15 @@ public sealed partial class GeneralSettingsViewModel : ViewModelBase
         if (!_suppress)
         {
             _ = _settings.UpdateAsync(s => s with { DefaultContainer = value });
+        }
+    }
+
+    partial void OnDefaultDownloadFolderChanged(string value)
+    {
+        if (!_suppress)
+        {
+            string? folder = string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+            _ = _settings.UpdateAsync(s => s with { DefaultDownloadDirectory = folder });
         }
     }
 

@@ -19,6 +19,7 @@ internal static partial class SettingsSerializer
     internal const string DefaultContainerKey = "media.default_container";
     internal const string DensityKey = "ui.density";
     internal const string ThemeKey = "ui.theme";
+    internal const string DefaultDownloadDirectoryKey = "downloads.default_directory";
     internal const string OrganizeByCategoryKey = "organize.by_category";
     internal const string OrganizedRootDirectoryKey = "organize.root_directory";
     internal const string StartMinimizedToTrayKey = "tray.start_minimized";
@@ -47,6 +48,7 @@ internal static partial class SettingsSerializer
             [DefaultContainerKey] = settings.DefaultContainer.ToString(),
             [DensityKey] = settings.Density.ToString(),
             [ThemeKey] = settings.Theme.ToString(),
+            [DefaultDownloadDirectoryKey] = settings.DefaultDownloadDirectory ?? string.Empty,
             [OrganizeByCategoryKey] =
                 settings.OrganizeByCategory.ToString(CultureInfo.InvariantCulture),
             [OrganizedRootDirectoryKey] = settings.OrganizedRootDirectory ?? string.Empty,
@@ -86,6 +88,8 @@ internal static partial class SettingsSerializer
                 ParseEnum(stored, DefaultContainerKey, defaults.DefaultContainer, logger),
             Density = ParseEnum(stored, DensityKey, defaults.Density, logger),
             Theme = ParseEnum(stored, ThemeKey, defaults.Theme, logger),
+            DefaultDownloadDirectory =
+                ParseOptionalString(stored, DefaultDownloadDirectoryKey, defaults.DefaultDownloadDirectory),
             OrganizeByCategory =
                 ParseBool(stored, OrganizeByCategoryKey, defaults.OrganizeByCategory, logger),
             OrganizedRootDirectory =

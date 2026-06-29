@@ -108,6 +108,29 @@ public sealed class SettingsViewModelTests
     }
 
     [Fact]
+    public void General_DefaultDownloadFolderPersists_AndEmptyClearsToNull()
+    {
+        ISettingsService settings = Settings();
+        var vm = new GeneralSettingsViewModel(settings, Substitute.For<IThemeService>());
+
+        vm.DefaultDownloadFolder = @"  D:\Saved  ";
+        Persisted(settings, new AppSettings()).DefaultDownloadDirectory.Should().Be(@"D:\Saved");
+
+        vm.DefaultDownloadFolder = "   ";
+        Persisted(settings, new AppSettings { DefaultDownloadDirectory = @"D:\Saved" })
+            .DefaultDownloadDirectory.Should().BeNull("a blank folder means 'use the OS Downloads folder'");
+    }
+
+    [Fact]
+    public void General_HydratesDefaultDownloadFolderFromExistingSettings()
+    {
+        var current = new AppSettings { DefaultDownloadDirectory = @"E:\Downloads" };
+        var vm = new GeneralSettingsViewModel(Settings(current), Substitute.For<IThemeService>());
+
+        vm.DefaultDownloadFolder.Should().Be(@"E:\Downloads");
+    }
+
+    [Fact]
     public void Connections_PersistConnectionsConcurrencyAndSpeed()
     {
         ISettingsService settings = Settings();

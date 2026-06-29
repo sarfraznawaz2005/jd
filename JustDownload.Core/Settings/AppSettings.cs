@@ -43,6 +43,12 @@ public sealed record AppSettings
     public AppTheme Theme { get; init; } = AppTheme.Light;
 
     /// <summary>
+    /// The default folder new downloads save into (TASK-121). <see langword="null"/>/empty means "use the
+    /// OS Downloads folder". Default <see langword="null"/>.
+    /// </summary>
+    public string? DefaultDownloadDirectory { get; init; }
+
+    /// <summary>
     /// Whether completed downloads are moved into a per-category subfolder (US-8 AC3, TASK-046).
     /// Default <see langword="false"/> — the file stays where it was downloaded.
     /// </summary>

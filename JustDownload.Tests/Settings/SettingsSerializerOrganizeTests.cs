@@ -70,4 +70,28 @@ public sealed class SettingsSerializerOrganizeTests
         restored.StartMinimizedToTray.Should().BeFalse();
         restored.CloseToTray.Should().BeFalse();
     }
+
+    [Fact]
+    public void RoundTrips_DefaultDownloadDirectory()
+    {
+        var settings = new AppSettings { DefaultDownloadDirectory = @"D:\Saved" };
+
+        IReadOnlyDictionary<string, string> stored = SettingsSerializer.ToStorage(settings);
+        AppSettings restored = SettingsSerializer.FromStorage(
+            stored.ToDictionary(kv => kv.Key, kv => (string?)kv.Value),
+            NullLogger.Instance);
+
+        restored.DefaultDownloadDirectory.Should().Be(@"D:\Saved");
+    }
+
+    [Fact]
+    public void EmptyDefaultDownloadDirectory_DeserializesAsNull()
+    {
+        var stored = new Dictionary<string, string?>
+        {
+            [SettingsSerializer.DefaultDownloadDirectoryKey] = string.Empty,
+        };
+
+        SettingsSerializer.FromStorage(stored, NullLogger.Instance).DefaultDownloadDirectory.Should().BeNull();
+    }
 }
