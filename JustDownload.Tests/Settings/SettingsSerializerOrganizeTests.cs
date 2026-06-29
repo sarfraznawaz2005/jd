@@ -170,4 +170,17 @@ public sealed class SettingsSerializerOrganizeTests
         SettingsSerializer.FromStorage(new Dictionary<string, string?>(), NullLogger.Instance)
             .NotificationsEnabled.Should().BeTrue("notifications default on");
     }
+
+    [Fact]
+    public void RoundTrips_AutoExtractArchives_AndDefaultsOff()
+    {
+        IReadOnlyDictionary<string, string> stored =
+            SettingsSerializer.ToStorage(new AppSettings { AutoExtractArchives = true });
+        SettingsSerializer.FromStorage(
+            stored.ToDictionary(kv => kv.Key, kv => (string?)kv.Value), NullLogger.Instance)
+            .AutoExtractArchives.Should().BeTrue();
+
+        SettingsSerializer.FromStorage(new Dictionary<string, string?>(), NullLogger.Instance)
+            .AutoExtractArchives.Should().BeFalse("auto-extract is opt-in");
+    }
 }

@@ -48,6 +48,9 @@ public sealed partial class GeneralSettingsViewModel : ViewModelBase
     [ObservableProperty]
     private bool _notificationsEnabled;
 
+    [ObservableProperty]
+    private bool _autoExtractArchives;
+
     public GeneralSettingsViewModel(ISettingsService settings, IThemeService theme)
     {
         ArgumentNullException.ThrowIfNull(settings);
@@ -67,6 +70,7 @@ public sealed partial class GeneralSettingsViewModel : ViewModelBase
         _monitorClipboard = current.MonitorClipboard;
         _launchAtStartup = current.LaunchAtStartup;
         _notificationsEnabled = current.NotificationsEnabled;
+        _autoExtractArchives = current.AutoExtractArchives;
         _suppress = false;
     }
 
@@ -196,6 +200,14 @@ public sealed partial class GeneralSettingsViewModel : ViewModelBase
         if (!_suppress)
         {
             _ = _settings.UpdateAsync(s => s with { NotificationsEnabled = value });
+        }
+    }
+
+    partial void OnAutoExtractArchivesChanged(bool value)
+    {
+        if (!_suppress)
+        {
+            _ = _settings.UpdateAsync(s => s with { AutoExtractArchives = value });
         }
     }
 }

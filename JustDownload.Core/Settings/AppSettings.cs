@@ -90,6 +90,12 @@ public sealed record AppSettings
     /// </summary>
     public bool NotificationsEnabled { get; init; } = true;
 
+    /// <summary>
+    /// Whether a completed archive (<c>.zip</c>) is automatically extracted into a sibling folder
+    /// (TASK-135). Opt-in — default <see langword="false"/>.
+    /// </summary>
+    public bool AutoExtractArchives { get; init; }
+
     /// <summary>The global proxy kind applied to downloads (TASK-125). Default <see cref="ProxyKind.None"/>.</summary>
     public ProxyKind ProxyKind { get; init; } = ProxyKind.None;
 

@@ -32,6 +32,7 @@ public partial class App : Application
             .AddSingleton<IDensityService, DensityService>()
             .AddSingleton<INotificationService, AvaloniaNotificationService>()
             .AddSingleton<DownloadNotifier>()
+            .AddSingleton<AutoExtractService>()
             .AddSingleton<IDownloadActions, DownloadActionsService>()
             .AddSingleton<IFileRevealer, FileRevealer>()
             .AddSingleton<IDownloadFolderProvider, DownloadFolderProvider>()
@@ -104,6 +105,7 @@ public partial class App : Application
 
             // Notify on completion/error, add a tray icon, and accept URLs forwarded by a second launch (TASK-061).
             Services.GetRequiredService<DownloadNotifier>().Start();
+            Services.GetRequiredService<AutoExtractService>().Start();
             InstallTrayIcon(desktop, window, mainViewModel);
             WireForwardedArguments(window, mainViewModel);
 

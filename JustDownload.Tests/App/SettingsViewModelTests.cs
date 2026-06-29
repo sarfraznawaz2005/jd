@@ -125,6 +125,21 @@ public sealed class SettingsViewModelTests
     }
 
     [Fact]
+    public void General_AutoExtractArchives_PersistsAndHydrates()
+    {
+        ISettingsService settings = Settings();
+        var vm = new GeneralSettingsViewModel(settings, Substitute.For<IThemeService>());
+
+        vm.AutoExtractArchives.Should().BeFalse("opt-in, off by default");
+        vm.AutoExtractArchives = true;
+        Persisted(settings, new AppSettings()).AutoExtractArchives.Should().BeTrue();
+
+        var hydrated = new GeneralSettingsViewModel(
+            Settings(new AppSettings { AutoExtractArchives = true }), Substitute.For<IThemeService>());
+        hydrated.AutoExtractArchives.Should().BeTrue();
+    }
+
+    [Fact]
     public void General_LaunchAtStartup_PersistsAndHydrates()
     {
         ISettingsService settings = Settings();

@@ -15,6 +15,7 @@ using JustDownload.Core.Media.Hls;
 using JustDownload.Core.Media.Streams;
 using JustDownload.Core.NativeMessaging;
 using JustDownload.Core.NativeMessaging.Registration;
+using JustDownload.Core.PostProcess;
 using JustDownload.Core.Security;
 using JustDownload.Core.Settings;
 using JustDownload.Core.Throttling;
@@ -60,6 +61,9 @@ public static class ServiceCollectionExtensions
 
         // Post-download integrity check against a user/page-supplied MD5/SHA-256 hash (TASK-132). Stateless.
         services.TryAddSingleton<IChecksumVerifier, ChecksumVerifier>();
+
+        // Post-download archive extraction (TASK-135). Stateless.
+        services.TryAddSingleton<IArchiveExtractor, ArchiveExtractor>();
 
         services.AddJustDownloadLogging(configureLogging);
         services.AddJustDownloadData();
