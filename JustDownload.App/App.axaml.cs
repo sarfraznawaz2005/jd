@@ -13,6 +13,7 @@ using JustDownload.Core.Diagnostics;
 using JustDownload.Core.NativeMessaging;
 using JustDownload.Core.Settings;
 using JustDownload.Core.Throttling;
+using JustDownload.Core.Transport.Proxy;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace JustDownload.App;
@@ -289,6 +290,7 @@ public partial class App : Application
         Services.GetRequiredService<IThemeService>()
             .SetMode(current.Theme == AppTheme.Dark ? ThemeMode.Dark : ThemeMode.Light);
         Services.GetRequiredService<GlobalSpeedLimitController>().ApplyCurrent();
+        _ = Services.GetRequiredService<GlobalProxyController>().ApplyCurrentAsync();
     }
 
     /// <summary>

@@ -80,6 +80,10 @@ public static class ServiceCollectionExtensions
         // Changed subscription lives for the app; the host calls ApplyCurrent() once after settings load.
         services.TryAddSingleton<GlobalSpeedLimitController>();
 
+        // Bridges the persisted global proxy (TASK-125) to the engine's proxy service; the host calls
+        // ApplyCurrentAsync() once after settings load. Singleton so its Changed subscription lives.
+        services.TryAddSingleton<GlobalProxyController>();
+
         return services;
     }
 

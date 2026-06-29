@@ -2,7 +2,9 @@ using FluentAssertions;
 using JustDownload.App.Services;
 using JustDownload.App.ViewModels.Settings;
 using JustDownload.Core.Categorization;
+using JustDownload.Core.Security;
 using JustDownload.Core.Settings;
+using JustDownload.Core.Transport.Proxy;
 using NSubstitute;
 using Xunit;
 
@@ -36,7 +38,7 @@ public sealed class SettingsViewModelTests
     [Fact]
     public void AllSevenSections_ArePresent_InOrder()
     {
-        var vm = new SettingsViewModel(Settings(), Substitute.For<IThemeService>(), CategoryFolderRules.CreateDefault(), Substitute.For<JustDownload.Core.NativeMessaging.INativeHostInstaller>());
+        var vm = new SettingsViewModel(Settings(), Substitute.For<IThemeService>(), CategoryFolderRules.CreateDefault(), Substitute.For<JustDownload.Core.NativeMessaging.INativeHostInstaller>(), Substitute.For<JustDownload.Core.Security.ISecretStore>());
 
         vm.Sections.Select(s => s.Label).Should()
             .Equal("General", "Connections", "Proxy", "Authentication", "Categories", "Browsers", "Advanced");
@@ -47,7 +49,7 @@ public sealed class SettingsViewModelTests
     [Fact]
     public void Select_SwitchesActiveSection()
     {
-        var vm = new SettingsViewModel(Settings(), Substitute.For<IThemeService>(), CategoryFolderRules.CreateDefault(), Substitute.For<JustDownload.Core.NativeMessaging.INativeHostInstaller>());
+        var vm = new SettingsViewModel(Settings(), Substitute.For<IThemeService>(), CategoryFolderRules.CreateDefault(), Substitute.For<JustDownload.Core.NativeMessaging.INativeHostInstaller>(), Substitute.For<JustDownload.Core.Security.ISecretStore>());
         SettingsSectionViewModel connections = vm.Sections.Single(s => s.Label == "Connections");
 
         vm.SelectCommand.Execute(connections);
@@ -264,5 +266,94 @@ public sealed class SettingsViewModelTests
         _ = new ConnectionsSettingsViewModel(settings);
 
         settings.DidNotReceive().UpdateAsync(Arg.Any<Func<AppSettings, AppSettings>>(), Arg.Any<CancellationToken>());
+    }
+
+    // --- Proxy (TASK-125) ------------------------------------------------------------------------
+
+    [Fact]
+    public async Task Proxy_Save_PersistsConfig_AndStoresPasswordInKeychain()
+    {
+        ISettingsService settings = Settings();
+        var secrets = Substitute.For<ISecretStore>();
+        secrets.StoreAsync("s3cret", Arg.Any<CancellationToken>()).Returns("ref-new");
+        var vm = new ProxySettingsViewModel(settings, secrets);
+
+        vm.ProxyKind = ProxyKind.Http;
+        vm.Host = "proxy.local";
+        vm.Port = 8080;
+        vm.Username = "user";
+        vm.Password = "s3cret";
+
+        vm.SaveCommand.CanExecute(null).Should().BeTrue();
+        await vm.SaveCommand.ExecuteAsync(null);
+
+        await secrets.Received(1).StoreAsync("s3cret", Arg.Any<CancellationToken>());
+        AppSettings saved = Persisted(settings, new AppSettings());
+        saved.ProxyKind.Should().Be(ProxyKind.Http);
+        saved.ProxyHost.Should().Be("proxy.local");
+        saved.ProxyPort.Should().Be(8080);
+        saved.ProxyUsername.Should().Be("user");
+        saved.ProxyPasswordSecretRef.Should().Be("ref-new");
+
+        vm.Password.Should().BeEmpty("the plaintext is never kept in the field");
+        vm.HasStoredPassword.Should().BeTrue();
+        vm.Status.Should().NotBeNull();
+    }
+
+    [Fact]
+    public async Task Proxy_Save_BlankPassword_KeepsExistingSecretRef()
+    {
+        var current = new AppSettings
+        {
+            ProxyKind = ProxyKind.Http,
+            ProxyHost = "proxy.local",
+            ProxyPort = 8080,
+            ProxyUsername = "user",
+            ProxyPasswordSecretRef = "old-ref",
+        };
+        ISettingsService settings = Settings(current);
+        var secrets = Substitute.For<ISecretStore>();
+        var vm = new ProxySettingsViewModel(settings, secrets);
+
+        vm.HasStoredPassword.Should().BeTrue("hydration reflects a stored password");
+        await vm.SaveCommand.ExecuteAsync(null); // password left blank
+
+        await secrets.DidNotReceive().StoreAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+        Persisted(settings, new AppSettings()).ProxyPasswordSecretRef.Should().Be("old-ref");
+    }
+
+    [Fact]
+    public async Task Proxy_Save_None_ClearsStoredPassword()
+    {
+        var current = new AppSettings
+        {
+            ProxyKind = ProxyKind.Http,
+            ProxyHost = "proxy.local",
+            ProxyUsername = "user",
+            ProxyPasswordSecretRef = "old-ref",
+        };
+        ISettingsService settings = Settings(current);
+        var secrets = Substitute.For<ISecretStore>();
+        var vm = new ProxySettingsViewModel(settings, secrets) { ProxyKind = ProxyKind.None };
+
+        await vm.SaveCommand.ExecuteAsync(null);
+
+        await secrets.Received(1).DeleteAsync("old-ref", Arg.Any<CancellationToken>());
+        AppSettings saved = Persisted(settings, new AppSettings());
+        saved.ProxyKind.Should().Be(ProxyKind.None);
+        saved.ProxyPasswordSecretRef.Should().BeNull();
+    }
+
+    [Fact]
+    public void Proxy_MissingHost_ShowsError_AndBlocksSave()
+    {
+        var vm = new ProxySettingsViewModel(Settings(), Substitute.For<ISecretStore>())
+        {
+            ProxyKind = ProxyKind.Http,
+            Host = string.Empty,
+        };
+
+        vm.ProxyError.Should().NotBeNull();
+        vm.SaveCommand.CanExecute(null).Should().BeFalse();
     }
 }

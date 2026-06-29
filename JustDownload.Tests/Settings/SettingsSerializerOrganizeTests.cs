@@ -94,4 +94,41 @@ public sealed class SettingsSerializerOrganizeTests
 
         SettingsSerializer.FromStorage(stored, NullLogger.Instance).DefaultDownloadDirectory.Should().BeNull();
     }
+
+    [Fact]
+    public void RoundTrips_ProxySettings()
+    {
+        var settings = new AppSettings
+        {
+            ProxyKind = JustDownload.Core.Transport.Proxy.ProxyKind.Socks5,
+            ProxyHost = "proxy.local",
+            ProxyPort = 1080,
+            ProxyUsername = "user",
+            ProxyDomain = "CORP",
+            ProxyPasswordSecretRef = "ref-1",
+        };
+
+        IReadOnlyDictionary<string, string> stored = SettingsSerializer.ToStorage(settings);
+        AppSettings restored = SettingsSerializer.FromStorage(
+            stored.ToDictionary(kv => kv.Key, kv => (string?)kv.Value),
+            NullLogger.Instance);
+
+        restored.ProxyKind.Should().Be(JustDownload.Core.Transport.Proxy.ProxyKind.Socks5);
+        restored.ProxyHost.Should().Be("proxy.local");
+        restored.ProxyPort.Should().Be(1080);
+        restored.ProxyUsername.Should().Be("user");
+        restored.ProxyDomain.Should().Be("CORP");
+        restored.ProxyPasswordSecretRef.Should().Be("ref-1");
+    }
+
+    [Fact]
+    public void ProxyDefaults_WhenStorageEmpty()
+    {
+        AppSettings restored = SettingsSerializer.FromStorage(
+            new Dictionary<string, string?>(), NullLogger.Instance);
+
+        restored.ProxyKind.Should().Be(JustDownload.Core.Transport.Proxy.ProxyKind.None);
+        restored.ProxyHost.Should().BeNull();
+        restored.ProxyPasswordSecretRef.Should().BeNull();
+    }
 }

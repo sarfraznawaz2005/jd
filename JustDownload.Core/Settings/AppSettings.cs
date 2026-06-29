@@ -1,3 +1,5 @@
+using JustDownload.Core.Transport.Proxy;
+
 namespace JustDownload.Core.Settings;
 
 /// <summary>
@@ -72,4 +74,25 @@ public sealed record AppSettings
     /// the app keeps running and only the tray "Quit" exits. Default <see langword="false"/>.
     /// </summary>
     public bool CloseToTray { get; init; }
+
+    /// <summary>The global proxy kind applied to downloads (TASK-125). Default <see cref="ProxyKind.None"/>.</summary>
+    public ProxyKind ProxyKind { get; init; } = ProxyKind.None;
+
+    /// <summary>The proxy host (TASK-125). <see langword="null"/>/empty disables the proxy. Default <see langword="null"/>.</summary>
+    public string? ProxyHost { get; init; }
+
+    /// <summary>The proxy port (TASK-125). Default <c>0</c>.</summary>
+    public int ProxyPort { get; init; }
+
+    /// <summary>The proxy auth user name, or <see langword="null"/> for an unauthenticated proxy (TASK-125).</summary>
+    public string? ProxyUsername { get; init; }
+
+    /// <summary>The NTLM/Negotiate domain for proxy auth, or <see langword="null"/> (TASK-125).</summary>
+    public string? ProxyDomain { get; init; }
+
+    /// <summary>
+    /// Opaque OS-keychain reference (§5) for the proxy auth password — never the password itself. Resolved
+    /// on demand when the proxy is applied (TASK-125). <see langword="null"/> when the proxy has no password.
+    /// </summary>
+    public string? ProxyPasswordSecretRef { get; init; }
 }

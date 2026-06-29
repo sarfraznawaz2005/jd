@@ -24,6 +24,12 @@ internal static partial class SettingsSerializer
     internal const string OrganizedRootDirectoryKey = "organize.root_directory";
     internal const string StartMinimizedToTrayKey = "tray.start_minimized";
     internal const string CloseToTrayKey = "tray.close_to_tray";
+    internal const string ProxyKindKey = "proxy.kind";
+    internal const string ProxyHostKey = "proxy.host";
+    internal const string ProxyPortKey = "proxy.port";
+    internal const string ProxyUsernameKey = "proxy.username";
+    internal const string ProxyDomainKey = "proxy.domain";
+    internal const string ProxyPasswordSecretRefKey = "proxy.password_secret_ref";
 
     /// <summary>
     /// Serializes every setting to its storage representation. The result always contains all keys so
@@ -55,6 +61,12 @@ internal static partial class SettingsSerializer
             [StartMinimizedToTrayKey] =
                 settings.StartMinimizedToTray.ToString(CultureInfo.InvariantCulture),
             [CloseToTrayKey] = settings.CloseToTray.ToString(CultureInfo.InvariantCulture),
+            [ProxyKindKey] = settings.ProxyKind.ToString(),
+            [ProxyHostKey] = settings.ProxyHost ?? string.Empty,
+            [ProxyPortKey] = settings.ProxyPort.ToString(CultureInfo.InvariantCulture),
+            [ProxyUsernameKey] = settings.ProxyUsername ?? string.Empty,
+            [ProxyDomainKey] = settings.ProxyDomain ?? string.Empty,
+            [ProxyPasswordSecretRefKey] = settings.ProxyPasswordSecretRef ?? string.Empty,
         };
     }
 
@@ -97,6 +109,13 @@ internal static partial class SettingsSerializer
             StartMinimizedToTray =
                 ParseBool(stored, StartMinimizedToTrayKey, defaults.StartMinimizedToTray, logger),
             CloseToTray = ParseBool(stored, CloseToTrayKey, defaults.CloseToTray, logger),
+            ProxyKind = ParseEnum(stored, ProxyKindKey, defaults.ProxyKind, logger),
+            ProxyHost = ParseOptionalString(stored, ProxyHostKey, defaults.ProxyHost),
+            ProxyPort = ParseInt(stored, ProxyPortKey, defaults.ProxyPort, logger),
+            ProxyUsername = ParseOptionalString(stored, ProxyUsernameKey, defaults.ProxyUsername),
+            ProxyDomain = ParseOptionalString(stored, ProxyDomainKey, defaults.ProxyDomain),
+            ProxyPasswordSecretRef =
+                ParseOptionalString(stored, ProxyPasswordSecretRefKey, defaults.ProxyPasswordSecretRef),
         };
     }
 

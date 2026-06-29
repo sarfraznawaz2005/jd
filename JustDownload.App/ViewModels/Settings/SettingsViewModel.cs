@@ -3,6 +3,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using JustDownload.App.Services;
 using JustDownload.Core.Categorization;
+using JustDownload.Core.Security;
 using JustDownload.Core.Settings;
 
 namespace JustDownload.App.ViewModels.Settings;
@@ -22,20 +23,18 @@ public sealed partial class SettingsViewModel : ViewModelBase
         ISettingsService settings,
         IThemeService theme,
         CategoryFolderRules folderRules,
-        JustDownload.Core.NativeMessaging.INativeHostInstaller nativeHostInstaller)
+        JustDownload.Core.NativeMessaging.INativeHostInstaller nativeHostInstaller,
+        ISecretStore secrets)
     {
         ArgumentNullException.ThrowIfNull(settings);
         ArgumentNullException.ThrowIfNull(theme);
         ArgumentNullException.ThrowIfNull(folderRules);
         ArgumentNullException.ThrowIfNull(nativeHostInstaller);
+        ArgumentNullException.ThrowIfNull(secrets);
 
         Sections.Add(new SettingsSectionViewModel("General", "IconSetGeneral", new GeneralSettingsViewModel(settings, theme)));
         Sections.Add(new SettingsSectionViewModel("Connections", "IconSetConnections", new ConnectionsSettingsViewModel(settings)));
-        Sections.Add(new SettingsSectionViewModel("Proxy", "IconSetProxy", new InfoSettingsViewModel(
-            "Proxy",
-            "JustDownload uses your system proxy by default.",
-            "Per-download proxy configuration (HTTP/SOCKS with Basic, Digest, or NTLM auth) is applied at "
-            + "download time and is not yet a saved global preference — it arrives with the proxy subsystem.")));
+        Sections.Add(new SettingsSectionViewModel("Proxy", "IconSetProxy", new ProxySettingsViewModel(settings, secrets)));
         Sections.Add(new SettingsSectionViewModel("Authentication", "IconSetAuth", new InfoSettingsViewModel(
             "Authentication",
             "Site and proxy credentials are entered when a download needs them and are stored securely in the "
