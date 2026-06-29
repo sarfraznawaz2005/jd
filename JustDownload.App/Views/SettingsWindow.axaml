@@ -69,6 +69,11 @@
           </StackPanel>
           <TextBlock Text="The tray icon keeps JustDownload running; choose Quit from its menu to exit."
                      Classes="SettingsHint" />
+          <StackPanel Orientation="Horizontal" Spacing="12" IsEnabled="{Binding CanLaunchAtStartup}">
+            <ToggleSwitch IsChecked="{Binding LaunchAtStartup, Mode=TwoWay}" />
+            <TextBlock Text="Launch JustDownload at login" VerticalAlignment="Center"
+                       Foreground="{DynamicResource TextBrush}" />
+          </StackPanel>
         </StackPanel>
         <StackPanel Spacing="6">
           <TextBlock Text="Clipboard" Classes="StatKey" />

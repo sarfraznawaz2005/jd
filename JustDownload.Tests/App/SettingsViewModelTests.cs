@@ -125,6 +125,23 @@ public sealed class SettingsViewModelTests
     }
 
     [Fact]
+    public void General_LaunchAtStartup_PersistsAndHydrates()
+    {
+        ISettingsService settings = Settings();
+        var vm = new GeneralSettingsViewModel(settings, Substitute.For<IThemeService>());
+
+        vm.LaunchAtStartup.Should().BeFalse("off by default");
+        vm.CanLaunchAtStartup.Should().Be(OperatingSystem.IsWindows());
+
+        vm.LaunchAtStartup = true;
+        Persisted(settings, new AppSettings()).LaunchAtStartup.Should().BeTrue();
+
+        var hydrated = new GeneralSettingsViewModel(
+            Settings(new AppSettings { LaunchAtStartup = true }), Substitute.For<IThemeService>());
+        hydrated.LaunchAtStartup.Should().BeTrue();
+    }
+
+    [Fact]
     public void General_DefaultDownloadFolderPersists_AndEmptyClearsToNull()
     {
         ISettingsService settings = Settings();

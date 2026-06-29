@@ -144,4 +144,17 @@ public sealed class SettingsSerializerOrganizeTests
         SettingsSerializer.FromStorage(new Dictionary<string, string?>(), NullLogger.Instance)
             .MonitorClipboard.Should().BeFalse();
     }
+
+    [Fact]
+    public void RoundTrips_LaunchAtStartup_AndDefaultsOff()
+    {
+        IReadOnlyDictionary<string, string> stored =
+            SettingsSerializer.ToStorage(new AppSettings { LaunchAtStartup = true });
+        SettingsSerializer.FromStorage(
+            stored.ToDictionary(kv => kv.Key, kv => (string?)kv.Value), NullLogger.Instance)
+            .LaunchAtStartup.Should().BeTrue();
+
+        SettingsSerializer.FromStorage(new Dictionary<string, string?>(), NullLogger.Instance)
+            .LaunchAtStartup.Should().BeFalse();
+    }
 }

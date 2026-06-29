@@ -81,6 +81,9 @@ public sealed record AppSettings
     /// </summary>
     public bool MonitorClipboard { get; init; }
 
+    /// <summary>Whether the app is registered to launch at OS login (TASK-122). Opt-in — default <see langword="false"/>.</summary>
+    public bool LaunchAtStartup { get; init; }
+
     /// <summary>The global proxy kind applied to downloads (TASK-125). Default <see cref="ProxyKind.None"/>.</summary>
     public ProxyKind ProxyKind { get; init; } = ProxyKind.None;
 

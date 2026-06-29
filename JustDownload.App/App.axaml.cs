@@ -37,6 +37,8 @@ public partial class App : Application
             .AddSingleton<IDownloadFolderProvider, DownloadFolderProvider>()
             .AddSingleton<IClipboardService>(_ => new ClipboardService(GetActiveClipboard))
             .AddSingleton<ClipboardMonitor>()
+            .AddSingleton<IAutostartService>(_ => new WindowsAutostartService())
+            .AddSingleton<AutostartController>()
             .AddSingleton<StatusSummaryViewModel>()
             .AddSingleton<DownloadsListViewModel>()
             .AddSingleton<DownloadDetailViewModel>()
@@ -297,6 +299,7 @@ public partial class App : Application
         Services.GetRequiredService<GlobalSpeedLimitController>().ApplyCurrent();
         _ = Services.GetRequiredService<GlobalProxyController>().ApplyCurrentAsync();
         Services.GetRequiredService<ClipboardMonitor>().ApplyEnabled();
+        Services.GetRequiredService<AutostartController>().ApplyCurrent();
     }
 
     /// <summary>

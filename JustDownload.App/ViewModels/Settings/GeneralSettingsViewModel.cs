@@ -42,6 +42,9 @@ public sealed partial class GeneralSettingsViewModel : ViewModelBase
     [ObservableProperty]
     private bool _monitorClipboard;
 
+    [ObservableProperty]
+    private bool _launchAtStartup;
+
     public GeneralSettingsViewModel(ISettingsService settings, IThemeService theme)
     {
         ArgumentNullException.ThrowIfNull(settings);
@@ -59,8 +62,12 @@ public sealed partial class GeneralSettingsViewModel : ViewModelBase
         _startMinimizedToTray = current.StartMinimizedToTray;
         _closeToTray = current.CloseToTray;
         _monitorClipboard = current.MonitorClipboard;
+        _launchAtStartup = current.LaunchAtStartup;
         _suppress = false;
     }
+
+    /// <summary>Whether launch-at-login is offered on this OS (Windows today, TASK-122).</summary>
+    public bool CanLaunchAtStartup { get; } = OperatingSystem.IsWindows();
 
     public IReadOnlyList<ThemeMode> Themes { get; } = [ThemeMode.Light, ThemeMode.Dark, ThemeMode.System];
 
@@ -169,6 +176,14 @@ public sealed partial class GeneralSettingsViewModel : ViewModelBase
         if (!_suppress)
         {
             _ = _settings.UpdateAsync(s => s with { MonitorClipboard = value });
+        }
+    }
+
+    partial void OnLaunchAtStartupChanged(bool value)
+    {
+        if (!_suppress)
+        {
+            _ = _settings.UpdateAsync(s => s with { LaunchAtStartup = value });
         }
     }
 }
