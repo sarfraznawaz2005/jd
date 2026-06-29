@@ -40,6 +40,18 @@ public sealed partial class DownloadsListViewModel : ViewModelBase, IDisposable
     [ObservableProperty]
     private string? _loadError;
 
+    /// <summary>Free-text search over filename and URL (TASK-134); empty matches everything.</summary>
+    [ObservableProperty]
+    private string _searchQuery = string.Empty;
+
+    /// <summary>Optional fine-grained status filter applied on top of the sidebar view (TASK-134).</summary>
+    [ObservableProperty]
+    private DownloadStatusFilter _statusFilter = DownloadStatusFilter.Any;
+
+    /// <summary>Optional "added since" date filter (TASK-134).</summary>
+    [ObservableProperty]
+    private DownloadDateFilter _dateFilter = DownloadDateFilter.AnyTime;
+
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(ResumeCommand))]
     [NotifyCanExecuteChangedFor(nameof(PauseCommand))]
@@ -128,6 +140,68 @@ public sealed partial class DownloadsListViewModel : ViewModelBase, IDisposable
         ArgumentNullException.ThrowIfNull(filter);
         _filter = filter;
         RebuildVisible();
+    }
+
+    /// <summary>The status options for the search bar's status dropdown (TASK-134).</summary>
+    public IReadOnlyList<DownloadStatusFilter> StatusFilterOptions { get; } = Enum.GetValues<DownloadStatusFilter>();
+
+    /// <summary>The date options for the search bar's date dropdown (TASK-134).</summary>
+    public IReadOnlyList<DownloadDateFilter> DateFilterOptions { get; } = Enum.GetValues<DownloadDateFilter>();
+
+    partial void OnSearchQueryChanged(string value) => RebuildVisible();
+
+    partial void OnStatusFilterChanged(DownloadStatusFilter value) => RebuildVisible();
+
+    partial void OnDateFilterChanged(DownloadDateFilter value) => RebuildVisible();
+
+    /// <summary>
+    /// Whether a row is shown: the sidebar view (TASK-050) plus the search bar's text, status, and date
+    /// filters (TASK-134), all combined with AND.
+    /// </summary>
+    private bool IsVisible(DownloadRowViewModel row) =>
+        _filter.Matches(row) && MatchesSearch(row) && MatchesStatus(row) && MatchesDate(row);
+
+    private bool MatchesSearch(DownloadRowViewModel row)
+    {
+        string query = SearchQuery.Trim();
+        if (query.Length == 0)
+        {
+            return true;
+        }
+
+        return row.FileName.Contains(query, StringComparison.OrdinalIgnoreCase)
+            || row.Url.Contains(query, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private bool MatchesStatus(DownloadRowViewModel row) => StatusFilter switch
+    {
+        DownloadStatusFilter.Any => true,
+        DownloadStatusFilter.Queued => row.Status == DownloadStatus.Queued,
+        DownloadStatusFilter.Active => row.Status == DownloadStatus.Active,
+        DownloadStatusFilter.Paused => row.Status == DownloadStatus.Paused,
+        DownloadStatusFilter.Completed => row.Status == DownloadStatus.Completed,
+        DownloadStatusFilter.Failed => row.Status == DownloadStatus.Failed,
+        DownloadStatusFilter.Expired => row.Status == DownloadStatus.Expired,
+        _ => true,
+    };
+
+    private bool MatchesDate(DownloadRowViewModel row)
+    {
+        if (DateFilter == DownloadDateFilter.AnyTime)
+        {
+            return true;
+        }
+
+        DateTimeOffset now = _clock.UtcNow;
+        DateTimeOffset cutoff = DateFilter switch
+        {
+            DownloadDateFilter.Today => new DateTimeOffset(now.UtcDateTime.Date, TimeSpan.Zero),
+            DownloadDateFilter.Last7Days => now - TimeSpan.FromDays(7),
+            DownloadDateFilter.Last30Days => now - TimeSpan.FromDays(30),
+            _ => DateTimeOffset.MinValue,
+        };
+
+        return row.AddedSortKey >= cutoff;
     }
 
     /// <summary>Loads the persisted downloads into the list, applying any progress already seen this session.</summary>
@@ -237,7 +311,7 @@ public sealed partial class DownloadsListViewModel : ViewModelBase, IDisposable
             DownloadRowViewModel row = CreateRow(record, now);
             _allRows.Insert(0, row); // newest first, matching the repository order
             _byId[id] = row;
-            if (_filter.Matches(row))
+            if (IsVisible(row))
             {
                 Downloads.Insert(0, row);
             }
@@ -358,7 +432,7 @@ public sealed partial class DownloadsListViewModel : ViewModelBase, IDisposable
         Downloads.Clear();
         foreach (DownloadRowViewModel row in _allRows)
         {
-            if (_filter.Matches(row))
+            if (IsVisible(row))
             {
                 Downloads.Add(row);
             }
@@ -373,7 +447,7 @@ public sealed partial class DownloadsListViewModel : ViewModelBase, IDisposable
     /// </summary>
     private void ReevaluateMembership(DownloadRowViewModel row)
     {
-        bool shouldShow = _filter.Matches(row);
+        bool shouldShow = IsVisible(row);
         int visibleIndex = Downloads.IndexOf(row);
         if (shouldShow && visibleIndex < 0)
         {
@@ -394,7 +468,7 @@ public sealed partial class DownloadsListViewModel : ViewModelBase, IDisposable
         int insertAt = 0;
         for (int i = 0; i < masterIndex; i++)
         {
-            if (_filter.Matches(_allRows[i]))
+            if (IsVisible(_allRows[i]))
             {
                 insertAt++;
             }

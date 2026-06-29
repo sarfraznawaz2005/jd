@@ -261,4 +261,96 @@ public sealed class DownloadsListViewModelTests
 
         requested.Should().BeSameAs(vm.Downloads[0]);
     }
+
+    // --- Search & filter (TASK-134) --------------------------------------------------------------
+
+    [AvaloniaFact]
+    public async Task SearchQuery_FiltersByFileName()
+    {
+        var h = new Harness();
+        h.Repository.GetAllAsync(Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<Download>>(new[] { Record(1), Record(2), Record(3) }));
+        var vm = h.Build();
+        await vm.LoadAsync();
+
+        vm.SearchQuery = "file2";
+
+        vm.Downloads.Should().ContainSingle().Which.FileName.Should().Be("file2.bin");
+
+        vm.SearchQuery = string.Empty; // clearing restores all
+        vm.Downloads.Should().HaveCount(3);
+    }
+
+    [AvaloniaFact]
+    public async Task SearchQuery_FiltersByUrl_CaseInsensitive()
+    {
+        var h = new Harness();
+        h.Repository.GetAllAsync(Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<Download>>(new[] { Record(1), Record(2) }));
+        var vm = h.Build();
+        await vm.LoadAsync();
+
+        vm.SearchQuery = "HOST2.EXAMPLE";
+
+        vm.Downloads.Should().ContainSingle().Which.Url.Should().Contain("host2.example");
+    }
+
+    [AvaloniaFact]
+    public async Task StatusFilter_ShowsOnlyMatchingStatus()
+    {
+        var h = new Harness();
+        h.Repository.GetAllAsync(Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<Download>>(new[]
+            {
+                Record(1, DownloadStatusCodes.Completed),
+                Record(2, DownloadStatusCodes.Paused),
+                Record(3, DownloadStatusCodes.Completed),
+            }));
+        var vm = h.Build();
+        await vm.LoadAsync();
+
+        vm.StatusFilter = DownloadStatusFilter.Completed;
+
+        vm.Downloads.Should().HaveCount(2);
+        vm.Downloads.Should().OnlyContain(r => r.IsCompleted);
+    }
+
+    [AvaloniaFact]
+    public async Task DateFilter_ShowsOnlyRecentDownloads()
+    {
+        var h = new Harness();
+        h.Repository.GetAllAsync(Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<Download>>(new[]
+            {
+                Record(1), // CreatedAt = Now - 1 min → today
+                Record(2) with { CreatedAt = Now - TimeSpan.FromDays(10) }, // older than a week
+            }));
+        var vm = h.Build();
+        await vm.LoadAsync();
+
+        vm.DateFilter = DownloadDateFilter.Today;
+        vm.Downloads.Should().ContainSingle().Which.FileName.Should().Be("file1.bin");
+
+        vm.DateFilter = DownloadDateFilter.Last30Days;
+        vm.Downloads.Should().HaveCount(2, "both fall within 30 days");
+    }
+
+    [AvaloniaFact]
+    public async Task Search_CombinesWithSidebarFilter()
+    {
+        var h = new Harness();
+        h.Repository.GetAllAsync(Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<Download>>(new[]
+            {
+                Record(1, DownloadStatusCodes.Completed),
+                Record(2, DownloadStatusCodes.Paused),
+            }));
+        var vm = h.Build();
+        await vm.LoadAsync();
+
+        vm.ApplyFilter(new DownloadFilter(DownloadFilterKind.Incomplete));
+        vm.SearchQuery = "file"; // matches both names, but the sidebar limits to incomplete
+
+        vm.Downloads.Should().ContainSingle().Which.FileName.Should().Be("file2.bin");
+    }
 }

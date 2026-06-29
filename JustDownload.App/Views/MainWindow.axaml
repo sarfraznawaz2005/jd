@@ -207,7 +207,25 @@
 
       <!-- List pane: the virtualized downloads grid (TASK-051), with the empty state when there are none. -->
       <Border Grid.Column="1" Name="ListPane" Background="{DynamicResource BgBrush}">
-        <Panel>
+        <Grid RowDefinitions="Auto,*">
+
+          <!-- Search & filter bar (TASK-134): free-text over name/URL, plus status and date filters. -->
+          <Border Grid.Row="0" Name="SearchBar" Padding="12,10"
+                  BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,0,1"
+                  IsVisible="{Binding Downloads.HasDownloads}">
+            <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
+              <TextBox Grid.Column="0" Name="SearchBox" Watermark="Search by name or URL"
+                       Text="{Binding Downloads.SearchQuery}" />
+              <ComboBox Grid.Column="1" Name="StatusFilterBox" MinWidth="120"
+                        ItemsSource="{Binding Downloads.StatusFilterOptions}"
+                        SelectedItem="{Binding Downloads.StatusFilter, Mode=TwoWay}" />
+              <ComboBox Grid.Column="2" Name="DateFilterBox" MinWidth="120"
+                        ItemsSource="{Binding Downloads.DateFilterOptions}"
+                        SelectedItem="{Binding Downloads.DateFilter, Mode=TwoWay}" />
+            </Grid>
+          </Border>
+
+          <Panel Grid.Row="1">
 
           <!-- Downloads list: sortable / reorderable / resizable columns, single-selection, virtualized. -->
           <DataGrid Name="DownloadsGrid"
@@ -368,7 +386,8 @@
             <TextBlock Text="No downloads match this view. Pick another category or add a download."
                        TextWrapping="Wrap" TextAlignment="Center" Foreground="{DynamicResource TextFaintBrush}" />
           </StackPanel>
-        </Panel>
+          </Panel>
+        </Grid>
       </Border>
 
       <!-- Resize handle between list and detail -->
