@@ -149,6 +149,7 @@ public static class ServiceCollectionExtensions
         ArgumentNullException.ThrowIfNull(services);
 
         services.TryAddSingleton(new DatabaseOptions());
+        services.TryAddSingleton<IPortableEnvironment, PortableEnvironment>();
         services.TryAddSingleton<IDatabasePathProvider, DatabasePathProvider>();
         services.TryAddSingleton<IDbConnectionFactory, SqliteConnectionFactory>();
 

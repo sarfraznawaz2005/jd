@@ -23,6 +23,7 @@ public sealed partial class SettingsViewModel : ViewModelBase
     private readonly ISecretStore _secrets;
     private readonly ISettingsTransfer _transfer;
     private readonly JustDownload.Core.Transport.Proxy.IProxyTester _proxyTester;
+    private readonly JustDownload.Core.IPortableEnvironment _portable;
 
     [ObservableProperty]
     private SettingsSectionViewModel _selectedSection;
@@ -38,7 +39,8 @@ public sealed partial class SettingsViewModel : ViewModelBase
         JustDownload.Core.NativeMessaging.INativeHostInstaller nativeHostInstaller,
         ISecretStore secrets,
         ISettingsTransfer transfer,
-        JustDownload.Core.Transport.Proxy.IProxyTester proxyTester)
+        JustDownload.Core.Transport.Proxy.IProxyTester proxyTester,
+        JustDownload.Core.IPortableEnvironment portable)
     {
         ArgumentNullException.ThrowIfNull(settings);
         ArgumentNullException.ThrowIfNull(theme);
@@ -47,6 +49,7 @@ public sealed partial class SettingsViewModel : ViewModelBase
         ArgumentNullException.ThrowIfNull(secrets);
         ArgumentNullException.ThrowIfNull(transfer);
         ArgumentNullException.ThrowIfNull(proxyTester);
+        ArgumentNullException.ThrowIfNull(portable);
         _settings = settings;
         _theme = theme;
         _folderRules = folderRules;
@@ -54,6 +57,7 @@ public sealed partial class SettingsViewModel : ViewModelBase
         _secrets = secrets;
         _transfer = transfer;
         _proxyTester = proxyTester;
+        _portable = portable;
 
         PopulateSections();
         _selectedSection = Sections[0];
@@ -76,7 +80,7 @@ public sealed partial class SettingsViewModel : ViewModelBase
             "There are no global credentials to configure here.")));
         Sections.Add(new SettingsSectionViewModel("Categories", "IconSetCategories", new CategoriesSettingsViewModel(_settings, _folderRules)));
         Sections.Add(new SettingsSectionViewModel(
-            "Browsers", "IconSetBrowsers", new BrowsersViewModel(_nativeHostInstaller)));
+            "Browsers", "IconSetBrowsers", new BrowsersViewModel(_nativeHostInstaller, _portable)));
         Sections.Add(new SettingsSectionViewModel("Advanced", "IconSetAdvanced", new InfoSettingsViewModel(
             "Advanced",
             "Logs redact credentials, tokens, and signed-URL query strings.",

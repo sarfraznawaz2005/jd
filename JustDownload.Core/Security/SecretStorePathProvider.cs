@@ -17,13 +17,9 @@ internal sealed class SecretStorePathProvider : ISecretStorePathProvider
     {
         ArgumentNullException.ThrowIfNull(appInfo);
 
-        // SpecialFolderOption.Create ensures the OS base directory exists; the secrets subfolder
-        // itself is created lazily by the store before the first write.
-        string appData = Environment.GetFolderPath(
-            Environment.SpecialFolder.ApplicationData,
-            Environment.SpecialFolderOption.Create);
-
-        SecretsDirectory = Path.Combine(appData, appInfo.Name, FolderName);
+        // Route through the shared app-data resolver so the vault follows the env override and portable mode
+        // (TASK-138) exactly like the database; the secrets subfolder is created lazily before the first write.
+        SecretsDirectory = Path.Combine(AppDataPaths.Directory(appInfo), FolderName);
     }
 
     public string SecretsDirectory { get; }

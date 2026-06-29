@@ -12,14 +12,24 @@ internal static class AppDataPaths
 {
     internal const string OverrideEnvironmentVariable = "JUSTDOWNLOAD_DATA_DIR";
 
-    public static string Directory(IAppInfoProvider appInfo)
+    public static string Directory(IAppInfoProvider appInfo) =>
+        Directory(appInfo, PortableMode.BaseDirectory);
+
+    internal static string Directory(IAppInfoProvider appInfo, string baseDirectory)
     {
         ArgumentNullException.ThrowIfNull(appInfo);
+        ArgumentException.ThrowIfNullOrEmpty(baseDirectory);
 
+        // Precedence: explicit env override (test/host isolation) > portable mode (beside the exe) > per-OS app-data.
         string? overrideDir = Environment.GetEnvironmentVariable(OverrideEnvironmentVariable);
         if (!string.IsNullOrWhiteSpace(overrideDir))
         {
             return overrideDir;
+        }
+
+        if (PortableMode.IsPortable(baseDirectory))
+        {
+            return PortableMode.DataDirectory(baseDirectory);
         }
 
         string appData = Environment.GetFolderPath(

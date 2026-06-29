@@ -26,7 +26,8 @@ public sealed class SettingsWindowTests
         var vm = new SettingsViewModel(
             settings, new ThemeService(), CategoryFolderRules.CreateDefault(),
             Substitute.For<INativeHostInstaller>(), Substitute.For<ISecretStore>(),
-            Substitute.For<ISettingsTransfer>(), Substitute.For<IProxyTester>());
+            Substitute.For<ISettingsTransfer>(), Substitute.For<IProxyTester>(),
+            Substitute.For<JustDownload.Core.IPortableEnvironment>());
         var window = new SettingsWindow { DataContext = vm };
         window.Show();
 

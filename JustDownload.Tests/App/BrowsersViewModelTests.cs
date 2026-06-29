@@ -24,12 +24,31 @@ public sealed class BrowsersViewModelTests
             new BrowserRegistrationStatus(NativeMessagingBrowser.Firefox, false),
         });
 
-        var vm = new BrowsersViewModel(installer);
+        var vm = new BrowsersViewModel(installer, Substitute.For<JustDownload.Core.IPortableEnvironment>());
 
         vm.HostAvailable.Should().BeTrue();
         vm.Browsers.Should().HaveCount(2);
         vm.Browsers.Single(b => b.Name == "Chrome").StatusText.Should().Be("Connected");
         vm.Browsers.Single(b => b.Name == "Firefox").StatusText.Should().Be("Not connected");
+    }
+
+    [Fact]
+    public void InPortableMode_RegistrationIsDisabled_AndNeverWritesTheRegistry()
+    {
+        var installer = Substitute.For<INativeHostInstaller>();
+        installer.GetStatus().Returns([]);
+        var portable = Substitute.For<JustDownload.Core.IPortableEnvironment>();
+        portable.IsPortable.Returns(true);
+        var vm = new BrowsersViewModel(installer, portable);
+
+        vm.IsPortable.Should().BeTrue();
+        vm.CanManageRegistration.Should().BeFalse();
+        vm.RegisterCommand.CanExecute(null).Should().BeFalse();
+        vm.UnregisterCommand.CanExecute(null).Should().BeFalse();
+        vm.StatusMessage.Should().Contain("portable mode");
+
+        vm.RegisterCommand.Execute(null); // even if invoked, it must not install
+        installer.DidNotReceive().Install();
     }
 
     [Fact]
@@ -39,7 +58,7 @@ public sealed class BrowsersViewModelTests
         installer.IsHostPresent.Returns(true);
         installer.Install().Returns(true);
         installer.GetStatus().Returns([]);
-        var vm = new BrowsersViewModel(installer);
+        var vm = new BrowsersViewModel(installer, Substitute.For<JustDownload.Core.IPortableEnvironment>());
 
         vm.RegisterCommand.Execute(null);
 
@@ -53,7 +72,7 @@ public sealed class BrowsersViewModelTests
         var installer = Substitute.For<INativeHostInstaller>();
         installer.Install().Returns(false);
         installer.GetStatus().Returns([]);
-        var vm = new BrowsersViewModel(installer);
+        var vm = new BrowsersViewModel(installer, Substitute.For<JustDownload.Core.IPortableEnvironment>());
 
         vm.RegisterCommand.Execute(null);
 
@@ -65,7 +84,7 @@ public sealed class BrowsersViewModelTests
     {
         var installer = Substitute.For<INativeHostInstaller>();
         installer.GetStatus().Returns([]);
-        var vm = new BrowsersViewModel(installer);
+        var vm = new BrowsersViewModel(installer, Substitute.For<JustDownload.Core.IPortableEnvironment>());
 
         vm.UnregisterCommand.Execute(null);
 

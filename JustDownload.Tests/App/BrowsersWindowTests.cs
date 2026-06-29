@@ -26,7 +26,7 @@ public sealed class BrowsersWindowTests
             new BrowserRegistrationStatus(NativeMessagingBrowser.Firefox, false),
         });
 
-        var window = new BrowsersWindow { DataContext = new BrowsersViewModel(installer) };
+        var window = new BrowsersWindow { DataContext = new BrowsersViewModel(installer, Substitute.For<JustDownload.Core.IPortableEnvironment>()) };
         window.Show();
 
         var texts = window.GetVisualDescendants().OfType<TextBlock>().Select(t => t.Text).ToList();

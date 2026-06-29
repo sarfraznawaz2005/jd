@@ -61,7 +61,7 @@ public sealed class AutostartTests
     {
         var autostart = Substitute.For<IAutostartService>();
         autostart.IsSupported.Returns(true);
-        using var controller = new AutostartController(autostart, SettingsWith(launchAtStartup: true));
+        using var controller = new AutostartController(autostart, SettingsWith(launchAtStartup: true), Substitute.For<JustDownload.Core.IPortableEnvironment>());
 
         controller.ApplyCurrent();
 
@@ -73,7 +73,21 @@ public sealed class AutostartTests
     {
         var autostart = Substitute.For<IAutostartService>();
         autostart.IsSupported.Returns(false);
-        using var controller = new AutostartController(autostart, SettingsWith(launchAtStartup: true));
+        using var controller = new AutostartController(autostart, SettingsWith(launchAtStartup: true), Substitute.For<JustDownload.Core.IPortableEnvironment>());
+
+        controller.ApplyCurrent();
+
+        autostart.DidNotReceive().SetEnabled(Arg.Any<bool>());
+    }
+
+    [Fact]
+    public void Controller_InPortableMode_NeverTouchesAutostart()
+    {
+        var autostart = Substitute.For<IAutostartService>();
+        autostart.IsSupported.Returns(true);
+        var portable = Substitute.For<JustDownload.Core.IPortableEnvironment>();
+        portable.IsPortable.Returns(true);
+        using var controller = new AutostartController(autostart, SettingsWith(launchAtStartup: true), portable);
 
         controller.ApplyCurrent();
 
@@ -86,7 +100,7 @@ public sealed class AutostartTests
         var autostart = Substitute.For<IAutostartService>();
         autostart.IsSupported.Returns(true);
         var settings = SettingsWith(launchAtStartup: false);
-        using var controller = new AutostartController(autostart, settings);
+        using var controller = new AutostartController(autostart, settings, Substitute.For<JustDownload.Core.IPortableEnvironment>());
 
         settings.Changed += Raise.Event<EventHandler<SettingsChangedEventArgs>>(
             settings,
