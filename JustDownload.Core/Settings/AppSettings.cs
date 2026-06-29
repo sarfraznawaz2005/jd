@@ -138,4 +138,11 @@ public sealed record AppSettings
     /// disables the hook — the default.
     /// </summary>
     public string? OnCompletionCommand { get; init; }
+
+    /// <summary>
+    /// Time-of-day bandwidth rules (TASK-145) in the canonical form <c>HH:mm-HH:mm=bytes;…</c> (parsed by
+    /// <c>BandwidthSchedule</c>). When a rule is active its cap overrides <see cref="GlobalSpeedLimitBytesPerSecond"/>;
+    /// otherwise the manual cap applies. <see langword="null"/>/empty = no schedule (the default).
+    /// </summary>
+    public string? BandwidthSchedule { get; init; }
 }

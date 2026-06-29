@@ -35,7 +35,7 @@ public sealed class GlobalSpeedLimitControllerTests
     {
         var settings = new FakeSettings { Current = new AppSettings { GlobalSpeedLimitBytesPerSecond = 256 * 1024 } };
         var limiter = new TokenBucket(new TestClock());
-        using var controller = new GlobalSpeedLimitController(settings, limiter);
+        using var controller = new GlobalSpeedLimitController(settings, limiter, new TestClock());
 
         controller.ApplyCurrent();
 
@@ -47,7 +47,7 @@ public sealed class GlobalSpeedLimitControllerTests
     {
         var settings = new FakeSettings();
         var limiter = new TokenBucket(new TestClock());
-        using var controller = new GlobalSpeedLimitController(settings, limiter);
+        using var controller = new GlobalSpeedLimitController(settings, limiter, new TestClock());
         controller.ApplyCurrent();
         limiter.BytesPerSecond.Should().Be(0, "no limit was loaded");
 
@@ -61,11 +61,31 @@ public sealed class GlobalSpeedLimitControllerTests
     {
         var settings = new FakeSettings();
         var limiter = new TokenBucket(new TestClock());
-        var controller = new GlobalSpeedLimitController(settings, limiter);
+        var controller = new GlobalSpeedLimitController(settings, limiter, new TestClock());
 
         controller.Dispose();
         _ = settings.UpdateAsync(s => s with { GlobalSpeedLimitBytesPerSecond = 999 });
 
         limiter.BytesPerSecond.Should().Be(0, "a disposed controller must unsubscribe");
+    }
+
+    [Fact]
+    public void Schedule_ActiveRule_OverridesTheManualLimit()
+    {
+        // An all-day rule is active regardless of the clock, so this is time-zone independent (TASK-145).
+        var settings = new FakeSettings
+        {
+            Current = new AppSettings
+            {
+                GlobalSpeedLimitBytesPerSecond = 1_000,
+                BandwidthSchedule = "00:00-00:00=512000",
+            },
+        };
+        var limiter = new TokenBucket(new TestClock());
+        using var controller = new GlobalSpeedLimitController(settings, limiter, new TestClock());
+
+        controller.ApplyCurrent();
+
+        limiter.BytesPerSecond.Should().Be(512000, "the active schedule rule overrides the manual cap");
     }
 }

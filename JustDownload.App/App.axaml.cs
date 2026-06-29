@@ -362,7 +362,9 @@ public partial class App : Application
         AppSettings current = Services.GetRequiredService<ISettingsService>().Current;
         Services.GetRequiredService<IThemeService>()
             .SetMode(current.Theme == AppTheme.Dark ? ThemeMode.Dark : ThemeMode.Light);
-        Services.GetRequiredService<GlobalSpeedLimitController>().ApplyCurrent();
+        GlobalSpeedLimitController speedLimit = Services.GetRequiredService<GlobalSpeedLimitController>();
+        speedLimit.ApplyCurrent();
+        speedLimit.Start(); // re-evaluate the time-of-day schedule automatically (TASK-145)
         _ = Services.GetRequiredService<GlobalProxyController>().ApplyCurrentAsync();
         Services.GetRequiredService<ClipboardMonitor>().ApplyEnabled();
         Services.GetRequiredService<AutostartController>().ApplyCurrent();

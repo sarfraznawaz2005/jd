@@ -211,6 +211,19 @@ public sealed class SettingsSerializerOrganizeTests
     }
 
     [Fact]
+    public void RoundTrips_BandwidthSchedule_AndDefaultsNull()
+    {
+        IReadOnlyDictionary<string, string> stored =
+            SettingsSerializer.ToStorage(new AppSettings { BandwidthSchedule = "22:00-06:00=0" });
+        SettingsSerializer.FromStorage(
+            stored.ToDictionary(kv => kv.Key, kv => (string?)kv.Value), NullLogger.Instance)
+            .BandwidthSchedule.Should().Be("22:00-06:00=0");
+
+        SettingsSerializer.FromStorage(new Dictionary<string, string?>(), NullLogger.Instance)
+            .BandwidthSchedule.Should().BeNull("no schedule by default");
+    }
+
+    [Fact]
     public void RoundTrips_CategoryConcurrencyLimits_AndDefaultsNull()
     {
         IReadOnlyDictionary<string, string> stored =

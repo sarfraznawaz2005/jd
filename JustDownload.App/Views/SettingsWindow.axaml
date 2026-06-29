@@ -151,6 +151,32 @@
             </ItemsControl.ItemTemplate>
           </ItemsControl>
         </StackPanel>
+        <StackPanel Spacing="6">
+          <TextBlock Text="Bandwidth schedule" Classes="StatKey" />
+          <TextBlock Text="Apply a different speed cap by time of day (e.g. unlimited overnight). 24-hour HH:mm; 0 MB/s = unlimited; a window may wrap past midnight."
+                     Classes="SettingsHint" TextWrapping="Wrap" />
+          <ItemsControl ItemsSource="{Binding ScheduleRules}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:BandwidthRuleItem">
+                <Grid ColumnDefinitions="70,20,70,90,Auto,Auto" Margin="0,3" ColumnSpacing="6">
+                  <TextBox Grid.Column="0" Text="{Binding Start, Mode=TwoWay}" Watermark="22:00" />
+                  <TextBlock Grid.Column="1" Text="to" VerticalAlignment="Center" HorizontalAlignment="Center"
+                             Foreground="{DynamicResource TextDimBrush}" />
+                  <TextBox Grid.Column="2" Text="{Binding End, Mode=TwoWay}" Watermark="06:00" />
+                  <NumericUpDown Grid.Column="3" Value="{Binding LimitMegabytesPerSecond, Mode=TwoWay}"
+                                 Minimum="0" Increment="0.5" />
+                  <TextBlock Grid.Column="4" Text="MB/s" VerticalAlignment="Center"
+                             Foreground="{DynamicResource TextDimBrush}" />
+                  <Button Grid.Column="5" Classes="App" Content="Remove"
+                          Command="{Binding $parent[ItemsControl].((vm:ConnectionsSettingsViewModel)DataContext).RemoveScheduleRuleCommand}"
+                          CommandParameter="{Binding}" />
+                </Grid>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+          <Button Classes="App" Content="Add rule" HorizontalAlignment="Left"
+                  Command="{Binding AddScheduleRuleCommand}" />
+        </StackPanel>
       </StackPanel>
     </DataTemplate>
 

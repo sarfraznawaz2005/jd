@@ -1,8 +1,11 @@
 using System.Collections.ObjectModel;
+using System.Globalization;
 using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
 using JustDownload.Core.Categorization;
 using JustDownload.Core.Lifecycle;
 using JustDownload.Core.Settings;
+using JustDownload.Core.Throttling;
 
 namespace JustDownload.App.ViewModels.Settings;
 
@@ -54,6 +57,9 @@ public sealed partial class ConnectionsSettingsViewModel : ViewModelBase
         CategoryLimits = new ObservableCollection<CategoryLimitItem>(
             CappableCategories.Select(c =>
                 new CategoryLimitItem(c.ToString(), caps.GetValueOrDefault(c.ToString()), PersistCategoryLimits)));
+
+        ScheduleRules = new ObservableCollection<BandwidthRuleItem>(
+            BandwidthSchedule.Parse(current.BandwidthSchedule).Select(ToRuleItem));
         _suppress = false;
     }
 
@@ -64,6 +70,9 @@ public sealed partial class ConnectionsSettingsViewModel : ViewModelBase
 
     /// <summary>Per-category concurrent-download caps (TASK-141); <c>0</c> means unlimited for that category.</summary>
     public ObservableCollection<CategoryLimitItem> CategoryLimits { get; }
+
+    /// <summary>Time-of-day bandwidth rules (TASK-145); each row caps the global speed during its window.</summary>
+    public ObservableCollection<BandwidthRuleItem> ScheduleRules { get; }
 
     /// <summary>The largest per-category cap the UI allows (the global concurrent ceiling).</summary>
     public int MaxCategoryConcurrent { get; } = MaxConcurrent;
@@ -148,4 +157,51 @@ public sealed partial class ConnectionsSettingsViewModel : ViewModelBase
             CategoryConcurrencyLimits = canonical.Length == 0 ? null : canonical,
         });
     }
+
+    /// <summary>Adds a new bandwidth rule row (defaults to overnight, unlimited) and persists (TASK-145).</summary>
+    [RelayCommand]
+    private void AddScheduleRule()
+    {
+        ScheduleRules.Add(new BandwidthRuleItem("22:00", "06:00", 0, PersistSchedule));
+        PersistSchedule();
+    }
+
+    /// <summary>Removes a bandwidth rule row and persists (TASK-145).</summary>
+    [RelayCommand]
+    private void RemoveScheduleRule(BandwidthRuleItem? rule)
+    {
+        if (rule is not null && ScheduleRules.Remove(rule))
+        {
+            PersistSchedule();
+        }
+    }
+
+    private void PersistSchedule()
+    {
+        if (_suppress)
+        {
+            return;
+        }
+
+        var rules = new List<BandwidthRule>();
+        foreach (BandwidthRuleItem item in ScheduleRules)
+        {
+            if (TimeOnly.TryParseExact(item.Start.Trim(), "HH:mm", CultureInfo.InvariantCulture, DateTimeStyles.None, out TimeOnly start)
+                && TimeOnly.TryParseExact(item.End.Trim(), "HH:mm", CultureInfo.InvariantCulture, DateTimeStyles.None, out TimeOnly end)
+                && item.LimitMegabytesPerSecond >= 0)
+            {
+                long bytes = (long)Math.Round(item.LimitMegabytesPerSecond * BytesPerMegabyte);
+                rules.Add(new BandwidthRule(start, end, bytes));
+            }
+        }
+
+        string canonical = BandwidthSchedule.Format(rules);
+        _ = _settings.UpdateAsync(s => s with { BandwidthSchedule = canonical.Length == 0 ? null : canonical });
+    }
+
+    private BandwidthRuleItem ToRuleItem(BandwidthRule rule) => new(
+        rule.Start.ToString("HH\\:mm", CultureInfo.InvariantCulture),
+        rule.End.ToString("HH\\:mm", CultureInfo.InvariantCulture),
+        Math.Round((double)rule.BytesPerSecond / BytesPerMegabyte, 2),
+        PersistSchedule);
 }

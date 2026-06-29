@@ -395,6 +395,37 @@ public sealed class SettingsViewModelTests
     }
 
     [Fact]
+    public void Connections_BandwidthSchedule_AddEditRemove_Persists()
+    {
+        ISettingsService settings = Settings();
+        var vm = new ConnectionsSettingsViewModel(settings);
+        vm.ScheduleRules.Should().BeEmpty();
+
+        vm.AddScheduleRuleCommand.Execute(null); // adds a default 22:00-06:00=0 rule and persists
+        vm.ScheduleRules.Should().ContainSingle();
+        Persisted(settings, new AppSettings()).BandwidthSchedule.Should().Be("22:00-06:00=0");
+
+        vm.ScheduleRules[0].LimitMegabytesPerSecond = 2; // 2 MB/s = 2097152 bytes
+        Persisted(settings, new AppSettings()).BandwidthSchedule.Should().Be("22:00-06:00=2097152");
+
+        vm.RemoveScheduleRuleCommand.Execute(vm.ScheduleRules[0]);
+        Persisted(settings, new AppSettings { BandwidthSchedule = "x" }).BandwidthSchedule
+            .Should().BeNull("removing the last rule clears the schedule");
+    }
+
+    [Fact]
+    public void Connections_BandwidthSchedule_HydratesFromSettings()
+    {
+        var vm = new ConnectionsSettingsViewModel(
+            Settings(new AppSettings { BandwidthSchedule = "22:00-06:00=0;09:00-17:00=2097152" }));
+
+        vm.ScheduleRules.Should().HaveCount(2);
+        vm.ScheduleRules[0].Start.Should().Be("22:00");
+        vm.ScheduleRules[0].End.Should().Be("06:00");
+        vm.ScheduleRules[1].LimitMegabytesPerSecond.Should().BeApproximately(2.0, 0.01);
+    }
+
+    [Fact]
     public void Categories_PersistOrganizeAndRoot_AndListsFolders()
     {
         ISettingsService settings = Settings();
