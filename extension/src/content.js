@@ -1,10 +1,13 @@
 // JustDownload — content script (MV3)
 //
-// Detects in-page media (DOM <video>/<audio> sources) and shows a floating
-// "Download" button when the background worker reports media on this page
-// (TASK-068). The button hands the detected media to the desktop app, which
-// fetches it with the page's auth context (TASK-067/068 AC2). jdcore.js is
-// injected before this script (manifest content_scripts).
+// Renders a small, per-video download icon on/near each detected <video>/<audio> element on the page
+// (TASK-164), IDM-style — replacing the earlier single generic floating button (TASK-068). Runs in every
+// frame (manifest.base.json content_scripts `all_frames: true`) so videos embedded via a third-party
+// iframe (e.g. a blog embedding a YouTube player) get their own icon too: each frame's content-script
+// instance independently detects and messages its own videos — cross-origin iframes are opaque to page JS,
+// but the browser still injects a content script into them, so this needs no cross-frame DOM access.
+// jdcore.js is injected before this script (manifest content_scripts) and supplies the pure URL/geometry
+// helpers plus the per-site blacklist (TASK-069), which this script also honors.
 (() => {
   "use strict";
 
@@ -15,74 +18,171 @@
   }
   window.__justDownloadInjected = true;
 
-  const BUTTON_ID = "jd-floating-download";
+  const ICON_CLASS = "jd-video-icon";
+  const ICON_SIZE = 28;
+  const RESCAN_DEBOUNCE_MS = 150;
+  const REPOSITION_INTERVAL_MS = 800;
 
-  /** Reports any media element sources in the DOM to the background sniffer. */
-  function scanDomForMedia() {
-    const sources = new Set();
-    for (const el of document.querySelectorAll("video[src], audio[src], source[src]")) {
-      const src = el.getAttribute("src");
-      if (src) {
-        try {
-          sources.add(new URL(src, document.baseURI).href);
-        } catch {
-          /* skip unparseable src */
-        }
-      }
-    }
-    for (const url of sources) {
-      api.runtime.sendMessage({ type: "MEDIA_DETECTED", url }).catch(() => {});
-    }
+  const DOWNLOAD_SVG =
+    '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">' +
+    '<path d="M12 3v10m0 0l-4-4m4 4l4-4M5 19h14" stroke="#fff" stroke-width="2.2" ' +
+    'stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
+  /** media element -> { icon: HTMLElement, url: string } */
+  const tracked = new Map();
+  let blacklisted = false;
+  let rescanTimer = null;
+  let repositionTimer = null;
+
+  /** Resolves the element's own downloadable URL (its `src`, or its first `<source src>`). */
+  function resolveElementUrl(el) {
+    const source = el.querySelector("source[src]");
+    return JD.resolveMediaUrl(
+      el.getAttribute("src"),
+      source ? source.getAttribute("src") : null,
+      document.baseURI,
+    );
   }
 
-  /** Injects the floating download button once (idempotent). */
-  function showFloatingButton(count) {
-    if (document.getElementById(BUTTON_ID)) {
-      updateButtonCount(count);
-      return;
-    }
-
-    const button = document.createElement("button");
-    button.id = BUTTON_ID;
-    button.type = "button";
-    button.textContent = labelFor(count);
-    Object.assign(button.style, {
+  function createIcon(url, kind) {
+    const icon = document.createElement("button");
+    icon.type = "button";
+    icon.className = ICON_CLASS;
+    icon.setAttribute("aria-label", "Download this video");
+    icon.title = "Download with JustDownload";
+    icon.style.all = "initial";
+    Object.assign(icon.style, {
       position: "fixed",
-      right: "20px",
-      bottom: "20px",
       zIndex: "2147483647",
-      padding: "10px 14px",
-      borderRadius: "10px",
+      width: `${ICON_SIZE}px`,
+      height: `${ICON_SIZE}px`,
+      borderRadius: "6px",
       border: "none",
       background: "#3b82f6",
       color: "#fff",
-      font: "600 13px system-ui, sans-serif",
-      boxShadow: "0 6px 20px rgba(0,0,0,0.25)",
+      display: "none",
+      alignItems: "center",
+      justifyContent: "center",
       cursor: "pointer",
+      boxShadow: "0 2px 8px rgba(0,0,0,0.35)",
+      padding: "0",
     });
-    button.addEventListener("click", () => {
-      api.runtime.sendMessage({ type: "DOWNLOAD_DETECTED_MEDIA" }).catch(() => {});
+    icon.innerHTML = DOWNLOAD_SVG;
+    icon.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      api.runtime
+        .sendMessage({ type: "DOWNLOAD_LINK", url, pageUrl: location.href, mediaKind: kind })
+        .catch(() => {});
     });
-    document.body.appendChild(button);
+    document.body.appendChild(icon);
+    return icon;
   }
 
-  function updateButtonCount(count) {
-    const button = document.getElementById(BUTTON_ID);
-    if (button) {
-      button.textContent = labelFor(count);
+  /** Positions (or hides) one video's icon over its current viewport rect. */
+  function positionIcon(mediaEl, icon) {
+    const rect = mediaEl.getBoundingClientRect();
+    const pos = JD.computeIconPosition(
+      rect,
+      { width: window.innerWidth, height: window.innerHeight },
+      ICON_SIZE,
+    );
+    icon.style.display = pos.visible ? "flex" : "none";
+    if (pos.visible) {
+      icon.style.top = `${pos.top}px`;
+      icon.style.left = `${pos.left}px`;
     }
   }
 
-  function labelFor(count) {
-    return count > 1 ? `Download media (${count})` : "Download media";
+  /** Attaches an icon to a newly-seen media element with a resolvable URL (idempotent). */
+  function attachIconTo(el, kind) {
+    if (tracked.has(el)) {
+      return;
+    }
+    const url = resolveElementUrl(el);
+    if (!url) {
+      return;
+    }
+    const icon = createIcon(url, kind);
+    tracked.set(el, { icon, url });
+    positionIcon(el, icon);
+    api.runtime.sendMessage({ type: "MEDIA_DETECTED", url }).catch(() => {});
+    ensureRepositionTimer();
   }
 
-  // The background worker tells us when media has been detected for this tab.
-  api.runtime.onMessage.addListener((message) => {
-    if (message?.type === "SHOW_MEDIA_BUTTON") {
-      showFloatingButton(message.count ?? 1);
+  function scanAndAttach() {
+    if (blacklisted) {
+      return;
     }
-  });
+    for (const el of document.querySelectorAll("video")) {
+      attachIconTo(el, "video");
+    }
+    for (const el of document.querySelectorAll("audio")) {
+      attachIconTo(el, "audio");
+    }
+  }
 
-  scanDomForMedia();
+  function scheduleRescan() {
+    if (blacklisted || rescanTimer !== null) {
+      return;
+    }
+    rescanTimer = window.setTimeout(() => {
+      rescanTimer = null;
+      scanAndAttach();
+    }, RESCAN_DEBOUNCE_MS);
+  }
+
+  /** Repositions every tracked icon and drops ones whose video left the DOM. */
+  function repositionAll() {
+    for (const [el, entry] of tracked) {
+      if (!document.body.contains(el)) {
+        entry.icon.remove();
+        tracked.delete(el);
+        continue;
+      }
+      positionIcon(el, entry.icon);
+    }
+    if (tracked.size === 0 && repositionTimer !== null) {
+      window.clearInterval(repositionTimer);
+      repositionTimer = null;
+    }
+  }
+
+  function ensureRepositionTimer() {
+    if (repositionTimer === null) {
+      repositionTimer = window.setInterval(repositionAll, REPOSITION_INTERVAL_MS);
+    }
+  }
+
+  /** Whether this frame's own page is blacklisted (TASK-069), read once at startup. */
+  async function isThisFrameBlacklisted() {
+    try {
+      const stored = await api.storage.sync.get("blacklist");
+      const blacklist = Array.isArray(stored?.blacklist) ? stored.blacklist : [];
+      return JD.isBlacklisted(location.href, blacklist);
+    } catch {
+      return false;
+    }
+  }
+
+  async function init() {
+    blacklisted = await isThisFrameBlacklisted();
+    if (blacklisted) {
+      return;
+    }
+
+    scanAndAttach();
+
+    new MutationObserver(scheduleRescan).observe(document.documentElement, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ["src"],
+    });
+
+    window.addEventListener("scroll", repositionAll, { passive: true, capture: true });
+    window.addEventListener("resize", repositionAll, { passive: true });
+  }
+
+  void init();
 })();

@@ -203,6 +203,49 @@
     return { type: "BLACKLIST_SYNC", domains };
   }
 
+  /**
+   * Resolves a `<video>`/`<audio>` element's absolute, downloadable URL from its own `src` attribute or a
+   * child `<source src>` (TASK-164). Returns null when there is no source, or the source is a `blob:` URL
+   * (MediaSource-backed streams — page-local, not fetchable outside the page — TASK-068's DOM scan had the
+   * same limitation).
+   */
+  function resolveMediaUrl(srcAttr, sourceSrcAttr, baseURI) {
+    const raw = srcAttr || sourceSrcAttr;
+    if (!raw) {
+      return null;
+    }
+    let absolute;
+    try {
+      absolute = new URL(raw, baseURI).href;
+    } catch {
+      return null;
+    }
+    return absolute.startsWith("blob:") ? null : absolute;
+  }
+
+  /**
+   * Computes where a small per-video download icon (TASK-164) should sit over a media element's current
+   * viewport rect — IDM-style, pinned to the element's top-right corner — and whether it should be visible
+   * right now (the element has size and is at least partly within the viewport).
+   */
+  function computeIconPosition(rect, viewport, iconSize = 28, margin = 8) {
+    const visible =
+      rect.width > 0 &&
+      rect.height > 0 &&
+      rect.bottom > 0 &&
+      rect.right > 0 &&
+      rect.top < viewport.height &&
+      rect.left < viewport.width;
+    if (!visible) {
+      return { visible: false, top: 0, left: 0 };
+    }
+    return {
+      visible: true,
+      top: Math.max(rect.top + margin, 0),
+      left: Math.max(rect.right - iconSize - margin, rect.left),
+    };
+  }
+
   /** Serializes an array of {name,value} cookies into a Cookie header value. */
   function formatCookieHeader(cookies) {
     if (!Array.isArray(cookies)) {
@@ -229,6 +272,8 @@
     createMediaStore,
     buildBlacklistSyncMessage,
     mediaLabel,
+    resolveMediaUrl,
+    computeIconPosition,
     MEDIA_KINDS,
   };
 

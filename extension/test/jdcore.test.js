@@ -101,6 +101,62 @@ test("mediaLabel describes a detected item (TASK-071 AC0)", () => {
   assert.equal(JD.mediaLabel({}), "Media");
 });
 
+test("resolveMediaUrl prefers the element's own src, falls back to a child source (TASK-164)", () => {
+  assert.equal(
+    JD.resolveMediaUrl("/clip.mp4", null, "https://x/page"),
+    "https://x/clip.mp4",
+    "own src resolves against the document base",
+  );
+  assert.equal(
+    JD.resolveMediaUrl(null, "clip.mp4", "https://x/dir/page"),
+    "https://x/dir/clip.mp4",
+    "falls back to a child <source src> when the element has none of its own",
+  );
+  assert.equal(JD.resolveMediaUrl(null, null, "https://x/page"), null, "no source at all");
+  assert.equal(JD.resolveMediaUrl("not a url", null, ""), null, "unparseable src yields null");
+});
+
+test("resolveMediaUrl rejects blob: URLs — not fetchable outside the page (TASK-164)", () => {
+  assert.equal(JD.resolveMediaUrl("blob:https://x/abc-123", null, "https://x/page"), null);
+});
+
+test("computeIconPosition pins the icon to the element's top-right corner (TASK-164)", () => {
+  const rect = { top: 100, left: 200, right: 500, bottom: 300, width: 300, height: 200 };
+  const viewport = { width: 1024, height: 768 };
+  const pos = JD.computeIconPosition(rect, viewport, 28, 8);
+  assert.equal(pos.visible, true);
+  assert.equal(pos.top, 108, "top = rect.top + margin");
+  assert.equal(pos.left, 464, "left = rect.right - iconSize - margin");
+});
+
+test("computeIconPosition hides the icon when the element is off-screen or zero-sized (TASK-164)", () => {
+  const viewport = { width: 1024, height: 768 };
+  assert.equal(
+    JD.computeIconPosition({ top: -500, left: 0, right: 300, bottom: -300, width: 300, height: 200 }, viewport)
+      .visible,
+    false,
+    "scrolled entirely above the viewport",
+  );
+  assert.equal(
+    JD.computeIconPosition({ top: 2000, left: 0, right: 300, bottom: 2200, width: 300, height: 200 }, viewport)
+      .visible,
+    false,
+    "scrolled entirely below the viewport",
+  );
+  assert.equal(
+    JD.computeIconPosition({ top: 0, left: 0, right: 0, bottom: 0, width: 0, height: 0 }, viewport).visible,
+    false,
+    "collapsed/hidden element",
+  );
+});
+
+test("computeIconPosition never places the icon left of the element when it's narrower than the icon (TASK-164)", () => {
+  const rect = { top: 10, left: 10, right: 20, bottom: 30, width: 10, height: 20 };
+  const pos = JD.computeIconPosition(rect, { width: 1024, height: 768 }, 28, 8);
+  assert.equal(pos.visible, true);
+  assert.equal(pos.left, 10, "clamped to rect.left rather than going negative past it");
+});
+
 test("formatCookieHeader serializes name=value pairs (TASK-067 AC1)", () => {
   const header = JD.formatCookieHeader([
     { name: "sid", value: "abc" },

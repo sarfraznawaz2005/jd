@@ -38,6 +38,12 @@ test("Firefox uses a background.scripts event page, not an unsupported service_w
   }
 });
 
+test("content script runs in every frame so iframe-embedded videos get their own icon (TASK-164)", () => {
+  const base = readJson("manifest.base.json");
+  const [entry] = base.content_scripts;
+  assert.equal(entry.all_frames, true, "all_frames must be true for iframe-embedded video detection");
+});
+
 test("Chromium targets keep the service_worker background (TASK-097)", () => {
   for (const file of ["manifest.chrome.json", "manifest.edge.json"]) {
     assert.equal(readJson(file).background?.service_worker, "background.js",

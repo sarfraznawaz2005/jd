@@ -2,9 +2,9 @@
 //
 // Forwards links and detected media to the desktop app over Native Messaging,
 // with the auth context (cookies, referrer, user-agent) for authenticated
-// downloads (TASK-067). The media sniffer + floating button (TASK-068), the
-// per-site blacklist (TASK-069), and launch-if-not-running / queue (TASK-070)
-// build on the seams here.
+// downloads (TASK-067). The media sniffer feeding the badge and the per-video
+// download icons (TASK-068/164), the per-site blacklist (TASK-069), and
+// launch-if-not-running / queue (TASK-070) build on the seams here.
 "use strict";
 
 // Load the shared core. Chrome/Edge run this as a service worker, where
@@ -51,7 +51,11 @@ api.webRequest.onBeforeRequest.addListener(
   { urls: ["<all_urls>"] },
 );
 
-/** Updates the badge and tells the tab's content script whether to show the button. */
+/**
+ * Updates the toolbar badge with the tab's detected-media count. The per-video download icons
+ * (TASK-164) are rendered directly by each frame's content script, gated by its own blacklist check —
+ * this only mirrors that same blacklist rule (TASK-069) into the badge so it stays consistent.
+ */
 async function onMediaDetected(tabId) {
   const count = mediaStore.count(tabId);
   let pageUrl = "";
@@ -66,12 +70,6 @@ async function onMediaDetected(tabId) {
     await api.action.setBadgeText({ tabId, text: show && count > 0 ? String(count) : "" });
   } catch {
     /* the action API may be unavailable on some pages */
-  }
-
-  if (show) {
-    api.tabs.sendMessage(tabId, { type: "SHOW_MEDIA_BUTTON", count }).catch(() => {
-      // The content script may not be injected on this page; ignore.
-    });
   }
 }
 

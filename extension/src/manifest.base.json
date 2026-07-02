@@ -34,6 +34,7 @@
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
+      "all_frames": true,
       "js": ["jdcore.js", "content.js"],
       "run_at": "document_idle"
     }
