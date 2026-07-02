@@ -18,4 +18,15 @@
     <Deterministic>true</Deterministic>
   </PropertyGroup>
 
+  <!--
+    Single source of truth for the product version (TASK-159, AC1). Every csproj in the solution picks
+    this up implicitly via the SDK (it drives AssemblyVersion/FileVersion/InformationalVersion), and
+    build/build-installer.ps1 reads it back with `dotnet msbuild -getProperty:Version` instead of
+    hardcoding a literal, so the installer's ProductVersion never drifts from the rest of the build.
+    Bump this by hand until CI-driven versioning exists (there is none yet — see build-installer.ps1).
+  -->
+  <PropertyGroup>
+    <Version>1.0.0</Version>
+  </PropertyGroup>
+
 </Project>

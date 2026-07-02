@@ -1,0 +1,99 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  JustDownload Windows bootstrapper (TASK-159, AC0). Built with the same pinned WiX Toolset v5 CLI as
+  Product.wxs (build-time-only tooling, MS-RL, see Product.wxs's header and the TASK-076 notes).
+
+  Why this exists: JustDownload.App ships framework-dependent (docs/publishing.md) — it needs the shared
+  .NET 8 Desktop Runtime already on the machine. Before this task, `JustDownload-win-x64.msi` installed
+  fine on a runtime-less machine and then silently failed to launch (missing hostfxr). This Burn bundle
+  ("JustDownload-win-x64-Setup.exe") wraps that same MSI with a chained install of the Microsoft .NET 8
+  Desktop Runtime, so the user is prompted/shown progress instead of hitting a silent failure. The plain
+  MSI is still built and still works standalone for anyone who already has the runtime and wants the
+  smaller, always-elevation-free per-user install (see the elevation note below) — this bundle is the
+  new recommended default entry point, not a replacement artifact.
+
+  Runtime package (ExePackage "DotNetDesktopRuntime"):
+  - Pinned to a specific, immutable Microsoft CDN URL for one exact patch release, NOT the "latest"
+    aka.ms redirector — a concrete per-version URL under builds.dotnet.microsoft.com never changes its
+    bytes once published, so Hash/Size/Version below stay valid forever (mirrors the ffmpeg manifest's
+    "pin by hash to an immutable release" approach in JustDownload.Core/Media/FfmpegManifest.cs).
+    Any 8.0.x runtime satisfies our app (net8.0 TFM, default rollForward=Minor rolls forward within
+    major 8) — installing exactly this patch (or the installer no-op'ing because something newer is
+    already present) is sufficient; we do not need "the very latest" patch.
+  - Hash/Size/Version were generated straight from the downloaded file with the WiX CLI's own tool:
+      wix burn remotepayload -du <DownloadUrl> -packagetype exe <local-copy-of-the-exe>
+    To move to a newer .NET 8 patch: download the new windowsdesktop-runtime-8.0.<x>-win-x64.exe from
+    https://builds.dotnet.microsoft.com/dotnet/WindowsDesktop/8.0.<x>/, re-run the command above against
+    it, and paste the regenerated Name/ProductName/Description/DownloadUrl/Hash/Size/Version below.
+  - No <ExePackage DetectCondition>: investigated and rejected two ways to pre-detect "is a satisfying
+    .NET 8 Desktop Runtime already installed" at Burn Detect-time (before elevation) so the download/
+    install could be skipped when unnecessary:
+      1. util:RegistrySearch against the real on-disk key this task verified on a live 8.0-runtime
+         machine, HKLM\SOFTWARE\WOW6432Node\dotnet\Setup\InstalledVersions\x64\sharedfx\
+         Microsoft.WindowsDesktop.App\<version> — every installed version is its own child key
+         (e.g. "8.0.22"), and RegistrySearch can only test one exact, fully-known key path; WiX v5 has
+         no wildcard/"does any 8.0.* subkey exist" search primitive, so this would mean hardcoding and
+         forever maintaining one RegistrySearch per historical patch release — exactly the "unreasonable
+         bespoke" case CLAUDE.md's simplicity rule and this task's own guidance say to avoid.
+      2. util:ProductSearch/MsiPackage UpgradeCode family detection — rejected after downloading and
+         inspecting two real Microsoft Windows Desktop Runtime x64 MSIs (8.0.0 and 8.0.28) with the
+         Windows Installer COM API: their UpgradeCodes differ between patch releases
+         ({D2455C43-5229-6E82-20B0-B108989248C2} vs {EC3BD7E4-53DA-5786-BBE0-ED5AD3FF7148}), so a single
+         pinned UpgradeCode cannot reliably detect "any 8.0.x is present" either.
+    Given both Burn-native detection routes are genuinely unreliable for a rolling target like the .NET
+    runtime, this package is chained unconditionally instead: Microsoft's own runtime installer performs
+    accurate detection internally and exits quickly without reinstalling when an equal-or-newer version
+    is already present (the standard, documented behaviour their installer is built for, and the same
+    pattern most Burn bundles use to chain redistributables like the VC++ runtime). Net effect: never a
+    silent "installed but won't launch" outcome, at the cost of always running (briefly) even when the
+    runtime turns out to already be there.
+  - Cache="remove": don't keep a second local copy of the ~55 MB runtime installer in the package cache
+    after it runs — Permanent="yes"/no UninstallArguments means our bundle will never invoke it again to
+    uninstall the shared runtime (other apps may still need it), so there is nothing to keep it around
+    for. Matches the "light by default" budget (K3).
+  - Elevation note: the .NET Desktop Runtime installer is only ever per-machine (Microsoft doesn't offer
+    a per-user runtime) and its own embedded manifest requests admin, so Windows shows a UAC prompt the
+    moment this bundle launches it — confirmed by extracting this bundle's own Burn manifest
+    (`wix burn extract`), which reports `PerMachine="no"` for the bundle/engine itself (it does not need
+    to pre-elevate) while the child runtime installer still triggers its own OS-level elevation prompt
+    when it runs. The MSI step that follows stays per-user (D8) with no further prompt. Net effect: one
+    UAC prompt appears on every run of this bootstrapper (see the DetectCondition note above), even when
+    the runtime turns out to already be present — a known, deliberate trade-off of AC0, not an oversight.
+    Anyone who already has the runtime and wants a guaranteed no-UAC install can still use the plain
+    JustDownload-win-x64.msi directly.
+
+  App package (MsiPackage): the existing per-user Product.wxs output, embedded/compressed into this
+  bundle (not a separate download) so installing the app itself needs no extra network round-trip beyond
+  fetching this one file.
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:bal="http://wixtoolset.org/schemas/v4/wxs/bal">
+  <Bundle Name="JustDownload Setup"
+          Manufacturer="JustDownload"
+          Version="$(var.ProductVersion)"
+          UpgradeCode="a3a1a9a1-7c0a-4f6b-9a9e-7f3d9a6f9b5a">
+
+    <BootstrapperApplication>
+      <bal:WixStandardBootstrapperApplication Theme="rtfLicense" LicenseFile="$(var.InstallerDir)\License.rtf" />
+    </BootstrapperApplication>
+
+    <Chain>
+      <ExePackage Id="DotNetDesktopRuntime"
+                  DisplayName="Microsoft .NET 8 Desktop Runtime"
+                  InstallArguments="/install /quiet /norestart"
+                  Permanent="yes"
+                  Vital="yes"
+                  Cache="remove">
+        <ExePackagePayload Name="windowsdesktop-runtime-8.0.28-win-x64.exe"
+                            ProductName="Microsoft Windows Desktop Runtime - 8.0.28 (x64)"
+                            Description="Microsoft Windows Desktop Runtime - 8.0.28 (x64)"
+                            DownloadUrl="https://builds.dotnet.microsoft.com/dotnet/WindowsDesktop/8.0.28/windowsdesktop-runtime-8.0.28-win-x64.exe"
+                            Hash="931E5463994AE1D4984BCC05BAF940979511185EC1A9BCA0A5C0E5963D290FBFE3B348E5BD804FECBE698669374A34CEE20E6D1E220E275E1536D55C848FC068"
+                            Size="58246192"
+                            Version="8.0.28.36119" />
+      </ExePackage>
+
+      <MsiPackage SourceFile="$(var.MsiPath)" Vital="yes" />
+    </Chain>
+  </Bundle>
+</Wix>
