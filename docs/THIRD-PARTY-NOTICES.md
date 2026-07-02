@@ -96,3 +96,14 @@ their source URLs, and how to refresh them are documented in [`docs/ffmpeg.md`](
 ffmpeg is a trademark of its respective owners and is licensed under the GNU Lesser General Public License
 (LGPL) version 2.1 or later (depending on build configuration). See <https://ffmpeg.org/legal.html> for
 ffmpeg's own licensing terms. JustDownload is not affiliated with the ffmpeg project.
+
+## Build tooling (not shipped)
+
+The Windows MSI installer (TASK-076, `build/build-installer.ps1`) is packaged with the **WiX Toolset v5**
+CLI and its `WixToolset.UI.wixext` / `WixToolset.Util.wixext` extensions, pinned as repo-local `.NET` tools
+(`.config/dotnet-tools.json`) rather than `PackageReference`s. WiX is licensed **MS-RL** (Microsoft
+Reciprocal License) — not on the permissive allowlist above — but it is build-time-only tooling: it never
+runs alongside JustDownload, is not linked into any assembly, and none of its files are part of the
+installed product (the MSI's payload is exactly the win-x64 publish output, listed above). It is therefore
+analogous to the compiler/MSBuild toolchain rather than a runtime dependency, and out of scope for the
+`licenses.allowlist.json` gate (which enforces every `PackageReference` a shipped project compiles against).

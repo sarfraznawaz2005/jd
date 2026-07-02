@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  JustDownload Windows installer (TASK-076). Built with the WiX Toolset v5 CLI (build-time-only tooling,
+  MS-RL licensed — never shipped inside the product, so it does not carry CLAUDE.md §4's dependency license
+  policy the way a NuGet PackageReference would; see the TASK-076 implementation notes for the full reasoning).
+
+  Per-user install (Scope="perUser", no admin/UAC elevation) into %LocalAppData%\Programs\JustDownload,
+  matching the native-messaging host's own per-user (HKCU) registration (D8, TASK-065) — the whole app,
+  install included, never needs elevation on Windows.
+
+  Payload is the framework-dependent + ReadyToRun win-x64 publish output (docs/publishing.md), harvested
+  in bulk from $(var.PublishDir) so new files the publish adds are picked up automatically.
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs" xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
+  <Package Name="JustDownload"
+           Manufacturer="JustDownload"
+           Version="$(var.ProductVersion)"
+           UpgradeCode="539d9c6e-80d2-42c5-9660-1be79e37fc59"
+           Language="1033"
+           Scope="perUser">
+
+    <SummaryInformation Description="JustDownload — a light &amp; fast, free and open-source download manager." />
+
+    <MajorUpgrade DowngradeErrorMessage="A newer version of JustDownload is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <StandardDirectory Id="LocalAppDataFolder">
+      <Directory Id="ProgramsFolder" Name="Programs">
+        <Directory Id="APPFOLDER" Name="JustDownload" />
+      </Directory>
+    </StandardDirectory>
+
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Directory Id="AppProgramMenuFolder" Name="JustDownload" />
+    </StandardDirectory>
+
+    <!-- Every file from the win-x64 publish output (JustDownload.App.exe, Core/Avalonia/native-host binaries,
+         Skia/HarfBuzz natives, deps.json/runtimeconfig.json) — see docs/publishing.md for what's in there. -->
+    <ComponentGroup Id="PublishFiles" Directory="APPFOLDER">
+      <Files Include="$(var.PublishDir)\**" />
+    </ComponentGroup>
+
+    <!-- Start Menu shortcut. Per-user components need an HKCU keypath (no per-machine registry to key off),
+         the standard MSI pattern for advertised-free per-user shortcuts. -->
+    <Component Id="StartMenuShortcut" Directory="AppProgramMenuFolder" Guid="6a2c9d3e-6a63-4f5c-9d0e-6e6f2f6a2b31">
+      <Shortcut Id="JustDownloadStartMenuShortcut"
+                Name="JustDownload"
+                Description="A light &amp; fast, free and open-source download manager"
+                Target="[APPFOLDER]JustDownload.App.exe"
+                WorkingDirectory="APPFOLDER" />
+      <RemoveFolder Id="RemoveAppProgramMenuFolder" On="uninstall" />
+      <RegistryValue Root="HKCU" Key="Software\JustDownload" Name="StartMenuShortcutInstalled"
+                      Type="integer" Value="1" KeyPath="yes" />
+    </Component>
+
+    <Feature Id="MainFeature" Title="JustDownload" Level="1">
+      <ComponentGroupRef Id="PublishFiles" />
+      <ComponentRef Id="StartMenuShortcut" />
+    </Feature>
+
+    <!-- Uninstall custom action (TASK-076 AC0): the app self-registers its native-messaging host manifests +
+         HKCU registry entries on first run (App.axaml.cs, TASK-089) but nothing in the MSI ever unregisters
+         them — a plain "delete the files" uninstall would leave Chrome/Edge/Firefox pointing at a native host
+         executable that no longer exists. Runs the just-installed exe with the uninstall-cleanup flag (App/Program.cs)
+         before its files are removed, deferred + impersonated so HKCU resolves to the installing user, and
+         Return="ignore" so a cleanup failure (best-effort, matching the app's own registration philosophy)
+         never blocks the uninstall itself. Skipped during upgrades — a MajorUpgrade's remove-old-version pass
+         must not unregister the host the new version just wrote (or is about to write). -->
+    <SetProperty Id="UninstallCleanup"
+                  Value="&quot;[APPFOLDER]JustDownload.App.exe&quot; --uninstall-cleanup"
+                  Before="UninstallCleanup"
+                  Sequence="execute" />
+    <CustomAction Id="UninstallCleanup" DllEntry="WixQuietExec" Execute="deferred"
+                  Return="ignore" Impersonate="yes" BinaryRef="Wix4UtilCA_X86" />
+
+    <InstallExecuteSequence>
+      <Custom Action="UninstallCleanup" Before="RemoveFiles" Condition="REMOVE~=&quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE" />
+    </InstallExecuteSequence>
+
+    <ui:WixUI Id="WixUI_Minimal" />
+  </Package>
+</Wix>

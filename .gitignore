@@ -59,3 +59,10 @@ Thumbs.db
 
 # Publish output (TASK-075)
 artifacts/
+
+# Installer build scratch — publish payload staged for harvesting + the built MSI (TASK-076)
+build/installer/publish/
+build/installer/out/
+
+# WiX Toolset repo-local extension cache (restored by build/build-installer.ps1, TASK-076)
+.wix/
