@@ -253,7 +253,13 @@ public sealed partial class MediaVariantPickerViewModel : ViewModelBase
                 Message = "This is a direct download — no quality options.";
             }
 
-            SelectedAudio = AudioVariants.FirstOrDefault();
+            if (AudioVariants.Count > 0)
+            {
+                // Prefer the highest-bitrate audio rendition (TASK-167).
+                AudioVariant chosenAudio = AudioQualitySelector.Select(source.AudioVariants);
+                SelectedAudio = AudioVariants.FirstOrDefault(o => o.Variant == chosenAudio) ?? AudioVariants[0];
+            }
+
             OnPropertyChanged(nameof(HasVariants));
             OnPropertyChanged(nameof(HasAudio));
         }

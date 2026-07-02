@@ -128,6 +128,25 @@ public sealed class MediaVariantPickerTests
     }
 
     [Fact]
+    public async Task LoadAsync_SeparateStreams_PreSelectsHighestBitrateAudio()
+    {
+        // The lower-bitrate rendition is listed first — a plain FirstOrDefault() would wrongly pick it.
+        var source = new MediaSource
+        {
+            ExtractorName = "dash",
+            Kind = MediaKind.SeparateStreams,
+            Url = MediaUrl,
+            Variants = [new VideoVariant("v1080", 1080, 2_500_000)],
+            AudioVariants = [new AudioVariant("a-low", 96_000, "en"), new AudioVariant("a-high", 192_000, "en")],
+        };
+        MediaVariantPickerViewModel vm = Build(RegistryReturning(source), SettingsWith(VideoQuality.P1080, MediaContainer.Mkv));
+
+        await vm.LoadAsync(MediaUrl);
+
+        vm.SelectedAudio!.Variant.Id.Should().Be("a-high", "the highest-bitrate rendition is pre-selected, not the first listed");
+    }
+
+    [Fact]
     public async Task LoadAsync_Progressive_ShowsDirectDownloadMessage()
     {
         var source = new MediaSource
