@@ -49,6 +49,164 @@ public sealed class AutostartTests
         }
     }
 
+    [Fact]
+    public void MacOsAutostart_SetEnabled_WritesThenRemoves_AnIsolatedPlist()
+    {
+        // Pure file I/O (no P/Invoke), so this round-trips for real on any OS, including this Windows box.
+        string directory = Path.Combine(Path.GetTempPath(), $"JustDownloadTests_LaunchAgents_{Guid.NewGuid():N}");
+        try
+        {
+            var service = new MacOsAutostartService(directory, "com.justdownload.test", () => "/Applications/JustDownload.app/Contents/MacOS/JustDownload");
+
+            service.IsEnabled().Should().BeFalse("nothing is registered yet");
+
+            service.SetEnabled(true);
+
+            string plistPath = Path.Combine(directory, "com.justdownload.test.plist");
+            File.Exists(plistPath).Should().BeTrue("enabling writes the LaunchAgent plist");
+            service.IsEnabled().Should().BeTrue();
+
+            string content = File.ReadAllText(plistPath);
+            content.Should().Contain("<key>Label</key>").And.Contain("<string>com.justdownload.test</string>",
+                "the Label must match the filename stem, which macOS requires");
+            content.Should().Contain("<string>/Applications/JustDownload.app/Contents/MacOS/JustDownload</string>",
+                "ProgramArguments carries the registered command");
+            content.Should().Contain("<key>RunAtLoad</key>").And.Contain("<true/>");
+
+            service.SetEnabled(false);
+            service.IsEnabled().Should().BeFalse("disabling removes the entry (reversible)");
+            File.Exists(plistPath).Should().BeFalse();
+
+            service.SetEnabled(false); // idempotent — no throw when already absent
+        }
+        finally
+        {
+            if (Directory.Exists(directory))
+            {
+                Directory.Delete(directory, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
+    public void MacOsAutostart_SetEnabled_CreatesTargetDirectory_WhenMissing()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), $"JustDownloadTests_LaunchAgents_{Guid.NewGuid():N}");
+        try
+        {
+            Directory.Exists(directory).Should().BeFalse();
+            var service = new MacOsAutostartService(directory, "com.justdownload.test", () => "/usr/local/bin/justdownload");
+
+            service.SetEnabled(true);
+
+            Directory.Exists(directory).Should().BeTrue("the LaunchAgents directory is created on demand");
+            service.IsEnabled().Should().BeTrue();
+        }
+        finally
+        {
+            if (Directory.Exists(directory))
+            {
+                Directory.Delete(directory, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
+    public void MacOsAutostart_IsSupported_OnlyOnMacOs()
+    {
+        new MacOsAutostartService().IsSupported.Should().Be(OperatingSystem.IsMacOS());
+    }
+
+    [Fact]
+    public void LinuxAutostart_SetEnabled_WritesThenRemoves_AnIsolatedDesktopEntry()
+    {
+        // Pure file I/O (no P/Invoke), so this round-trips for real on any OS, including this Windows box.
+        string directory = Path.Combine(Path.GetTempPath(), $"JustDownloadTests_autostart_{Guid.NewGuid():N}");
+        try
+        {
+            var service = new LinuxAutostartService(directory, "justdownload-test", () => "/usr/bin/justdownload");
+
+            service.IsEnabled().Should().BeFalse("nothing is registered yet");
+
+            service.SetEnabled(true);
+
+            string desktopPath = Path.Combine(directory, "justdownload-test.desktop");
+            File.Exists(desktopPath).Should().BeTrue("enabling writes the XDG autostart entry");
+            service.IsEnabled().Should().BeTrue();
+
+            string content = File.ReadAllText(desktopPath);
+            content.Should().Contain("[Desktop Entry]")
+                .And.Contain("Type=Application")
+                .And.Contain("Exec=/usr/bin/justdownload", "Exec carries the registered command")
+                .And.Contain("X-GNOME-Autostart-enabled=true")
+                .And.Contain("Hidden=false");
+
+            service.SetEnabled(false);
+            service.IsEnabled().Should().BeFalse("disabling removes the entry (reversible)");
+            File.Exists(desktopPath).Should().BeFalse();
+
+            service.SetEnabled(false); // idempotent — no throw when already absent
+        }
+        finally
+        {
+            if (Directory.Exists(directory))
+            {
+                Directory.Delete(directory, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
+    public void LinuxAutostart_SetEnabled_QuotesCommand_WhenItContainsSpaces()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), $"JustDownloadTests_autostart_{Guid.NewGuid():N}");
+        try
+        {
+            var service = new LinuxAutostartService(directory, "justdownload-test", () => "/opt/Just Download/justdownload");
+
+            service.SetEnabled(true);
+
+            string content = File.ReadAllText(Path.Combine(directory, "justdownload-test.desktop"));
+            content.Should().Contain("Exec=\"/opt/Just Download/justdownload\"");
+        }
+        finally
+        {
+            if (Directory.Exists(directory))
+            {
+                Directory.Delete(directory, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
+    public void LinuxAutostart_SetEnabled_CreatesTargetDirectory_WhenMissing()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), $"JustDownloadTests_autostart_{Guid.NewGuid():N}");
+        try
+        {
+            Directory.Exists(directory).Should().BeFalse();
+            var service = new LinuxAutostartService(directory, "justdownload-test", () => "/usr/bin/justdownload");
+
+            service.SetEnabled(true);
+
+            Directory.Exists(directory).Should().BeTrue("the autostart directory is created on demand");
+            service.IsEnabled().Should().BeTrue();
+        }
+        finally
+        {
+            if (Directory.Exists(directory))
+            {
+                Directory.Delete(directory, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
+    public void LinuxAutostart_IsSupported_OnlyOnLinux()
+    {
+        new LinuxAutostartService().IsSupported.Should().Be(OperatingSystem.IsLinux());
+    }
+
     private static ISettingsService SettingsWith(bool launchAtStartup)
     {
         var settings = Substitute.For<ISettingsService>();

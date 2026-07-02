@@ -43,7 +43,7 @@ public partial class App : Application
             .AddSingleton<IClipboardService>(_ => new ClipboardService(GetActiveClipboard))
             .AddSingleton<ClipboardMonitor>()
             .AddSingleton<ITosNoticeGate>(sp => new TosNoticeGate(sp.GetRequiredService<ISettingsService>(), _ => ShowTosNoticeAsync()))
-            .AddSingleton<IAutostartService>(_ => new WindowsAutostartService())
+            .AddSingleton<IAutostartService>(_ => CreateAutostartService())
             .AddSingleton<AutostartController>()
             .AddSingleton<LogLevelController>()
             .AddSingleton<StatusSummaryViewModel>()
@@ -65,6 +65,23 @@ public partial class App : Application
     /// the close-to-tray handler lets the close through instead of hiding the window again.
     /// </summary>
     private bool _isExplicitShutdown;
+
+    /// <summary>Picks the per-OS launch-at-login backend (TASK-155). Falls back to the (inert,
+    /// <c>IsSupported == false</c>) Windows implementation on an OS with no autostart mechanism.</summary>
+    private static IAutostartService CreateAutostartService()
+    {
+        if (OperatingSystem.IsMacOS())
+        {
+            return new MacOsAutostartService();
+        }
+
+        if (OperatingSystem.IsLinux())
+        {
+            return new LinuxAutostartService();
+        }
+
+        return new WindowsAutostartService();
+    }
 
     public override void Initialize() => AvaloniaXamlLoader.Load(this);
 
