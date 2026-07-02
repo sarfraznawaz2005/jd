@@ -4,8 +4,10 @@ using FluentAssertions;
 using JustDownload.Core;
 using JustDownload.Core.Media.Extraction;
 using JustDownload.Core.Media.Hls;
+using JustDownload.Core.Settings;
 using JustDownload.Tests.Transport;
 using Microsoft.Extensions.DependencyInjection;
+using NSubstitute;
 using Xunit;
 using Xunit.Abstractions;
 
@@ -47,6 +49,13 @@ public sealed class ExtractorCorpusTests : IDisposable
         var services = new ServiceCollection();
         services.AddLogging();
         services.AddJustDownloadTransport();
+
+        // The yt-dlp fallback extractor (TASK-163) needs ISettingsService; substitute a no-DB fake with the
+        // (default, off) video-capture toggle rather than pulling in the full SQLite-backed settings store.
+        var settings = Substitute.For<ISettingsService>();
+        settings.Current.Returns(new AppSettings());
+        services.AddSingleton(settings);
+
         services.AddJustDownloadMedia();
         return services.BuildServiceProvider();
     }

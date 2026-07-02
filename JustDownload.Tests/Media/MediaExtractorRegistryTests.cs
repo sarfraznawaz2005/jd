@@ -1,8 +1,10 @@
 using FluentAssertions;
 using JustDownload.Core;
 using JustDownload.Core.Media.Extraction;
+using JustDownload.Core.Settings;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
+using NSubstitute;
 using Xunit;
 
 namespace JustDownload.Tests.Media;
@@ -156,6 +158,13 @@ public sealed class MediaExtractorRegistryTests
         var services = new ServiceCollection();
         services.AddLogging();
         services.AddJustDownloadTransport(); // HLS/DASH extractors depend on ITransport
+
+        // The yt-dlp fallback extractor (TASK-163) needs ISettingsService; substitute a no-DB fake with the
+        // (default, off) video-capture toggle rather than pulling in the full SQLite-backed settings store.
+        var settings = Substitute.For<ISettingsService>();
+        settings.Current.Returns(new AppSettings());
+        services.AddSingleton(settings);
+
         services.AddJustDownloadMedia();
         using ServiceProvider provider = services.BuildServiceProvider();
 
@@ -163,5 +172,9 @@ public sealed class MediaExtractorRegistryTests
 
         registry.Extractors.Should().Contain(e => e.Name == "progressive",
             "the generic extractor registers at startup (AC1)");
+        registry.Extractors.Should().Contain(e => e.Name == "yt-dlp",
+            "the yt-dlp fallback extractor registers at startup too (TASK-163)");
+        registry.Extractors[^1].Name.Should().Be("yt-dlp",
+            "yt-dlp must run strictly last, after every in-house extractor including Progressive's catch-all");
     }
 }

@@ -15,6 +15,7 @@ using JustDownload.Core.Media.Facebook;
 using JustDownload.Core.Media.Hls;
 using JustDownload.Core.Media.Streams;
 using JustDownload.Core.Media.YouTube;
+using JustDownload.Core.Media.YtDlp;
 using JustDownload.Core.NativeMessaging;
 using JustDownload.Core.NativeMessaging.Registration;
 using JustDownload.Core.PostProcess;
@@ -397,6 +398,11 @@ public static class ServiceCollectionExtensions
     {
         ArgumentNullException.ThrowIfNull(services);
 
+        // The yt-dlp fallback extractor (TASK-163) gates on ISettingsService.Current.VideoCaptureEnabled, so
+        // ensure the settings service is registered wherever media is (idempotent — the full composition
+        // root already adds it via AddJustDownloadLifecycle before this).
+        services.TryAddSingleton<ISettingsService, SettingsService>();
+
         services.TryAddSingleton(new FfmpegOptions());
         services.TryAddSingleton<IFfmpegLocator, FfmpegLocator>();
         services.TryAddSingleton<IFfmpegRunner, FfmpegRunner>();
@@ -407,14 +413,15 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton(FfmpegManifest.Default);
         services.TryAddSingleton<IFfmpegProvisioner, FfmpegProvisioner>();
 
-        // Optional yt-dlp fallback (TASK-162, D3): registered unconditionally, same as ffmpeg above, but
-        // nothing is ever fetched or invoked unless the user opts in via AppSettings.VideoCaptureEnabled and
-        // explicitly downloads it (or a later media task falls back to it, TASK-163). Never bundled or
-        // statically linked — downloaded on demand and run as a separate process, exactly like ffmpeg (D7).
+        // Optional yt-dlp fallback (TASK-162/163, D3): registered unconditionally, same as ffmpeg above, but
+        // nothing is ever fetched or invoked unless the user opts in via AppSettings.VideoCaptureEnabled,
+        // explicitly downloads it, and every in-house extractor (below) has already declined. Never bundled
+        // or statically linked — downloaded on demand and run as a separate process, exactly like ffmpeg (D7).
         services.TryAddSingleton(new YtDlpOptions());
         services.TryAddSingleton<IYtDlpLocator, YtDlpLocator>();
         services.TryAddSingleton(YtDlpManifest.Default);
         services.TryAddSingleton<IYtDlpProvisioner, YtDlpProvisioner>();
+        services.TryAddSingleton<IYtDlpRunner, YtDlpRunner>();
 
         // Pluggable extractor registry (TASK-036, D3): generic extractors register at startup and are tried
         // in priority order; the registry degrades gracefully when nothing recognises a URL. Specific
@@ -446,6 +453,12 @@ public static class ServiceCollectionExtensions
         // before the generic catch-alls via their low Priority.
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IMediaExtractor, YouTubeMediaExtractor>());
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IMediaExtractor, FacebookMediaExtractor>());
+
+        // Optional yt-dlp fallback extractor (TASK-163, D3): the true last resort, registered with
+        // Priority = int.MaxValue so it always runs after every extractor above, including Progressive's
+        // catch-all (lowered to 1000 to make room). Declines instantly, spawning no subprocess, unless the
+        // user has both enabled video capture in Settings and already provisioned yt-dlp (TASK-162).
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IMediaExtractor, YtDlpMediaExtractor>());
 
         // A/V mux (TASK-041): stream-copy the two streams into one container (MKV default, MP4 when codecs allow).
         services.TryAddSingleton<IMediaMuxer, MediaMuxer>();

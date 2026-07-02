@@ -16,8 +16,13 @@ internal sealed class ProgressiveMediaExtractor : IMediaExtractor
         ".m4a", ".mp3", ".aac", ".ogg", ".oga", ".opus", ".flac", ".wav", ".wma",
     };
 
-    /// <summary>Runs after every specific extractor.</summary>
-    public int Priority => int.MaxValue;
+    /// <summary>
+    /// Runs after every specific in-house extractor, as the cheap synchronous catch-all. Deliberately not
+    /// <see cref="int.MaxValue"/> (TASK-163): that value is reserved for the optional yt-dlp fallback,
+    /// which must run strictly last (heaviest option — a real subprocess spawn) only after this catch-all
+    /// has also declined.
+    /// </summary>
+    public int Priority => 1000;
 
     public string Name => "progressive";
 
