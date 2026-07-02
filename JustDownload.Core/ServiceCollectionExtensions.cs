@@ -407,6 +407,15 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton(FfmpegManifest.Default);
         services.TryAddSingleton<IFfmpegProvisioner, FfmpegProvisioner>();
 
+        // Optional yt-dlp fallback (TASK-162, D3): registered unconditionally, same as ffmpeg above, but
+        // nothing is ever fetched or invoked unless the user opts in via AppSettings.VideoCaptureEnabled and
+        // explicitly downloads it (or a later media task falls back to it, TASK-163). Never bundled or
+        // statically linked — downloaded on demand and run as a separate process, exactly like ffmpeg (D7).
+        services.TryAddSingleton(new YtDlpOptions());
+        services.TryAddSingleton<IYtDlpLocator, YtDlpLocator>();
+        services.TryAddSingleton(YtDlpManifest.Default);
+        services.TryAddSingleton<IYtDlpProvisioner, YtDlpProvisioner>();
+
         // Pluggable extractor registry (TASK-036, D3): generic extractors register at startup and are tried
         // in priority order; the registry degrades gracefully when nothing recognises a URL. Specific
         // extractors (HLS/DASH) are appended by their own tasks.

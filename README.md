@@ -70,8 +70,9 @@ build state. Nothing here is claimed as shipping until it actually is.
 - **Browser extension** (Chrome/Edge/Firefox, MV3) — send links, sniff media, floating download button,
   per-site blacklist — talking to the app over a **Native Messaging Host** (no open local port by default).
 
-Non-goals for v1.0 include yt-dlp bundling, torrent/P2P, mobile apps, telemetry/accounts, and any
-re-encoding beyond stream-copy remux. See [`PRD.md` §2.3](PRD.md).
+Non-goals for v1.0 include bundling yt-dlp into the app (it's available only as an optional, user-enabled,
+downloaded-on-demand fallback — D3), torrent/P2P, mobile apps, telemetry/accounts, and any re-encoding
+beyond stream-copy remux. See [`PRD.md` §2.3](PRD.md).
 
 ---
 

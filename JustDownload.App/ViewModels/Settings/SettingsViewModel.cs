@@ -9,10 +9,10 @@ using JustDownload.Core.Settings;
 namespace JustDownload.App.ViewModels.Settings;
 
 /// <summary>
-/// The settings window's view-model (TASK-057, PRD 2.4.5): a navigation rail of the seven sections — General,
-/// Connections, Proxy, Authentication, Categories, Browsers, Advanced — and the selected section's content.
-/// General/Connections/Categories are bound to the persisted <see cref="ISettingsService"/>; the remaining
-/// sections describe their (not-yet-a-preference) subsystem honestly until it lands.
+/// The settings window's view-model (TASK-057, PRD 2.4.5): a navigation rail of the eight sections — General,
+/// Video, Connections, Proxy, Authentication, Categories, Browsers, Advanced — and the selected section's
+/// content. General/Video/Connections/Categories are bound to the persisted <see cref="ISettingsService"/>;
+/// the remaining sections describe their (not-yet-a-preference) subsystem honestly until it lands.
 /// </summary>
 public sealed partial class SettingsViewModel : ViewModelBase
 {
@@ -25,6 +25,8 @@ public sealed partial class SettingsViewModel : ViewModelBase
     private readonly JustDownload.Core.Transport.Proxy.IProxyTester _proxyTester;
     private readonly JustDownload.Core.IPortableEnvironment _portable;
     private readonly ISavedCredentialsService _savedCredentials;
+    private readonly JustDownload.Core.Media.IYtDlpLocator _ytDlpLocator;
+    private readonly JustDownload.Core.Media.IYtDlpProvisioner _ytDlpProvisioner;
 
     [ObservableProperty]
     private SettingsSectionViewModel _selectedSection;
@@ -42,7 +44,9 @@ public sealed partial class SettingsViewModel : ViewModelBase
         ISettingsTransfer transfer,
         JustDownload.Core.Transport.Proxy.IProxyTester proxyTester,
         JustDownload.Core.IPortableEnvironment portable,
-        ISavedCredentialsService savedCredentials)
+        ISavedCredentialsService savedCredentials,
+        JustDownload.Core.Media.IYtDlpLocator ytDlpLocator,
+        JustDownload.Core.Media.IYtDlpProvisioner ytDlpProvisioner)
     {
         ArgumentNullException.ThrowIfNull(settings);
         ArgumentNullException.ThrowIfNull(theme);
@@ -53,6 +57,8 @@ public sealed partial class SettingsViewModel : ViewModelBase
         ArgumentNullException.ThrowIfNull(proxyTester);
         ArgumentNullException.ThrowIfNull(portable);
         ArgumentNullException.ThrowIfNull(savedCredentials);
+        ArgumentNullException.ThrowIfNull(ytDlpLocator);
+        ArgumentNullException.ThrowIfNull(ytDlpProvisioner);
         _settings = settings;
         _theme = theme;
         _folderRules = folderRules;
@@ -62,6 +68,8 @@ public sealed partial class SettingsViewModel : ViewModelBase
         _proxyTester = proxyTester;
         _portable = portable;
         _savedCredentials = savedCredentials;
+        _ytDlpLocator = ytDlpLocator;
+        _ytDlpProvisioner = ytDlpProvisioner;
 
         PopulateSections();
         _selectedSection = Sections[0];
@@ -75,6 +83,8 @@ public sealed partial class SettingsViewModel : ViewModelBase
     {
         Sections.Clear();
         Sections.Add(new SettingsSectionViewModel("General", "IconSetGeneral", new GeneralSettingsViewModel(_settings, _theme, _portable)));
+        Sections.Add(new SettingsSectionViewModel(
+            "Video", "IconSetVideo", new VideoSettingsViewModel(_settings, _ytDlpLocator, _ytDlpProvisioner)));
         Sections.Add(new SettingsSectionViewModel("Connections", "IconSetConnections", new ConnectionsSettingsViewModel(_settings)));
         Sections.Add(new SettingsSectionViewModel("Proxy", "IconSetProxy", new ProxySettingsViewModel(_settings, _secrets, _proxyTester)));
         Sections.Add(new SettingsSectionViewModel(

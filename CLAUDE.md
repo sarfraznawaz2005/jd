@@ -12,7 +12,7 @@
 |---|----------|-------|
 | **D1** | **.NET 8 (LTS) + Avalonia 11**, MVVM (CommunityToolkit.Mvvm) | Native UI, no WebView |
 | **D2** | **Free & open source (MIT)** — no license server, accounts, or telemetry | |
-| **D3** | **In-house media extractors / network sniffing — no yt-dlp bundled** | Architecture stays pluggable (`IMediaExtractor`) so yt-dlp can be added in a later major version |
+| **D3** | **In-house media extractors are the default; yt-dlp is an optional, user-enabled fallback** | Primary extraction stays in-house (`IMediaExtractor`, best-effort, degrades gracefully). yt-dlp is never bundled or statically linked — it's downloaded on-demand as a separate process (same pattern as ffmpeg, D7) only once the user explicitly enables it in Settings, and is only invoked as a last-resort fallback after every in-house extractor has declined. Supersedes the original "no yt-dlp" stance as of 2026-07-02, with explicit user sign-off — real-world hostile sites like YouTube can't be reliably supported in-house without an adversarial cipher-solving effort this project has chosen not to take on |
 | **D4** | **Modern-minimal UI** (Linear/Arc/Raycast), light+dark, DPI-adaptive | NDM's information architecture, modern skin |
 | **D5** | **Headless `JustDownload.Core`** library with **zero Avalonia dependency** | Engine is the testable heart; UI/host are thin clients |
 | **D6** | **SQLite** (Microsoft.Data.Sqlite, WAL) for persistence/resume | |

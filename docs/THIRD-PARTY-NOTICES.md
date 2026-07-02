@@ -104,6 +104,36 @@ ffmpeg is a trademark of its respective owners and is licensed under the GNU Les
 (LGPL) version 2.1 or later (depending on build configuration). See <https://ffmpeg.org/legal.html> for
 ffmpeg's own licensing terms. JustDownload is not affiliated with the ffmpeg project.
 
+## yt-dlp notice
+
+JustDownload's in-house media extractors are the default; **yt-dlp** is an optional, user-enabled fallback
+for hostile sites (e.g. YouTube/Facebook) that the in-house extractors can't reliably handle, per locked
+decision **D3**.
+
+- yt-dlp is **not** part of this repository, is **not** bundled into the source tree, and is **not**
+  statically linked into JustDownload — the same posture as ffmpeg (D7).
+- JustDownload invokes yt-dlp as a **separate child process**, communicating over the command line. This
+  keeps yt-dlp a distinct, independently-licensed binary.
+- yt-dlp is downloaded **only after the user explicitly enables** "video capture/detection" in Settings
+  (off by default) and is only ever invoked as a **last-resort fallback**, after every in-house extractor
+  has declined.
+
+### How yt-dlp is obtained (download-on-first-use)
+
+JustDownload ships **no** yt-dlp binary. Once the user opts in, yt-dlp is resolved the same way as ffmpeg:
+
+1. an explicitly-configured path, then a previously-provisioned vendor directory, then the system `PATH`;
+2. if none is found and the user clicks "Download yt-dlp" (or a later fallback attempt needs it), JustDownload
+   downloads the **pinned release** for the current platform, verifies it against a **pinned SHA-256**, and
+   moves it into the per-user vendor directory. Running `yt-dlp --version` successfully is the self-validation
+   step, and the Settings UI reports the result as Ready/Not installed/Error.
+
+The pinned release, its source URLs, and how to refresh them are documented in
+[`docs/ytdlp.md`](./ytdlp.md).
+
+yt-dlp is released into the **public domain** (Unlicense) — see <https://github.com/yt-dlp/yt-dlp/blob/master/LICENSE>.
+JustDownload is not affiliated with the yt-dlp project.
+
 ## Build tooling (not shipped)
 
 The Windows MSI installer (TASK-076, `build/build-installer.ps1`) is packaged with the **WiX Toolset v5**

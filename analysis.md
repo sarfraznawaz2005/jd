@@ -38,7 +38,7 @@ These conflict with locked decisions (CLAUDE.md D1–D9) or PRD §2.3 non-goals 
 | Feature | Why excluded |
 |---|---|
 | Torrents / P2P / magnet links | PRD §2.3 non-goal; heavy (DHT/peers/seeding); keep engine pluggable for a future external tool only. |
-| Bundling **yt-dlp** | D3: in-house extraction only. `IMediaExtractor` stays pluggable so a yt-dlp sidecar *could* be added in a later major version (that's `TASK-150`'s plugin seam, not a bundle). |
+| Bundling **yt-dlp** | D3 (revised 2026-07-02): in-house extraction is the default; yt-dlp is only an optional, user-enabled, downloaded-on-demand fallback (never bundled/statically linked, separate-process only, TASK-161/162/163) — `IMediaExtractor`'s pluggable design (`TASK-150`) is the seam it uses. |
 | Video re-encoding / transcoding | D4 + §2.3: stream-copy only, "no farm." Users can post-process with ffmpeg manually. |
 | Mobile apps (iOS/Android) | §2.3 non-goal; native desktop UI. A telemetry-free web remote (`TASK-149`) is the lighter alternative. |
 | Telemetry / accounts / license server | **D2** — the key differentiator. Never add; resist pressure. |

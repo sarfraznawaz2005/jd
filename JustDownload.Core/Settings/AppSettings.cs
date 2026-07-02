@@ -152,4 +152,11 @@ public sealed record AppSettings
     /// <see langword="false"/> — the notice is shown before the first media download.
     /// </summary>
     public bool SuppressTosNotice { get; init; }
+
+    /// <summary>
+    /// Master toggle for video capture/detection (TASK-162, locked decision D3). Gates whether the optional,
+    /// user-enabled yt-dlp fallback path is available at all — nothing yt-dlp-related is downloaded or
+    /// invoked while this is off. Opt-in — default <see langword="false"/>.
+    /// </summary>
+    public bool VideoCaptureEnabled { get; init; }
 }

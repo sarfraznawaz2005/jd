@@ -2,6 +2,7 @@ using FluentAssertions;
 using JustDownload.App.Services;
 using JustDownload.App.ViewModels.Settings;
 using JustDownload.Core.Categorization;
+using JustDownload.Core.Media;
 using JustDownload.Core.Security;
 using JustDownload.Core.Settings;
 using JustDownload.Core.Transport.Proxy;
@@ -36,12 +37,12 @@ public sealed class SettingsViewModelTests
     }
 
     [Fact]
-    public void AllSevenSections_ArePresent_InOrder()
+    public void AllEightSections_ArePresent_InOrder()
     {
-        var vm = new SettingsViewModel(Settings(), Substitute.For<IThemeService>(), CategoryFolderRules.CreateDefault(), Substitute.For<JustDownload.Core.NativeMessaging.INativeHostInstaller>(), Substitute.For<JustDownload.Core.Security.ISecretStore>(), Substitute.For<ISettingsTransfer>(), Substitute.For<IProxyTester>(), Substitute.For<JustDownload.Core.IPortableEnvironment>(), Substitute.For<JustDownload.Core.Security.ISavedCredentialsService>());
+        var vm = new SettingsViewModel(Settings(), Substitute.For<IThemeService>(), CategoryFolderRules.CreateDefault(), Substitute.For<JustDownload.Core.NativeMessaging.INativeHostInstaller>(), Substitute.For<JustDownload.Core.Security.ISecretStore>(), Substitute.For<ISettingsTransfer>(), Substitute.For<IProxyTester>(), Substitute.For<JustDownload.Core.IPortableEnvironment>(), Substitute.For<JustDownload.Core.Security.ISavedCredentialsService>(), Substitute.For<JustDownload.Core.Media.IYtDlpLocator>(), Substitute.For<JustDownload.Core.Media.IYtDlpProvisioner>());
 
         vm.Sections.Select(s => s.Label).Should()
-            .Equal("General", "Connections", "Proxy", "Authentication", "Categories", "Browsers", "Advanced");
+            .Equal("General", "Video", "Connections", "Proxy", "Authentication", "Categories", "Browsers", "Advanced");
         vm.SelectedSection.Label.Should().Be("General");
         vm.Sections[0].IsSelected.Should().BeTrue();
     }
@@ -49,7 +50,7 @@ public sealed class SettingsViewModelTests
     [Fact]
     public void Select_SwitchesActiveSection()
     {
-        var vm = new SettingsViewModel(Settings(), Substitute.For<IThemeService>(), CategoryFolderRules.CreateDefault(), Substitute.For<JustDownload.Core.NativeMessaging.INativeHostInstaller>(), Substitute.For<JustDownload.Core.Security.ISecretStore>(), Substitute.For<ISettingsTransfer>(), Substitute.For<IProxyTester>(), Substitute.For<JustDownload.Core.IPortableEnvironment>(), Substitute.For<JustDownload.Core.Security.ISavedCredentialsService>());
+        var vm = new SettingsViewModel(Settings(), Substitute.For<IThemeService>(), CategoryFolderRules.CreateDefault(), Substitute.For<JustDownload.Core.NativeMessaging.INativeHostInstaller>(), Substitute.For<JustDownload.Core.Security.ISecretStore>(), Substitute.For<ISettingsTransfer>(), Substitute.For<IProxyTester>(), Substitute.For<JustDownload.Core.IPortableEnvironment>(), Substitute.For<JustDownload.Core.Security.ISavedCredentialsService>(), Substitute.For<JustDownload.Core.Media.IYtDlpLocator>(), Substitute.For<JustDownload.Core.Media.IYtDlpProvisioner>());
         SettingsSectionViewModel connections = vm.Sections.Single(s => s.Label == "Connections");
 
         vm.SelectCommand.Execute(connections);
@@ -63,7 +64,8 @@ public sealed class SettingsViewModelTests
         new(settings, Substitute.For<IThemeService>(), CategoryFolderRules.CreateDefault(),
             Substitute.For<JustDownload.Core.NativeMessaging.INativeHostInstaller>(),
             Substitute.For<ISecretStore>(), transfer, Substitute.For<IProxyTester>(),
-            Substitute.For<JustDownload.Core.IPortableEnvironment>(), Substitute.For<JustDownload.Core.Security.ISavedCredentialsService>());
+            Substitute.For<JustDownload.Core.IPortableEnvironment>(), Substitute.For<JustDownload.Core.Security.ISavedCredentialsService>(),
+            Substitute.For<JustDownload.Core.Media.IYtDlpLocator>(), Substitute.For<JustDownload.Core.Media.IYtDlpProvisioner>());
 
     [Fact]
     public async Task ExportToAsync_ExportsCurrentSettings_AndReportsSuccess()
@@ -92,7 +94,7 @@ public sealed class SettingsViewModelTests
         await settings.Received().UpdateAsync(Arg.Any<Func<AppSettings, AppSettings>>(), Arg.Any<CancellationToken>());
         Persisted(settings, new AppSettings()).Should().Be(imported);
         vm.Sections.Select(s => s.Label).Should()
-            .Equal("General", "Connections", "Proxy", "Authentication", "Categories", "Browsers", "Advanced");
+            .Equal("General", "Video", "Connections", "Proxy", "Authentication", "Categories", "Browsers", "Advanced");
         vm.SelectedSection.Label.Should().Be("General");
         vm.TransferStatus.Should().Be("Settings imported.");
     }
@@ -656,5 +658,93 @@ public sealed class SettingsViewModelTests
         };
 
         vm.TestCommand.CanExecute(null).Should().BeFalse();
+    }
+
+    // --- Video (TASK-162, D3) ---------------------------------------------------------------------
+
+    [Fact]
+    public void Video_CaptureToggle_DefaultsOff_PersistsAndHydrates()
+    {
+        ISettingsService settings = Settings();
+        var locator = Substitute.For<IYtDlpLocator>();
+        locator.LocateAsync(Arg.Any<CancellationToken>()).Returns((YtDlpInfo?)null);
+        var vm = new VideoSettingsViewModel(settings, locator, Substitute.For<IYtDlpProvisioner>());
+
+        vm.VideoCaptureEnabled.Should().BeFalse("gates the yt-dlp fallback; off by default (AC0)");
+        vm.VideoCaptureEnabled = true;
+        Persisted(settings, new AppSettings()).VideoCaptureEnabled.Should().BeTrue();
+
+        var hydrated = new VideoSettingsViewModel(
+            Settings(new AppSettings { VideoCaptureEnabled = true }), locator, Substitute.For<IYtDlpProvisioner>());
+        hydrated.VideoCaptureEnabled.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Video_InitialStatus_ReflectsWhetherYtDlpIsAlreadyLocated()
+    {
+        var locatorMissing = Substitute.For<IYtDlpLocator>();
+        locatorMissing.LocateAsync(Arg.Any<CancellationToken>()).Returns((YtDlpInfo?)null);
+        var missing = new VideoSettingsViewModel(Settings(), locatorMissing, Substitute.For<IYtDlpProvisioner>());
+        await Task.Delay(10); // let the constructor's fire-and-forget status check complete
+        missing.Status.Should().Be(YtDlpStatus.NotInstalled);
+        missing.StatusText.Should().Be("Not installed");
+
+        var locatorFound = Substitute.For<IYtDlpLocator>();
+        locatorFound.LocateAsync(Arg.Any<CancellationToken>()).Returns(new YtDlpInfo("/usr/bin/yt-dlp", "2026.06.09"));
+        var found = new VideoSettingsViewModel(Settings(), locatorFound, Substitute.For<IYtDlpProvisioner>());
+        await Task.Delay(10);
+        found.Status.Should().Be(YtDlpStatus.Ready);
+        found.StatusText.Should().Be("Ready (yt-dlp 2026.06.09)");
+    }
+
+    [Fact]
+    public async Task Video_Download_ProvisionsAndReportsReady()
+    {
+        var locator = Substitute.For<IYtDlpLocator>();
+        locator.LocateAsync(Arg.Any<CancellationToken>()).Returns((YtDlpInfo?)null);
+        var provisioner = Substitute.For<IYtDlpProvisioner>();
+        provisioner.EnsureAsync(Arg.Any<CancellationToken>()).Returns(new YtDlpInfo(@"C:\vendor\yt-dlp.exe", "2026.06.09"));
+        var vm = new VideoSettingsViewModel(Settings(), locator, provisioner);
+        await Task.Delay(10);
+
+        await vm.DownloadCommand.ExecuteAsync(null);
+
+        vm.Status.Should().Be(YtDlpStatus.Ready);
+        vm.StatusText.Should().Be("Ready (yt-dlp 2026.06.09)");
+        vm.ErrorMessage.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Video_Download_ReportsError_OnIntegrityFailure()
+    {
+        var locator = Substitute.For<IYtDlpLocator>();
+        locator.LocateAsync(Arg.Any<CancellationToken>()).Returns((YtDlpInfo?)null);
+        var provisioner = Substitute.For<IYtDlpProvisioner>();
+        provisioner.EnsureAsync(Arg.Any<CancellationToken>())
+            .Returns(Task.FromException<YtDlpInfo?>(new YtDlpException("yt-dlp download failed its integrity check.")));
+        var vm = new VideoSettingsViewModel(Settings(), locator, provisioner);
+        await Task.Delay(10);
+
+        await vm.DownloadCommand.ExecuteAsync(null);
+
+        vm.Status.Should().Be(YtDlpStatus.Error);
+        vm.ErrorMessage.Should().Be("yt-dlp download failed its integrity check.");
+        vm.StatusText.Should().Be("Error");
+    }
+
+    [Fact]
+    public async Task Video_Download_ReportsError_WhenNoSourceForPlatform()
+    {
+        var locator = Substitute.For<IYtDlpLocator>();
+        locator.LocateAsync(Arg.Any<CancellationToken>()).Returns((YtDlpInfo?)null);
+        var provisioner = Substitute.For<IYtDlpProvisioner>();
+        provisioner.EnsureAsync(Arg.Any<CancellationToken>()).Returns((YtDlpInfo?)null);
+        var vm = new VideoSettingsViewModel(Settings(), locator, provisioner);
+        await Task.Delay(10);
+
+        await vm.DownloadCommand.ExecuteAsync(null);
+
+        vm.Status.Should().Be(YtDlpStatus.Error);
+        vm.ErrorMessage.Should().NotBeNullOrEmpty();
     }
 }

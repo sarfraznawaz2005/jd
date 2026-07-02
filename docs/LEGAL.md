@@ -43,8 +43,10 @@ HLS playback and is not DRM circumvention.)
 In-house media extraction is **best-effort**. Site-specific players (for example YouTube and Facebook)
 actively obfuscate and rotate their stream URLs, so coverage for those sites is **limited and brittle**.
 When extraction fails, JustDownload degrades gracefully with a clear "couldn't extract" message — it never
-crashes and never pretends a download succeeded when it did not. JustDownload does **not** bundle yt-dlp,
-and it builds no feature whose sole purpose is to evade a site's protections.
+crashes and never pretends a download succeeded when it did not. JustDownload does **not** bundle yt-dlp; an
+optional, user-enabled yt-dlp fallback can be downloaded on demand (D3), invoked as a separate process the
+same way ffmpeg is, and only as a last resort after in-house extraction declines. It builds no feature whose
+sole purpose is to evade a site's protections.
 
 ## No affiliation
 

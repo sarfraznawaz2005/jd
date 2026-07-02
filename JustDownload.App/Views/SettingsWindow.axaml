@@ -108,6 +108,34 @@
       </StackPanel>
     </DataTemplate>
 
+    <!-- Video (TASK-162, locked decision D3) -->
+    <DataTemplate DataType="vm:VideoSettingsViewModel">
+      <StackPanel Spacing="18">
+        <TextBlock Text="Video" Classes="SettingsHeading" />
+        <StackPanel Spacing="6">
+          <StackPanel Orientation="Horizontal" Spacing="12">
+            <ToggleSwitch IsChecked="{Binding VideoCaptureEnabled, Mode=TwoWay}" />
+            <TextBlock Text="Enable video capture/detection" VerticalAlignment="Center"
+                       Foreground="{DynamicResource TextBrush}" />
+          </StackPanel>
+          <TextBlock Text="Turns on the optional yt-dlp fallback for sites the in-house extractors can't reliably handle (e.g. YouTube/Facebook). Off by default. yt-dlp is never bundled — it only downloads, as a separate process, once you enable it here."
+                     Classes="SettingsHint" TextWrapping="Wrap" />
+        </StackPanel>
+        <StackPanel Spacing="10" IsVisible="{Binding VideoCaptureEnabled}">
+          <TextBlock Text="yt-dlp" Classes="StatKey" />
+          <TextBlock Text="yt-dlp is a separate, independently-licensed (public domain) tool invoked as a child process, the same way ffmpeg is. It's used only as a last resort, after every in-house extractor has declined."
+                     Classes="SettingsHint" TextWrapping="Wrap" />
+          <StackPanel Orientation="Horizontal" Spacing="12">
+            <Button Classes="App Accent" Content="Download yt-dlp" Command="{Binding DownloadCommand}" HorizontalAlignment="Left" />
+            <TextBlock Text="{Binding StatusText}" VerticalAlignment="Center" Foreground="{DynamicResource TextDimBrush}" />
+          </StackPanel>
+          <TextBlock Text="{Binding ErrorMessage}"
+                     IsVisible="{Binding ErrorMessage, Converter={x:Static ObjectConverters.IsNotNull}}"
+                     FontSize="11" Foreground="{DynamicResource RedBrush}" TextWrapping="Wrap" />
+        </StackPanel>
+      </StackPanel>
+    </DataTemplate>
+
     <!-- Connections -->
     <DataTemplate DataType="vm:ConnectionsSettingsViewModel">
       <StackPanel Spacing="18">

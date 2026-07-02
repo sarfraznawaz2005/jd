@@ -33,6 +33,7 @@ internal static partial class SettingsSerializer
     internal const string OnCompletionCommandKey = "postprocess.on_completion_command";
     internal const string BandwidthScheduleKey = "downloads.bandwidth_schedule";
     internal const string SuppressTosNoticeKey = "legal.tos_notice_suppressed";
+    internal const string VideoCaptureEnabledKey = "media.video_capture_enabled";
     internal const string ProxyKindKey = "proxy.kind";
     internal const string ProxyHostKey = "proxy.host";
     internal const string ProxyPortKey = "proxy.port";
@@ -79,6 +80,7 @@ internal static partial class SettingsSerializer
             [OnCompletionCommandKey] = settings.OnCompletionCommand ?? string.Empty,
             [BandwidthScheduleKey] = settings.BandwidthSchedule ?? string.Empty,
             [SuppressTosNoticeKey] = settings.SuppressTosNotice.ToString(CultureInfo.InvariantCulture),
+            [VideoCaptureEnabledKey] = settings.VideoCaptureEnabled.ToString(CultureInfo.InvariantCulture),
             [ProxyKindKey] = settings.ProxyKind.ToString(),
             [ProxyHostKey] = settings.ProxyHost ?? string.Empty,
             [ProxyPortKey] = settings.ProxyPort.ToString(CultureInfo.InvariantCulture),
@@ -138,6 +140,7 @@ internal static partial class SettingsSerializer
                 ParseOptionalString(stored, OnCompletionCommandKey, defaults.OnCompletionCommand),
             BandwidthSchedule = ParseOptionalString(stored, BandwidthScheduleKey, defaults.BandwidthSchedule),
             SuppressTosNotice = ParseBool(stored, SuppressTosNoticeKey, defaults.SuppressTosNotice, logger),
+            VideoCaptureEnabled = ParseBool(stored, VideoCaptureEnabledKey, defaults.VideoCaptureEnabled, logger),
             ProxyKind = ParseEnum(stored, ProxyKindKey, defaults.ProxyKind, logger),
             ProxyHost = ParseOptionalString(stored, ProxyHostKey, defaults.ProxyHost),
             ProxyPort = ParseInt(stored, ProxyPortKey, defaults.ProxyPort, logger),

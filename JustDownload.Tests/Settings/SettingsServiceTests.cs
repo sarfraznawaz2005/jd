@@ -194,6 +194,30 @@ public sealed class SettingsServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task VideoCaptureEnabled_PersistsAcrossRestarts()
+    {
+        // TASK-162 AC0: the master video-capture/detection toggle is off by default and round-trips the
+        // same way as every other setting.
+        ServiceProvider first = NewProvider();
+        var writer = first.GetRequiredService<ISettingsService>();
+        await writer.LoadAsync();
+
+        writer.Current.VideoCaptureEnabled.Should().BeFalse("off by default");
+        await writer.UpdateAsync(s => s with { VideoCaptureEnabled = true });
+
+        first.Dispose();
+        _providers.Remove(first);
+        SqliteConnection.ClearAllPools();
+
+        var reopened = NewProvider().GetRequiredService<ISettingsService>();
+        await reopened.LoadAsync();
+        reopened.Current.VideoCaptureEnabled.Should().BeTrue();
+
+        await reopened.UpdateAsync(s => s with { VideoCaptureEnabled = false });
+        reopened.Current.VideoCaptureEnabled.Should().BeFalse();
+    }
+
+    [Fact]
     public async Task LoadAsync_WithCorruptStoredValue_FallsBackToDefault()
     {
         // Robustness: a garbage value in storage must not crash startup — it degrades to the default.

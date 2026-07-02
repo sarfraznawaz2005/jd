@@ -165,7 +165,8 @@ JustDownload is a native .NET 8 + Avalonia download manager whose **defining sel
 
 ### 2.3 Non-Goals (explicitly NOT building in v1.0)
 
-- ❌ **No yt-dlp bundling** — extraction is fully in-house per your decision (architecture stays pluggable so it can be added later).
+- ❌ **No yt-dlp bundling** — yt-dlp is never bundled or statically linked; it is available only as an
+  optional, user-enabled, downloaded-on-demand fallback after in-house extraction declines (D3).
 - ❌ No torrent / P2P / Metalink support.
 - ❌ No mobile (iOS/Android) apps.
 - ❌ No paid tier, license server, accounts, or telemetry.
@@ -228,7 +229,7 @@ Main window (empty + populated) · New URL dialog · Detail panel + detached win
 > This replaces the generic "AI" section — the comparable risk/quality surface here is the **in-house media extractor**, which is the highest-maintenance subsystem.
 
 ### 3.1 Extractor Architecture
-- **Pluggable `IMediaExtractor` interface.** A registry of site/format extractors, tried in priority order. This is the seam where yt-dlp (or a yt-dlp sidecar) could be slotted in later without core changes.
+- **Pluggable `IMediaExtractor` interface.** A registry of site/format extractors, tried in priority order. This is the seam the optional, user-enabled yt-dlp fallback (D3) plugs into without core changes.
 - **Generic extractors (always present):**
   - **HLS** (`.m3u8` master/media, AES-128, variant selection).
   - **DASH** (`.mpd`, separate video+audio representations) — **P1** (raised from P2; required by the muxing flow in US-9b / reference shot 2).
@@ -241,7 +242,7 @@ Main window (empty + populated) · New URL dialog · Detail panel + detached win
 - Site-specific players (YouTube, Facebook) actively obfuscate stream URLs and rotate signatures. **In-house-only extraction will have limited and brittle coverage** for these sites. The product will:
   - Be honest in docs about which sites are "best-effort."
   - Degrade gracefully (no crash, clear "couldn't extract" message).
-  - Keep the extractor interface ready for a yt-dlp plugin if priorities change.
+  - yt-dlp is available as an optional, user-enabled fallback (D3) once every in-house extractor declines.
 - **Legal:** Downloading from some sites may violate their Terms of Service. Show a one-time notice; do not bypass DRM (Widevine/PlayReady protected content is explicitly out of scope).
 
 ### 3.3 Evaluation Strategy (extraction quality)
@@ -347,13 +348,13 @@ site_blacklist(domain, scope)
 | **MVP (v0.x)** | Core engine library; HTTP/HTTPS dynamic segmentation; pause/resume + crash recovery; live speed + connection control; SQLite persistence; auto-organization; Avalonia UI per §2.4 (category-tree sidebar + list + detail + **segment visualization**, light/dark, DPI). Win+Linux. | KPIs K1,K2,K3,K4,K5 met on Win/Linux; engine coverage ≥85%; segment bar renders live. |
 | **v1.0** | FTP; proxy (HTTP/SOCKS) + auth (Basic/Digest/NTLM); HLS download+merge; **DASH + separate video+audio download & ffmpeg mux (US-9b)**; .ts→mp4 remux + quality/container defaults; browser extension (Chrome/Edge/FF) with send-link + sniffer + blacklist; renew expired; macOS build + drag-drop; polished UI + command palette + detached detail window. | All P0/P1 ACs pass; 3-OS install tested; muxed YouTube-style download produces one playable file; extension in stores (or sideload docs). |
 | **v1.1** | Queue priority/scheduler/batch; download speed graphs; density toggle polish; portable mode. | — |
-| **v2.0** | Optional yt-dlp plugin (off by default); CLI front-end over Core; scripting/automation API. | — |
+| **v2.0** | CLI front-end over Core; scripting/automation API. (Optional yt-dlp fallback, off by default, landed early — D3.) | — |
 
 ### 5.2 Technical Risks & Mitigations
 
 | Risk | Impact | Mitigation |
 |---|---|---|
-| **In-house extraction brittle on YouTube/FB** | Casual users disappointed | Honest docs; sniffer covers generic media; keep extractor pluggable for future yt-dlp |
+| **In-house extraction brittle on YouTube/FB** | Casual users disappointed | Honest docs; sniffer covers generic media; optional, user-enabled yt-dlp fallback available (D3) |
 | **Avalonia NativeAOT immaturity** vs. size/startup goals | Miss K1/K3 | Measure early; fall back to trimmed ReadyToRun; AOT only the headless host |
 | **NTLM/Digest edge cases** across servers | Auth failures | Test matrix with real IIS/Apache/Squid containers; rely on `System.Net` where possible |
 | **Crash-resume corruption** | Data integrity (core promise) | Atomic checkpoints, WAL, sparse-file offsets, SHA verify, fuzz/kill tests in CI |
