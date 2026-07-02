@@ -1,8 +1,10 @@
 // JustDownload — content script (MV3)
 //
-// Renders a small, per-video download icon on/near each detected <video>/<audio> element on the page
-// (TASK-164), IDM-style — replacing the earlier single generic floating button (TASK-068). Runs in every
-// frame (manifest.base.json content_scripts `all_frames: true`) so videos embedded via a third-party
+// Renders a small, per-video download icon on/near each detected <video> element on the page (TASK-164),
+// IDM-style — replacing the earlier single generic floating button (TASK-068). Only <video> elements get
+// an icon (TASK-166): a page embedding an <audio> player (e.g. a podcast) should not get one, since audio
+// files are already reachable via the network-sniffing-based popup media list (background.js/jdcore.js).
+// Runs in every frame (manifest.base.json content_scripts `all_frames: true`) so videos embedded via a third-party
 // iframe (e.g. a blog embedding a YouTube player) get their own icon too: each frame's content-script
 // instance independently detects and messages its own videos — cross-origin iframes are opaque to page JS,
 // but the browser still injects a content script into them, so this needs no cross-frame DOM access.
@@ -116,9 +118,6 @@
     }
     for (const el of document.querySelectorAll("video")) {
       attachIconTo(el, "video");
-    }
-    for (const el of document.querySelectorAll("audio")) {
-      attachIconTo(el, "audio");
     }
   }
 
