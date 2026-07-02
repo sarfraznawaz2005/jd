@@ -16,13 +16,20 @@ namespace JustDownload.Core.Media.YtDlp;
 /// is not already provisioned; provisioning is a deliberate, explicit user action (Settings' "Download
 /// yt-dlp" button, TASK-162), never triggered implicitly from here.
 /// <para>
-/// Resolves a single best playable format via <c>yt-dlp --dump-json -f best</c> — "best" is yt-dlp's own
-/// selector for a single-file format that needs no further muxing — and reports it as
-/// <see cref="MediaKind.Progressive"/>, or as <see cref="MediaKind.Hls"/> when the resolved format is
-/// itself an HLS media playlist (the existing HLS pipeline then downloads/decrypts/concatenates it exactly
-/// as it would any other <c>.m3u8</c>). A full per-format quality picker for every yt-dlp format is out of
-/// scope for this first pass; a single best-effort direct URL is enough to make sites like YouTube,
-/// Facebook, and Twitter/X downloadable (see TASK-163's empirical verification notes).
+/// Probes with <c>yt-dlp --dump-json</c> — deliberately without a <c>-f</c> selector (TASK-165), so yt-dlp
+/// reports every format it found instead of resolving/merging one — and maps the real <c>formats</c> array
+/// into <see cref="MediaSource.Variants"/> (and <see cref="MediaSource.AudioVariants"/>) so
+/// <see cref="VideoQualitySelector"/> has real options, exactly as the in-house DASH/HLS extractors do. Most
+/// modern sites (confirmed empirically against real YouTube formats) only expose one muxed
+/// (audio+video-in-one-file) format at a low resolution and offer every higher quality as separate
+/// video-only + audio-only streams, so when both exist this reports <see cref="MediaKind.SeparateStreams"/>
+/// (reusing the existing separate-stream download+mux pipeline) instead of the lone low-quality muxed
+/// format — otherwise the user's quality setting would have nothing meaningful to choose between. Falls
+/// back to <see cref="MediaKind.Progressive"/> for muxed-only formats, or <see cref="MediaKind.Hls"/> when
+/// the only usable formats are HLS media playlists. Only formats with a directly downloadable URL (plain
+/// <c>http(s)</c>, or an HLS playlist) are considered; fragmented-manifest protocols this extractor's simple
+/// direct-URL pipeline cannot handle (e.g. <c>http_dash_segments</c>) are skipped, as is any format entry
+/// missing a usable URL or (for video streams) a resolution.
 /// </para>
 /// <para>
 /// Never throws for an expected failure mode (yt-dlp missing/unprovisioned, a non-zero exit, malformed or
@@ -33,10 +40,11 @@ namespace JustDownload.Core.Media.YtDlp;
 internal sealed partial class YtDlpMediaExtractor : IMediaExtractor
 {
     // --ignore-config: never let a stray user-level yt-dlp config (cookies-from-browser, a proxy, etc.)
-    // silently change behaviour. --no-playlist: a played URL from a playlist page extracts only that
-    // video. -f best: the single-file (no separate-stream muxing needed) format, per the type doc.
+    // silently change behaviour. --no-playlist: a played URL from a playlist page extracts only that video.
+    // No -f selector (TASK-165): yt-dlp then just probes and reports its full "formats" array without
+    // downloading or resolving/merging anything, so this extractor can map real options into Variants.
     private static readonly string[] BaseArguments =
-        ["--dump-json", "--no-playlist", "--no-warnings", "--ignore-config", "-f", "best"];
+        ["--dump-json", "--no-playlist", "--no-warnings", "--ignore-config"];
 
     private static readonly JsonSerializerOptions JsonOptions = new() { PropertyNameCaseInsensitive = true };
 
@@ -108,10 +116,10 @@ internal sealed partial class YtDlpMediaExtractor : IMediaExtractor
 
     private MediaSource? TryMap(string standardOutput, Uri requestUrl)
     {
-        YtDlpFormat? format;
+        YtDlpProbeResult? probe;
         try
         {
-            format = JsonSerializer.Deserialize<YtDlpFormat>(standardOutput, JsonOptions);
+            probe = JsonSerializer.Deserialize<YtDlpProbeResult>(standardOutput, JsonOptions);
         }
         catch (JsonException ex)
         {
@@ -119,33 +127,96 @@ internal sealed partial class YtDlpMediaExtractor : IMediaExtractor
             return null;
         }
 
-        if (format is null)
+        string? suggestedFileName = probe?.Id is { Length: > 0 } videoId ? $"ytdlp-{videoId}" : null;
+
+        var usable = new List<(YtDlpFormat Format, Uri Url)>();
+        foreach (YtDlpFormat format in probe?.Formats ?? [])
         {
-            LogNoUsableFormat(_logger, requestUrl);
-            return null;
+            if (Uri.TryCreate(format.Url, UriKind.Absolute, out Uri? mediaUrl) &&
+                IsDownloadableProtocol(format.Protocol))
+            {
+                usable.Add((format, mediaUrl));
+            }
         }
 
-        string? mediaUrlText = format.Url;
-        if (string.IsNullOrEmpty(mediaUrlText) || !Uri.TryCreate(mediaUrlText, UriKind.Absolute, out Uri? mediaUrl))
+        (YtDlpFormat Format, Uri Url)[] hls = [.. usable.Where(LooksLikeHls)];
+        (YtDlpFormat Format, Uri Url)[] direct = [.. usable.Where(u => !LooksLikeHls(u))];
+
+        (YtDlpFormat Format, Uri Url)[] muxed =
+            [.. direct.Where(u => HasStream(u.Format.VideoCodec) && HasStream(u.Format.AudioCodec) && u.Format.Height is > 0)];
+        (YtDlpFormat Format, Uri Url)[] videoOnly =
+            [.. direct.Where(u => HasStream(u.Format.VideoCodec) && !HasStream(u.Format.AudioCodec) && u.Format.Height is > 0)];
+        (YtDlpFormat Format, Uri Url)[] audioOnly =
+            [.. direct.Where(u => !HasStream(u.Format.VideoCodec) && HasStream(u.Format.AudioCodec))];
+
+        // Prefer separate video-only + audio-only streams over a lone low-quality muxed format (confirmed
+        // empirically: sites like YouTube only muxed one low resolution; every higher quality is separate).
+        if (videoOnly.Length > 0 && audioOnly.Length > 0)
         {
-            LogNoUsableFormat(_logger, requestUrl);
-            return null;
+            return new MediaSource
+            {
+                ExtractorName = Name,
+                Kind = MediaKind.SeparateStreams,
+                Url = requestUrl,
+                SuggestedFileName = suggestedFileName,
+                Variants = [.. videoOnly.Select(u => ToVideoVariant(u.Format, u.Url))],
+                AudioVariants = [.. audioOnly.Select(u => ToAudioVariant(u.Format, u.Url))],
+            };
         }
 
-        MediaKind kind = LooksLikeHls(format.Protocol, mediaUrlText) ? MediaKind.Hls : MediaKind.Progressive;
-
-        return new MediaSource
+        if (muxed.Length > 0)
         {
-            ExtractorName = Name,
-            Kind = kind,
-            Url = mediaUrl,
-            SuggestedFileName = format.Id is { Length: > 0 } id ? $"ytdlp-{id}" : null,
-        };
+            return new MediaSource
+            {
+                ExtractorName = Name,
+                Kind = MediaKind.Progressive,
+                Url = requestUrl,
+                SuggestedFileName = suggestedFileName,
+                Variants = [.. muxed.Select(u => ToVideoVariant(u.Format, u.Url))],
+            };
+        }
+
+        if (hls.Length > 0)
+        {
+            return new MediaSource
+            {
+                ExtractorName = Name,
+                Kind = MediaKind.Hls,
+                Url = requestUrl,
+                SuggestedFileName = suggestedFileName,
+                Variants = [.. hls.Select(u => ToVideoVariant(u.Format, u.Url))],
+            };
+        }
+
+        LogNoUsableFormat(_logger, requestUrl);
+        return null;
     }
 
-    private static bool LooksLikeHls(string? protocol, string mediaUrl) =>
-        (protocol?.Contains("m3u8", StringComparison.OrdinalIgnoreCase) ?? false) ||
-        mediaUrl.Contains(".m3u8", StringComparison.OrdinalIgnoreCase);
+    private static VideoVariant ToVideoVariant(YtDlpFormat format, Uri url) =>
+        new(url.ToString(), format.Height ?? 0, ToBitsPerSecond(format.TotalBitrateKbps ?? format.VideoBitrateKbps));
+
+    private static AudioVariant ToAudioVariant(YtDlpFormat format, Uri url) =>
+        new(url.ToString(), ToBitsPerSecond(format.TotalBitrateKbps ?? format.AudioBitrateKbps));
+
+    private static long? ToBitsPerSecond(double? kilobitsPerSecond) =>
+        kilobitsPerSecond is > 0 ? (long)(kilobitsPerSecond.Value * 1000) : null;
+
+    private static bool HasStream(string? codec) =>
+        !string.IsNullOrEmpty(codec) && !codec.Equals("none", StringComparison.OrdinalIgnoreCase);
+
+    // Only protocols this extractor's simple "GET the URL" pipeline can actually handle: a plain
+    // progressively-fetchable http(s) URL, or an HLS playlist (downloaded/decrypted/concatenated by the
+    // existing HLS pipeline). Anything else — e.g. "http_dash_segments" fragmented delivery — needs manifest
+    // expansion this extractor doesn't do, so it's skipped rather than fed in as a bogus direct URL.
+    private static bool IsDownloadableProtocol(string? protocol) =>
+        protocol is { Length: > 0 } &&
+        (protocol.Equals("http", StringComparison.OrdinalIgnoreCase) ||
+            protocol.Equals("https", StringComparison.OrdinalIgnoreCase) ||
+            protocol.Contains("m3u8", StringComparison.OrdinalIgnoreCase));
+
+    private static bool LooksLikeHls((YtDlpFormat Format, Uri Url) entry) =>
+        (entry.Format.Protocol?.Contains("m3u8", StringComparison.OrdinalIgnoreCase) ?? false) ||
+        entry.Url.AbsoluteUri.Contains(".m3u8", StringComparison.OrdinalIgnoreCase);
 
     private static string Truncate(string value) => value.Length > 500 ? value[..500] : value;
 
@@ -162,15 +233,50 @@ internal sealed partial class YtDlpMediaExtractor : IMediaExtractor
     private static partial void LogNoUsableFormat(ILogger logger, Uri url);
 }
 
-/// <summary>The subset of yt-dlp's <c>--dump-json -f best</c> output this extractor consumes.</summary>
-internal sealed record YtDlpFormat
+/// <summary>The subset of yt-dlp's <c>--dump-json</c> output this extractor consumes: the video id (for the
+/// suggested file name) and the real <c>formats</c> array (TASK-165).</summary>
+internal sealed record YtDlpProbeResult
 {
     [JsonPropertyName("id")]
     public string? Id { get; init; }
+
+    [JsonPropertyName("formats")]
+    public IReadOnlyList<YtDlpFormat>? Formats { get; init; }
+}
+
+/// <summary>One entry of yt-dlp's <c>formats</c> array — a single downloadable rendition of the video.</summary>
+internal sealed record YtDlpFormat
+{
+    [JsonPropertyName("format_id")]
+    public string? FormatId { get; init; }
 
     [JsonPropertyName("url")]
     public string? Url { get; init; }
 
     [JsonPropertyName("protocol")]
     public string? Protocol { get; init; }
+
+    /// <summary>Vertical resolution in pixels; <see langword="null"/> for audio-only formats.</summary>
+    [JsonPropertyName("height")]
+    public int? Height { get; init; }
+
+    /// <summary>The video codec, or the literal string <c>"none"</c> when this format carries no video.</summary>
+    [JsonPropertyName("vcodec")]
+    public string? VideoCodec { get; init; }
+
+    /// <summary>The audio codec, or the literal string <c>"none"</c> when this format carries no audio.</summary>
+    [JsonPropertyName("acodec")]
+    public string? AudioCodec { get; init; }
+
+    /// <summary>Total average bitrate in Kbit/s, when yt-dlp reports one for this format.</summary>
+    [JsonPropertyName("tbr")]
+    public double? TotalBitrateKbps { get; init; }
+
+    /// <summary>Video-only average bitrate in Kbit/s, when yt-dlp reports one for this format.</summary>
+    [JsonPropertyName("vbr")]
+    public double? VideoBitrateKbps { get; init; }
+
+    /// <summary>Audio-only average bitrate in Kbit/s, when yt-dlp reports one for this format.</summary>
+    [JsonPropertyName("abr")]
+    public double? AudioBitrateKbps { get; init; }
 }
