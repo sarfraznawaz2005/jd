@@ -21,10 +21,17 @@ each project for full license text.
 | System.Security.Cryptography.ProtectedData | 8.0.0 | MIT |
 | Microsoft.Win32.Registry | 5.0.0 | MIT |
 | FluentFTP | 54.2.0 | MIT |
+| SharpCompress | 1.0.0 | MIT |
 
 `FluentFTP` (MIT) is the FTP/FTPS client for the FTP transport (TASK-033): passive mode, REST resume,
 explicit/implicit FTPS, and directory listings. It is pure managed code with no native payload and is only
 loaded when a download targets an `ftp(s)://` URL.
+
+`SharpCompress` (MIT) provides `.7z`/`.rar` auto-extraction (TASK-156, extending TASK-135's built-in `.zip`
+support). It is pure managed code (~1.5 MB, no transitive package dependencies on `net8.0`) and is read-only
+for `.7z`/`.rar` — SharpCompress has no encoder for either format — which matches JustDownload's needs, since
+it only ever extracts archives, never authors them. Negligible impact on the K3 ≤ 40 MB bundle budget (current
+installers are 17–21 MB compressed; see [`docs/publishing.md`](./publishing.md)).
 
 `Microsoft.Data.Sqlite` embeds the **SQLite** engine (public domain) via **SQLitePCLRaw**
 (Apache-2.0 / MIT). `System.Security.Cryptography.ProtectedData` (MIT) wraps Windows DPAPI and is only

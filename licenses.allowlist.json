@@ -27,6 +27,7 @@
     "Microsoft.NET.Test.Sdk": "MIT",
     "Microsoft.Win32.Registry": "MIT",
     "NSubstitute": "BSD-3-Clause",
+    "SharpCompress": "MIT",
     "System.Security.Cryptography.ProtectedData": "MIT",
     "coverlet.collector": "MIT",
     "xunit": "Apache-2.0",

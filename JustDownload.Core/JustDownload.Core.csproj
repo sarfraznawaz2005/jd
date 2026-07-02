@@ -65,6 +65,13 @@
       tiny, no native payload on non-Windows — within the §4 allow-list and the light-&-fast budget.
     -->
     <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="8.0.0" />
+    <!--
+      .7z/.rar auto-extraction (TASK-156, extends TASK-135's .zip via ZipFile). SharpCompress is MIT,
+      pure managed (~1.5MB, no transitive deps on net8.0), and read-only for .7z/.rar (no encoder for
+      either format exists), which matches this app's extract-only need. Recorded in
+      docs/THIRD-PARTY-NOTICES.md.
+    -->
+    <PackageReference Include="SharpCompress" Version="1.0.0" />
   </ItemGroup>
 
 </Project>
