@@ -19,6 +19,12 @@
   <ItemGroup>
     <!-- The test project verifies internal seams (e.g. the settings storage-key contract) directly. -->
     <InternalsVisibleTo Include="JustDownload.Tests" />
+    <!--
+      NSubstitute (Castle DynamicProxy) needs this to fake an internal interface (e.g.
+      IMacKeychainInterop, TASK-113) — without it, Substitute.For<T>() on an internal type throws at
+      runtime because the dynamically generated proxy assembly can't see internal members.
+    -->
+    <InternalsVisibleTo Include="DynamicProxyGenAssembly2" />
   </ItemGroup>
 
   <ItemGroup>

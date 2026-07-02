@@ -211,6 +211,7 @@ public static class ServiceCollectionExtensions
         }
         else if (OperatingSystem.IsMacOS())
         {
+            services.TryAddSingleton<IMacKeychainInterop, MacKeychainInterop>();
             services.TryAddSingleton<ISecretStore, MacOsKeychainSecretStore>();
         }
         else if (OperatingSystem.IsLinux())

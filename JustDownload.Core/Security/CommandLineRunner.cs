@@ -3,11 +3,11 @@ using System.Diagnostics;
 namespace JustDownload.Core.Security;
 
 /// <summary>
-/// Minimal async runner for invoking an OS keychain helper (<c>security</c> on macOS,
-/// <c>secret-tool</c> on Linux) as a separate child process. Using the OS tool as its own binary —
-/// rather than P/Invoking a native library — keeps the engine free of any non-permissive native
-/// dependency (CLAUDE.md §4: libsecret is LGPL, fine as a separate process). The child is always
-/// torn down, including on cancellation, so no helper process is orphaned (CLAUDE.md §2.5).
+/// Minimal async runner for invoking an OS keychain helper (<c>secret-tool</c> on Linux) as a
+/// separate child process. Using the OS tool as its own binary — rather than P/Invoking a native
+/// library — keeps the engine free of any non-permissive native dependency (CLAUDE.md §4: libsecret
+/// is LGPL, fine as a separate process). The child is always torn down, including on cancellation, so
+/// no helper process is orphaned (CLAUDE.md §2.5).
 /// </summary>
 internal static class CommandLineRunner
 {

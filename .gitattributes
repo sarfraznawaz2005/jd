@@ -1,0 +1,4 @@
+# Shell scripts must keep LF line endings on every platform (a CRLF shebang/case-statement breaks
+# on Linux) — needed for JustDownload.Tests/Fixtures/fake-secret-tool.sh (TASK-113), which a Linux
+# CI runner executes directly via its shebang.
+*.sh text eol=lf

@@ -13,7 +13,9 @@ namespace JustDownload.Core.Security;
 /// <remarks>
 /// Implemented for parity and pending on-OS verification (this build is validated on Windows).
 /// <c>secret-tool store</c> reads the secret from stdin, so the value never appears on the command
-/// line.
+/// line. The <c>secret-tool</c> binary path is injectable (see <see cref="LinuxSecretToolSecretStore(IAppInfoProvider, string)"/>)
+/// so a test can point it at a scripted stand-in and exercise the real process-spawn/stdin/stdout
+/// logic without the real Secret Service daemon (TASK-113 AC0).
 /// </remarks>
 [SupportedOSPlatform("linux")]
 internal sealed class LinuxSecretToolSecretStore : ISecretStore
@@ -23,11 +25,14 @@ internal sealed class LinuxSecretToolSecretStore : ISecretStore
     private const string AccountAttribute = "account";
 
     private readonly string _service;
+    private readonly string _secretTool;
 
-    public LinuxSecretToolSecretStore(IAppInfoProvider appInfo)
+    public LinuxSecretToolSecretStore(IAppInfoProvider appInfo, string secretToolPath = SecretTool)
     {
         ArgumentNullException.ThrowIfNull(appInfo);
+        ArgumentException.ThrowIfNullOrEmpty(secretToolPath);
         _service = appInfo.Name;
+        _secretTool = secretToolPath;
     }
 
     public async Task<string> StoreAsync(string secret, CancellationToken cancellationToken = default)
@@ -36,7 +41,7 @@ internal sealed class LinuxSecretToolSecretStore : ISecretStore
 
         string secretRef = SecretRef.New();
         CommandLineRunner.Result result = await CommandLineRunner.RunAsync(
-            SecretTool,
+            _secretTool,
             [
                 "store", "--label", $"{_service} credential",
                 ServiceAttribute, _service, AccountAttribute, secretRef,
@@ -58,7 +63,7 @@ internal sealed class LinuxSecretToolSecretStore : ISecretStore
         ArgumentException.ThrowIfNullOrEmpty(secretRef);
 
         CommandLineRunner.Result result = await CommandLineRunner.RunAsync(
-            SecretTool,
+            _secretTool,
             ["lookup", ServiceAttribute, _service, AccountAttribute, secretRef],
             standardInput: null,
             cancellationToken).ConfigureAwait(false);
@@ -82,7 +87,7 @@ internal sealed class LinuxSecretToolSecretStore : ISecretStore
         bool existed = await RetrieveAsync(secretRef, cancellationToken).ConfigureAwait(false) is not null;
 
         CommandLineRunner.Result result = await CommandLineRunner.RunAsync(
-            SecretTool,
+            _secretTool,
             ["clear", ServiceAttribute, _service, AccountAttribute, secretRef],
             standardInput: null,
             cancellationToken).ConfigureAwait(false);

@@ -4,102 +4,92 @@ using JustDownload.Core.Abstractions;
 namespace JustDownload.Core.Security;
 
 /// <summary>
-/// macOS <see cref="ISecretStore"/> backed by the login Keychain via the system <c>security</c>
-/// tool (a separate child process — no native linkage, so no license entanglement; CLAUDE.md §4).
-/// Each secret is a generic password whose <c>service</c> is the product name and whose
-/// <c>account</c> is the opaque secret reference.
+/// macOS <see cref="ISecretStore"/> backed by the login Keychain, reached via direct P/Invoke against
+/// Apple's own Security.framework/CoreFoundation.framework (through <see cref="IMacKeychainInterop"/>)
+/// — no child process is spawned, so the secret never appears on any process's command line or in
+/// <c>ps</c> output (CLAUDE.md §5). Each secret is a generic password whose <c>service</c> is the
+/// product name and whose <c>account</c> is the opaque secret reference.
 /// </summary>
 /// <remarks>
-/// Implemented for parity and pending on-OS verification (this build is validated on Windows). Known
-/// limitation: <c>security add-generic-password</c> has no stdin password input, so the value is
-/// passed via <c>-w</c> on the argument vector (visible to <c>ps</c> for the call's lifetime). A
-/// later hardening pass can switch to a P/Invoke of <c>SecItemAdd</c> to remove that exposure.
+/// The logic in this class — secretRef generation and OSStatus-to-outcome mapping — has genuine
+/// unit-test coverage against a fake <see cref="IMacKeychainInterop"/> (see
+/// <c>MacOsKeychainSecretStoreTests</c>). The real interop implementation
+/// (<see cref="MacKeychainInterop"/>) that actually calls Security.framework has not been executed on
+/// real macOS hardware: this build/test run is Windows-only, and Apple's terms prohibit macOS
+/// virtualization on non-Apple hardware, so there is currently no way to run it from here. On-OS
+/// verification against a real Keychain is tracked as a separate follow-up (TASK-113's subtask).
 /// </remarks>
 [SupportedOSPlatform("macos")]
 internal sealed class MacOsKeychainSecretStore : ISecretStore
 {
-    private const string SecurityTool = "/usr/bin/security";
-
-    // 'security' exits 44 (errSecItemNotFound) when the requested item is absent.
-    private const int ItemNotFound = 44;
+    // SecItemCopyMatching/SecItemDelete return errSecItemNotFound when nothing matches the query.
+    private const int ItemNotFound = -25300;
+    private const int Success = 0;
 
     private readonly string _service;
+    private readonly IMacKeychainInterop _keychain;
 
-    public MacOsKeychainSecretStore(IAppInfoProvider appInfo)
+    public MacOsKeychainSecretStore(IAppInfoProvider appInfo, IMacKeychainInterop keychain)
     {
         ArgumentNullException.ThrowIfNull(appInfo);
+        ArgumentNullException.ThrowIfNull(keychain);
         _service = appInfo.Name;
+        _keychain = keychain;
     }
 
-    public async Task<string> StoreAsync(string secret, CancellationToken cancellationToken = default)
+    public Task<string> StoreAsync(string secret, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(secret);
 
         string secretRef = SecretRef.New();
-        CommandLineRunner.Result result = await CommandLineRunner.RunAsync(
-            SecurityTool,
-            ["add-generic-password", "-a", secretRef, "-s", _service, "-w", secret, "-U"],
-            standardInput: null,
-            cancellationToken).ConfigureAwait(false);
+        int status = _keychain.Add(_service, secretRef, secret);
 
-        if (result.ExitCode != 0)
+        if (status != Success)
         {
             throw new SecretStoreException(
-                $"Failed to store secret in the macOS Keychain (security exit {result.ExitCode}).");
+                $"Failed to store secret in the macOS Keychain (OSStatus {status}).");
         }
 
-        return secretRef;
+        return Task.FromResult(secretRef);
     }
 
-    public async Task<string?> RetrieveAsync(string secretRef, CancellationToken cancellationToken = default)
+    public Task<string?> RetrieveAsync(string secretRef, CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrEmpty(secretRef);
 
-        CommandLineRunner.Result result = await CommandLineRunner.RunAsync(
-            SecurityTool,
-            ["find-generic-password", "-a", secretRef, "-s", _service, "-w"],
-            standardInput: null,
-            cancellationToken).ConfigureAwait(false);
+        (int status, string? secret) = _keychain.CopyMatching(_service, secretRef);
 
-        if (result.ExitCode == ItemNotFound)
+        if (status == ItemNotFound)
         {
-            return null;
+            return Task.FromResult<string?>(null);
         }
 
-        if (result.ExitCode != 0)
+        if (status != Success)
         {
             throw new SecretStoreException(
-                $"Failed to read secret from the macOS Keychain (security exit {result.ExitCode}).");
+                $"Failed to read secret from the macOS Keychain (OSStatus {status}).");
         }
 
-        // 'security -w' prints the raw password followed by a single newline.
-        return TrimSingleTrailingNewline(result.StandardOutput);
+        return Task.FromResult(secret);
     }
 
-    public async Task<bool> DeleteAsync(string secretRef, CancellationToken cancellationToken = default)
+    public Task<bool> DeleteAsync(string secretRef, CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrEmpty(secretRef);
 
-        CommandLineRunner.Result result = await CommandLineRunner.RunAsync(
-            SecurityTool,
-            ["delete-generic-password", "-a", secretRef, "-s", _service],
-            standardInput: null,
-            cancellationToken).ConfigureAwait(false);
+        int status = _keychain.Delete(_service, secretRef);
 
-        if (result.ExitCode == ItemNotFound)
+        if (status == ItemNotFound)
         {
-            return false;
+            return Task.FromResult(false);
         }
 
-        if (result.ExitCode != 0)
+        if (status != Success)
         {
             throw new SecretStoreException(
-                $"Failed to delete secret from the macOS Keychain (security exit {result.ExitCode}).");
+                $"Failed to delete secret from the macOS Keychain (OSStatus {status}).");
         }
 
-        return true;
+        return Task.FromResult(true);
     }
-
-    private static string TrimSingleTrailingNewline(string value) =>
-        value.EndsWith('\n') ? value[..^1] : value;
 }
