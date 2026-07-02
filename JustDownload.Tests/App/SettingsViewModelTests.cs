@@ -191,6 +191,27 @@ public sealed class SettingsViewModelTests
     }
 
     [Fact]
+    public void General_ShowTosNotice_PersistsInvertedAsSuppressFlag_AndHydrates()
+    {
+        // TASK-160 AC2: the toggle reads "Show the notice" (on by default); turning it off sets the stored
+        // SuppressTosNotice flag, and turning it back on clears it so the notice shows again.
+        ISettingsService settings = Settings();
+        var vm = new GeneralSettingsViewModel(settings, Substitute.For<IThemeService>(), Substitute.For<JustDownload.Core.IPortableEnvironment>());
+
+        vm.ShowTosNotice.Should().BeTrue("the notice is shown by default");
+        vm.ShowTosNotice = false;
+        Persisted(settings, new AppSettings()).SuppressTosNotice.Should().BeTrue();
+
+        ISettingsService suppressedSettings = Settings(new AppSettings { SuppressTosNotice = true });
+        var hydrated = new GeneralSettingsViewModel(
+            suppressedSettings, Substitute.For<IThemeService>(), Substitute.For<JustDownload.Core.IPortableEnvironment>());
+        hydrated.ShowTosNotice.Should().BeFalse();
+
+        hydrated.ShowTosNotice = true;
+        Persisted(suppressedSettings, new AppSettings { SuppressTosNotice = true }).SuppressTosNotice.Should().BeFalse();
+    }
+
+    [Fact]
     public void General_LaunchAtStartup_PersistsAndHydrates()
     {
         ISettingsService settings = Settings();

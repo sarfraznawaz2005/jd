@@ -38,11 +38,19 @@ public sealed class MediaVariantPickerTests
         return settings;
     }
 
+    private static ITosNoticeGate AlwaysAllows()
+    {
+        var gate = Substitute.For<ITosNoticeGate>();
+        gate.ConfirmAsync(Arg.Any<CancellationToken>()).Returns(Task.FromResult(true));
+        return gate;
+    }
+
     private static MediaVariantPickerViewModel Build(
         IMediaExtractorRegistry registry,
         ISettingsService settings,
         IDownloadManager? manager = null,
-        IDownloadActions? actions = null)
+        IDownloadActions? actions = null,
+        ITosNoticeGate? tosGate = null)
     {
         var folders = Substitute.For<IDownloadFolderProvider>();
         folders.GetFolderForCategory(Arg.Any<FileCategory>()).Returns(@"C:\Downloads\Video");
@@ -51,6 +59,7 @@ public sealed class MediaVariantPickerTests
             manager ?? Substitute.For<IDownloadManager>(),
             actions ?? Substitute.For<IDownloadActions>(),
             folders,
+            tosGate ?? AlwaysAllows(),
             NullLogger<MediaVariantPickerViewModel>.Instance);
     }
 
@@ -145,6 +154,36 @@ public sealed class MediaVariantPickerTests
 
         vm.HasVariants.Should().BeFalse();
         vm.Message.Should().Contain("Couldn't find");
+    }
+
+    [Fact]
+    public async Task LoadAsync_TosNoticeDeclined_DoesNotExtract()
+    {
+        IMediaExtractorRegistry registry = RegistryReturning(HlsSource(1080));
+        var gate = Substitute.For<ITosNoticeGate>();
+        gate.ConfirmAsync(Arg.Any<CancellationToken>()).Returns(Task.FromResult(false));
+        MediaVariantPickerViewModel vm = Build(
+            registry, SettingsWith(VideoQuality.P1080, MediaContainer.Mkv), tosGate: gate);
+
+        await vm.LoadAsync(MediaUrl);
+
+        await registry.DidNotReceive().ExtractAsync(Arg.Any<MediaRequest>(), Arg.Any<CancellationToken>());
+        vm.HasVariants.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task LoadAsync_TosNoticeAccepted_Extracts()
+    {
+        IMediaExtractorRegistry registry = RegistryReturning(HlsSource(1080));
+        var gate = Substitute.For<ITosNoticeGate>();
+        gate.ConfirmAsync(Arg.Any<CancellationToken>()).Returns(Task.FromResult(true));
+        MediaVariantPickerViewModel vm = Build(
+            registry, SettingsWith(VideoQuality.P1080, MediaContainer.Mkv), tosGate: gate);
+
+        await vm.LoadAsync(MediaUrl);
+
+        await registry.Received(1).ExtractAsync(Arg.Any<MediaRequest>(), Arg.Any<CancellationToken>());
+        vm.HasVariants.Should().BeTrue();
     }
 
     [Fact]

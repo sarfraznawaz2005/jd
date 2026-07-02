@@ -169,6 +169,31 @@ public sealed class SettingsServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task SuppressTosNotice_PersistsAcrossRestarts()
+    {
+        // TASK-160 AC1/AC2: "Don't show this again" persists suppression so it survives a restart, and the
+        // Settings toggle can clear it again (round-tripped the same way as every other setting).
+        ServiceProvider first = NewProvider();
+        var writer = first.GetRequiredService<ISettingsService>();
+        await writer.LoadAsync();
+
+        writer.Current.SuppressTosNotice.Should().BeFalse("the notice is shown by default");
+        await writer.UpdateAsync(s => s with { SuppressTosNotice = true });
+
+        first.Dispose();
+        _providers.Remove(first);
+        SqliteConnection.ClearAllPools();
+
+        var reopened = NewProvider().GetRequiredService<ISettingsService>();
+        await reopened.LoadAsync();
+        reopened.Current.SuppressTosNotice.Should().BeTrue();
+
+        // The Settings toggle clears it again (AC2).
+        await reopened.UpdateAsync(s => s with { SuppressTosNotice = false });
+        reopened.Current.SuppressTosNotice.Should().BeFalse();
+    }
+
+    [Fact]
     public async Task LoadAsync_WithCorruptStoredValue_FallsBackToDefault()
     {
         // Robustness: a garbage value in storage must not crash startup — it degrades to the default.

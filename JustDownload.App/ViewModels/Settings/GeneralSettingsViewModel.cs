@@ -51,6 +51,9 @@ public sealed partial class GeneralSettingsViewModel : ViewModelBase
     [ObservableProperty]
     private bool _autoExtractArchives;
 
+    [ObservableProperty]
+    private bool _showTosNotice;
+
     public GeneralSettingsViewModel(
         ISettingsService settings, IThemeService theme, JustDownload.Core.IPortableEnvironment portable)
     {
@@ -76,6 +79,7 @@ public sealed partial class GeneralSettingsViewModel : ViewModelBase
         _launchAtStartup = current.LaunchAtStartup;
         _notificationsEnabled = current.NotificationsEnabled;
         _autoExtractArchives = current.AutoExtractArchives;
+        _showTosNotice = !current.SuppressTosNotice;
         _suppress = false;
     }
 
@@ -213,6 +217,18 @@ public sealed partial class GeneralSettingsViewModel : ViewModelBase
         if (!_suppress)
         {
             _ = _settings.UpdateAsync(s => s with { AutoExtractArchives = value });
+        }
+    }
+
+    /// <summary>
+    /// Turning this off suppresses the one-time ToS notice (TASK-160); turning it back on clears the
+    /// suppression flag so the notice shows again on the next media download (AC2).
+    /// </summary>
+    partial void OnShowTosNoticeChanged(bool value)
+    {
+        if (!_suppress)
+        {
+            _ = _settings.UpdateAsync(s => s with { SuppressTosNotice = !value });
         }
     }
 }

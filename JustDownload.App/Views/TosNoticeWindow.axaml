@@ -1,0 +1,46 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:JustDownload.App.ViewModels"
+        x:Class="JustDownload.App.Views.TosNoticeWindow"
+        x:DataType="vm:TosNoticeViewModel"
+        Title="Before you download media"
+        Width="480" SizeToContent="Height"
+        MinWidth="440"
+        CanResize="False"
+        WindowStartupLocation="CenterOwner"
+        Background="{DynamicResource CardBrush}">
+
+  <StackPanel Margin="20" Spacing="14">
+
+    <TextBlock Text="{Binding Heading}" FontSize="16" FontWeight="SemiBold"
+               Foreground="{DynamicResource TextBrush}" />
+
+    <TextBlock Text="{Binding Intro}" TextWrapping="Wrap" Foreground="{DynamicResource TextBrush}" />
+
+    <ItemsControl ItemsSource="{Binding Bullets}">
+      <ItemsControl.ItemsPanel>
+        <ItemsPanelTemplate>
+          <StackPanel Spacing="8" />
+        </ItemsPanelTemplate>
+      </ItemsControl.ItemsPanel>
+      <ItemsControl.ItemTemplate>
+        <DataTemplate x:DataType="x:String">
+          <Grid ColumnDefinitions="14,*">
+            <TextBlock Grid.Column="0" Text="•" Foreground="{DynamicResource TextBrush}" />
+            <TextBlock Grid.Column="1" Text="{Binding}" TextWrapping="Wrap"
+                       Foreground="{DynamicResource TextBrush}" />
+          </Grid>
+        </DataTemplate>
+      </ItemsControl.ItemTemplate>
+    </ItemsControl>
+
+    <TextBlock Text="{Binding Confirmation}" TextWrapping="Wrap" Foreground="{DynamicResource TextBrush}" />
+
+    <!-- Actions -->
+    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+      <Button Classes="App Ghost" Content="Don't show this again" Command="{Binding DontShowAgainCommand}" />
+      <Button Classes="App Ghost" Content="Cancel" Command="{Binding CancelCommand}" />
+      <Button Classes="App Accent" Content="I understand — continue" Command="{Binding ContinueCommand}" />
+    </StackPanel>
+  </StackPanel>
+</Window>

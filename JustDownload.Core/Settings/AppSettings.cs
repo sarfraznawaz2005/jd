@@ -145,4 +145,11 @@ public sealed record AppSettings
     /// otherwise the manual cap applies. <see langword="null"/>/empty = no schedule (the default).
     /// </summary>
     public string? BandwidthSchedule { get; init; }
+
+    /// <summary>
+    /// Whether the one-time "may violate site ToS" notice (docs/LEGAL.md, TASK-160) has been dismissed with
+    /// "Don't show this again" and should stay suppressed on future media downloads. Default
+    /// <see langword="false"/> — the notice is shown before the first media download.
+    /// </summary>
+    public bool SuppressTosNotice { get; init; }
 }

@@ -43,6 +43,7 @@ public sealed partial class MediaVariantPickerViewModel : ViewModelBase
     private readonly IDownloadManager _manager;
     private readonly IDownloadActions _actions;
     private readonly IDownloadFolderProvider _folders;
+    private readonly ITosNoticeGate _tosGate;
     private readonly ILogger<MediaVariantPickerViewModel> _logger;
     private MediaSource? _source;
 
@@ -73,6 +74,7 @@ public sealed partial class MediaVariantPickerViewModel : ViewModelBase
         IDownloadManager manager,
         IDownloadActions actions,
         IDownloadFolderProvider folders,
+        ITosNoticeGate tosGate,
         ILogger<MediaVariantPickerViewModel> logger)
     {
         ArgumentNullException.ThrowIfNull(registry);
@@ -80,12 +82,14 @@ public sealed partial class MediaVariantPickerViewModel : ViewModelBase
         ArgumentNullException.ThrowIfNull(manager);
         ArgumentNullException.ThrowIfNull(actions);
         ArgumentNullException.ThrowIfNull(folders);
+        ArgumentNullException.ThrowIfNull(tosGate);
         ArgumentNullException.ThrowIfNull(logger);
         _registry = registry;
         _settings = settings;
         _manager = manager;
         _actions = actions;
         _folders = folders;
+        _tosGate = tosGate;
         _logger = logger;
         _selectedContainer = settings.Current.DefaultContainer;
     }
@@ -186,8 +190,10 @@ public sealed partial class MediaVariantPickerViewModel : ViewModelBase
     }
 
     /// <summary>
-    /// Extracts the media at <paramref name="url"/> and populates the pickers, pre-selecting the user's
-    /// default quality and container (AC1). Sets <see cref="Message"/> for progressive/unrecognised media.
+    /// Gates on the one-time ToS notice (TASK-160, docs/LEGAL.md) then extracts the media at
+    /// <paramref name="url"/> and populates the pickers, pre-selecting the user's default quality and
+    /// container (AC1). Sets <see cref="Message"/> for progressive/unrecognised media. If the user declines
+    /// the notice, returns without ever calling <see cref="IMediaExtractorRegistry.ExtractAsync"/>.
     /// </summary>
     public async Task LoadAsync(
         Uri url,
@@ -195,6 +201,11 @@ public sealed partial class MediaVariantPickerViewModel : ViewModelBase
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(url);
+
+        if (!await _tosGate.ConfirmAsync(cancellationToken).ConfigureAwait(true))
+        {
+            return;
+        }
 
         IsLoading = true;
         Message = null;

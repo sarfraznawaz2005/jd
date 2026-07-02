@@ -95,6 +95,16 @@
           <TextBlock Text="When on, copying a http(s)/ftp(s) link opens the New URL dialog prefilled."
                      Classes="SettingsHint" />
         </StackPanel>
+        <StackPanel Spacing="6">
+          <TextBlock Text="Legal" Classes="StatKey" />
+          <StackPanel Orientation="Horizontal" Spacing="12">
+            <ToggleSwitch IsChecked="{Binding ShowTosNotice, Mode=TwoWay}" />
+            <TextBlock Text="Show the terms-of-service notice before media downloads" VerticalAlignment="Center"
+                       Foreground="{DynamicResource TextBrush}" />
+          </StackPanel>
+          <TextBlock Text="Turning this off suppresses the one-time notice shown before the first HLS/DASH/video-audio download; turn it back on to see it again."
+                     Classes="SettingsHint" TextWrapping="Wrap" />
+        </StackPanel>
       </StackPanel>
     </DataTemplate>
 

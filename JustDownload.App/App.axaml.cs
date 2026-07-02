@@ -42,6 +42,7 @@ public partial class App : Application
             .AddSingleton<IDownloadFolderProvider, DownloadFolderProvider>()
             .AddSingleton<IClipboardService>(_ => new ClipboardService(GetActiveClipboard))
             .AddSingleton<ClipboardMonitor>()
+            .AddSingleton<ITosNoticeGate>(sp => new TosNoticeGate(sp.GetRequiredService<ISettingsService>(), _ => ShowTosNoticeAsync()))
             .AddSingleton<IAutostartService>(_ => new WindowsAutostartService())
             .AddSingleton<AutostartController>()
             .AddSingleton<LogLevelController>()
@@ -418,5 +419,29 @@ public partial class App : Application
         }
 
         return null;
+    }
+
+    /// <summary>The app's main window, or <c>null</c> before it exists.</summary>
+    private static Window? GetActiveWindow()
+    {
+        if (Current?.ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
+        {
+            return desktop.MainWindow;
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Shows the one-time ToS/legal notice (TASK-160) modally over the main window and returns the user's
+    /// choice. Wired into <see cref="ITosNoticeGate"/> so <see cref="MediaVariantPickerViewModel"/> stays
+    /// unaware of how the dialog is shown.
+    /// </summary>
+    private static Task<TosNoticeResult> ShowTosNoticeAsync()
+    {
+        var dialog = new TosNoticeWindow { DataContext = new TosNoticeViewModel() };
+        Window owner = GetActiveWindow()
+            ?? throw new InvalidOperationException("No active window to own the ToS notice dialog.");
+        return dialog.ShowDialog<TosNoticeResult>(owner);
     }
 }
