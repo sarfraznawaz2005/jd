@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Net;
 using System.Net.Http;
 using System.Net.Sockets;
+using System.Security.Cryptography;
 using System.Text;
 
 namespace JustDownload.Tests.Transport;
@@ -12,7 +13,11 @@ namespace JustDownload.Tests.Transport;
 /// records each requested URL (so a test can prove traffic was routed through it), forwards the request —
 /// relaying the <c>Range</c> header — to the origin, and relays the response (status, content-range,
 /// content-length, body) back. Plain HTTP only (no <c>CONNECT</c> tunneling), which suffices for the
-/// loopback origin. Torn down on <see cref="DisposeAsync"/>.
+/// loopback origin. Basic/Digest challenges are answered per-request; when <see cref="RequiredNtlmAuth"/>
+/// is set, the connection instead drives a real NTLMSSP handshake (TASK-111) over the persistent TCP
+/// connection — same mechanics as <see cref="LoopbackNtlmAuthServer"/>, but on <c>Proxy-Authenticate</c>/
+/// <c>Proxy-Authorization</c> headers and <c>407</c> instead of <c>WWW-Authenticate</c>/<c>Authorization</c>/
+/// <c>401</c>. Torn down on <see cref="DisposeAsync"/>.
 /// </summary>
 internal sealed class LoopbackHttpProxy : IAsyncDisposable
 {
@@ -46,6 +51,12 @@ internal sealed class LoopbackHttpProxy : IAsyncDisposable
 
     /// <summary>When set to <c>user:pass</c>, the proxy demands Digest <c>Proxy-Authorization</c> (407, RFC 7616).</summary>
     public string? RequiredDigestAuth { get; set; }
+
+    /// <summary>
+    /// When set to <c>user:pass</c>, the proxy demands a real NTLMv2 <c>Proxy-Authorization</c> handshake
+    /// (407) over the persistent connection (TASK-111) — mutually exclusive with the Basic/Digest properties.
+    /// </summary>
+    public string? RequiredNtlmAuth { get; set; }
 
     /// <summary>The absolute URLs the proxy was asked to fetch (proves routing through the proxy).</summary>
     public IReadOnlyList<string> RequestedUrls
@@ -83,6 +94,12 @@ internal sealed class LoopbackHttpProxy : IAsyncDisposable
 
     private async Task HandleAsync(TcpClient client, CancellationToken ct)
     {
+        if (RequiredNtlmAuth is not null)
+        {
+            await HandleNtlmConnectionAsync(client, ct).ConfigureAwait(false);
+            return;
+        }
+
         using (client)
         {
             try
@@ -97,34 +114,20 @@ internal sealed class LoopbackHttpProxy : IAsyncDisposable
 
                 if (RequiredBasicAuth is { } basic && !IsBasicValid(proxyAuth, basic))
                 {
-                    await WriteProxyChallengeAsync(stream, "Basic realm=\"proxy\"", ct).ConfigureAwait(false);
+                    await WriteProxyChallengeAsync(stream, "Basic realm=\"proxy\"", keepAlive: false, ct)
+                        .ConfigureAwait(false);
                     return;
                 }
 
                 if (RequiredDigestAuth is { } digest && !IsDigestValid(proxyAuth, digest))
                 {
                     await WriteProxyChallengeAsync(
-                        stream, $"Digest realm=\"{DigestRealm}\", qop=\"auth\", nonce=\"{DigestNonce}\"", ct)
-                        .ConfigureAwait(false);
+                        stream, $"Digest realm=\"{DigestRealm}\", qop=\"auth\", nonce=\"{DigestNonce}\"",
+                        keepAlive: false, ct).ConfigureAwait(false);
                     return;
                 }
 
-                lock (_gate)
-                {
-                    _requested.Add(target);
-                }
-
-                using var forward = new HttpRequestMessage(HttpMethod.Get, target);
-                if (range is not null)
-                {
-                    forward.Headers.TryAddWithoutValidation("Range", range);
-                }
-
-                using HttpResponseMessage response = await _forwarder
-                    .SendAsync(forward, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
-                byte[] body = await response.Content.ReadAsByteArrayAsync(ct).ConfigureAwait(false);
-
-                await WriteResponseAsync(stream, response, body, ct).ConfigureAwait(false);
+                await ForwardAsync(stream, target, range, keepAlive: false, ct).ConfigureAwait(false);
             }
             catch (IOException)
             {
@@ -133,6 +136,111 @@ internal sealed class LoopbackHttpProxy : IAsyncDisposable
             {
             }
         }
+    }
+
+    /// <summary>
+    /// Drives a real NTLMSSP handshake (TASK-111) over one persistent proxy connection: an unauthenticated
+    /// request gets a bare <c>NTLM</c> 407 challenge, the client's TYPE_1 gets a TYPE_2 challenge carrying a
+    /// fresh server nonce, and the client's TYPE_3 is cryptographically verified (NTLMv2, same machinery as
+    /// <see cref="LoopbackNtlmAuthServer"/>) before the connection is treated as authenticated and every
+    /// further request on it is forwarded to the origin.
+    /// </summary>
+    private async Task HandleNtlmConnectionAsync(TcpClient client, CancellationToken ct)
+    {
+        using (client)
+        {
+            try
+            {
+                NetworkStream stream = client.GetStream();
+                string[] required = RequiredNtlmAuth!.Split(':', 2);
+                string requiredUser = required[0];
+                string requiredPassword = required.Length > 1 ? required[1] : string.Empty;
+
+                byte[] serverChallenge = [];
+                bool authenticated = false;
+
+                while (true)
+                {
+                    (string? target, string? range, string? proxyAuth) =
+                        await ReadRequestAsync(stream, ct).ConfigureAwait(false);
+                    if (target is null)
+                    {
+                        return;
+                    }
+
+                    if (authenticated)
+                    {
+                        await ForwardAsync(stream, target, range, keepAlive: true, ct).ConfigureAwait(false);
+                        continue;
+                    }
+
+                    if (proxyAuth is null || !proxyAuth.StartsWith("NTLM", StringComparison.OrdinalIgnoreCase))
+                    {
+                        await WriteProxyChallengeAsync(stream, "NTLM", keepAlive: true, ct).ConfigureAwait(false);
+                        continue;
+                    }
+
+                    byte[] message = Convert.FromBase64String(proxyAuth["NTLM".Length..].Trim());
+                    int messageType = message.Length >= 12 ? BitConverter.ToInt32(message, 8) : 0;
+
+                    if (messageType == 1)
+                    {
+                        serverChallenge = RandomNumberGenerator.GetBytes(8);
+                        byte[] challenge = NtlmMessages.BuildChallenge(serverChallenge, "PROXY-CORP", "PROXYSRV");
+                        await WriteProxyChallengeAsync(
+                            stream, $"NTLM {Convert.ToBase64String(challenge)}", keepAlive: true, ct)
+                            .ConfigureAwait(false);
+                        continue;
+                    }
+
+                    if (messageType == 3)
+                    {
+                        (string domain, string username, byte[] ntResponse) = NtlmMessages.ParseAuthenticate(message);
+                        bool cryptoOk = NtlmMessages.VerifyNtlmV2(
+                            domain, username, requiredPassword, serverChallenge, ntResponse);
+                        authenticated = username.Equals(requiredUser, StringComparison.OrdinalIgnoreCase) && cryptoOk;
+
+                        if (!authenticated)
+                        {
+                            await WriteProxyChallengeAsync(stream, "NTLM", keepAlive: true, ct).ConfigureAwait(false);
+                            continue;
+                        }
+
+                        await ForwardAsync(stream, target, range, keepAlive: true, ct).ConfigureAwait(false);
+                        continue;
+                    }
+
+                    await WriteProxyChallengeAsync(stream, "NTLM", keepAlive: true, ct).ConfigureAwait(false);
+                }
+            }
+            catch (IOException)
+            {
+            }
+            catch (OperationCanceledException)
+            {
+            }
+        }
+    }
+
+    private async Task ForwardAsync(
+        NetworkStream stream, string target, string? range, bool keepAlive, CancellationToken ct)
+    {
+        lock (_gate)
+        {
+            _requested.Add(target);
+        }
+
+        using var forward = new HttpRequestMessage(HttpMethod.Get, target);
+        if (range is not null)
+        {
+            forward.Headers.TryAddWithoutValidation("Range", range);
+        }
+
+        using HttpResponseMessage response = await _forwarder
+            .SendAsync(forward, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
+        byte[] body = await response.Content.ReadAsByteArrayAsync(ct).ConfigureAwait(false);
+
+        await WriteResponseAsync(stream, response, body, keepAlive, ct).ConfigureAwait(false);
     }
 
     private static bool IsBasicValid(string? proxyAuth, string required)
@@ -197,11 +305,13 @@ internal sealed class LoopbackHttpProxy : IAsyncDisposable
         Convert.ToHexString(System.Security.Cryptography.MD5.HashData(Encoding.ASCII.GetBytes(input))).ToLowerInvariant();
 #pragma warning restore CA5351
 
-    private static async Task WriteProxyChallengeAsync(NetworkStream stream, string challenge, CancellationToken ct)
+    private static async Task WriteProxyChallengeAsync(
+        NetworkStream stream, string challenge, bool keepAlive, CancellationToken ct)
     {
+        string connection = keepAlive ? "keep-alive" : "close";
         byte[] head = Encoding.ASCII.GetBytes(
             "HTTP/1.1 407 Proxy Authentication Required\r\n" +
-            $"Proxy-Authenticate: {challenge}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+            $"Proxy-Authenticate: {challenge}\r\nContent-Length: 0\r\nConnection: {connection}\r\n\r\n");
         await stream.WriteAsync(head, ct).ConfigureAwait(false);
         await stream.FlushAsync(ct).ConfigureAwait(false);
     }
@@ -248,7 +358,7 @@ internal sealed class LoopbackHttpProxy : IAsyncDisposable
     }
 
     private static async Task WriteResponseAsync(
-        NetworkStream stream, HttpResponseMessage response, byte[] body, CancellationToken ct)
+        NetworkStream stream, HttpResponseMessage response, byte[] body, bool keepAlive, CancellationToken ct)
     {
         int status = (int)response.StatusCode;
         string reason = status switch { 200 => "OK", 206 => "Partial Content", _ => "Status" };
@@ -260,7 +370,7 @@ internal sealed class LoopbackHttpProxy : IAsyncDisposable
         }
 
         headers.Append("Accept-Ranges: bytes\r\n");
-        headers.Append("Connection: close\r\n");
+        headers.Append(CultureInfo.InvariantCulture, $"Connection: {(keepAlive ? "keep-alive" : "close")}\r\n");
 
         byte[] head = Encoding.ASCII.GetBytes(
             string.Create(CultureInfo.InvariantCulture, $"HTTP/1.1 {status} {reason}\r\n{headers}\r\n"));

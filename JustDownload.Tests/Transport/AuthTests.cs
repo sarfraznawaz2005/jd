@@ -225,6 +225,53 @@ public sealed class AuthTests : IDisposable
             "the server cryptographically verifies the NTLMv2 response, so a wrong password genuinely fails");
     }
 
+    // --- TASK-111: a real NTLMv2 handshake against the proxy (407/Proxy-Authorization), not just the origin
+
+    [Fact]
+    public async Task NtlmAuthenticatedProxy_WithCorrectCredentials_RoutesTraffic()
+    {
+        byte[] body = Bytes(16_000);
+        await using var origin = new LoopbackHttpServer { Body = body, SupportRanges = true };
+        await using var proxy = new LoopbackHttpProxy { RequiredNtlmAuth = "puser:ppass" };
+        using ServiceProvider provider = BuildProvider();
+        var downloader = provider.GetRequiredService<ISegmentedDownloader>();
+        string dest = Path.Combine(_dir, "ntlm-proxy.bin");
+
+        await downloader.DownloadAsync(new DownloadRequest
+        {
+            Url = origin.Url("f.bin"),
+            DestinationPath = dest,
+            Connections = 1,
+            Proxy = new ProxyConfiguration(
+                ProxyKind.Http, "127.0.0.1", proxy.Port, new NetworkCredentials("puser", "ppass", "CORP")),
+        });
+
+        (await File.ReadAllBytesAsync(dest)).Should().Equal(body, "a real NTLMv2 proxy handshake should authenticate and route the download");
+        proxy.RequestedUrls.Should().NotBeEmpty("the NTLM-authenticated proxy routed the traffic");
+    }
+
+    [Fact]
+    public async Task NtlmAuthenticatedProxy_WithWrongPassword_ThrowsAuthRequired_ForProxy()
+    {
+        await using var origin = new LoopbackHttpServer { Body = Bytes(100), SupportRanges = true };
+        await using var proxy = new LoopbackHttpProxy { RequiredNtlmAuth = "puser:ppass" };
+        using ServiceProvider provider = BuildProvider();
+        var downloader = provider.GetRequiredService<ISegmentedDownloader>();
+
+        Func<Task> act = () => downloader.DownloadAsync(new DownloadRequest
+        {
+            Url = origin.Url("f.bin"),
+            DestinationPath = Path.Combine(_dir, "ntlm-proxy-wrong.bin"),
+            Connections = 1,
+            Proxy = new ProxyConfiguration(
+                ProxyKind.Http, "127.0.0.1", proxy.Port, new NetworkCredentials("puser", "WRONG", "CORP")),
+        });
+
+        AuthenticationRequiredException ex = (await act.Should().ThrowAsync<AuthenticationRequiredException>(
+            "the proxy cryptographically verifies the NTLMv2 response, so a wrong password genuinely fails")).Which;
+        ex.IsProxy.Should().BeTrue("a 407 surfaces as a proxy auth challenge");
+    }
+
     // --- AC1: credentials stored only in the OS keychain -----------------------------------------
 
     private sealed class InMemorySecretStore : ISecretStore

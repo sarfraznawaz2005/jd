@@ -106,6 +106,112 @@ public sealed class FtpDownloadIntegrationTests : IDisposable
         ftp.Restarts.Should().Contain(r => r >= body.Length / 2);
     }
 
+    // --- TASK-111: the real FluentFtpConnection over real FTP/FTPS sockets, not the fake --------------
+
+    private static ServiceProvider BuildRealFtpProvider()
+    {
+        // No IFtpConnectionFactory override here: AddJustDownloadTransport's TryAddSingleton registers the
+        // real FluentFtpConnectionFactory, so these tests exercise actual FTP/FTPS sockets end-to-end.
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddSingleton(new SegmentationOptions
+        {
+            DefaultConnections = 4,
+            MinSegmentSize = 16 * 1024,
+            MinStealSize = 16 * 1024,
+        });
+        services.AddJustDownloadTransport();
+        services.AddJustDownloadDownloading();
+        return services.BuildServiceProvider();
+    }
+
+    [Fact]
+    public async Task RealFtpServer_SegmentedDownload_WritesCorrectFile_UsingRestPerSegment()
+    {
+        byte[] body = Bytes(256 * 1024);
+        await using var server = new LoopbackFtpServer("alice", "s3cret", "/pub/file.bin", body);
+        using ServiceProvider provider = BuildRealFtpProvider();
+        var downloader = provider.GetRequiredService<ISegmentedDownloader>();
+        string dest = Path.Combine(_dir, "real-ftp.bin");
+
+        DownloadResult result = await downloader.DownloadAsync(new DownloadRequest
+        {
+            Url = server.Url(),
+            DestinationPath = dest,
+            Connections = 4,
+        });
+
+        result.SingleConnection.Should().BeFalse("the real FTP server reports a size via SIZE, so segmentation is enabled");
+        result.InitialSegments.Should().Be(4);
+        (await File.ReadAllBytesAsync(dest)).Should().Equal(body, "the real FluentFtpConnection must reassemble byte-correct data");
+    }
+
+    [Fact]
+    public async Task RealFtpServer_ResumeDownload_FetchesOnlyGaps_ViaRest()
+    {
+        byte[] body = Bytes(200 * 1024);
+        await using var server = new LoopbackFtpServer("bob", "hunter2", "/file.bin", body);
+        using ServiceProvider provider = BuildRealFtpProvider();
+        var downloader = provider.GetRequiredService<ISegmentedDownloader>();
+        string dest = Path.Combine(_dir, "real-resume.bin");
+
+        // Pre-seed the first half as already received; only the second half should be fetched via REST.
+        var received = new ReceivedRanges();
+        received.Add(0, body.Length / 2);
+
+        DownloadResult result = await downloader.DownloadAsync(
+            new DownloadRequest
+            {
+                Url = server.Url(),
+                DestinationPath = dest,
+                Connections = 2,
+            },
+            received: received);
+
+        result.TotalBytes.Should().Be(body.Length);
+        (await File.ReadAllBytesAsync(dest))[(body.Length / 2)..]
+            .Should().Equal(body[(body.Length / 2)..], "resume must fetch the real missing bytes via REST, not re-download the whole file");
+    }
+
+    [Fact]
+    public async Task RealFtpServer_WrongCredentials_Throws()
+    {
+        await using var server = new LoopbackFtpServer("carol", "correct-horse", "/f.bin", Bytes(100));
+        var badUrl = new Uri($"ftp://carol:wrong@127.0.0.1:{server.Port}/f.bin");
+        using ServiceProvider provider = BuildRealFtpProvider();
+        var downloader = provider.GetRequiredService<ISegmentedDownloader>();
+
+        Func<Task> act = () => downloader.DownloadAsync(new DownloadRequest
+        {
+            Url = badUrl,
+            DestinationPath = Path.Combine(_dir, "real-ftp-wrong.bin"),
+            Connections = 1,
+        });
+
+        await act.Should().ThrowAsync<Exception>("the real FTP server rejects PASS for a wrong password (530)");
+    }
+
+    [Fact]
+    public async Task RealFtpsServer_UntrustedSelfSignedCertificate_IsRejected()
+    {
+        // TASK-112: FluentFtpConnection.cs sets ValidateAnyCertificate = false (FluentFTP's safe default,
+        // i.e. normal chain validation runs). A real AUTH TLS handshake against a self-signed, untrusted
+        // certificate must therefore fail rather than silently succeed — proving there is no bypass.
+        await using var server = new LoopbackFtpServer("dave", "s3cret", "/f.bin", Bytes(1024), requireTls: true);
+        using ServiceProvider provider = BuildRealFtpProvider();
+        var downloader = provider.GetRequiredService<ISegmentedDownloader>();
+
+        Func<Task> act = () => downloader.DownloadAsync(new DownloadRequest
+        {
+            Url = server.Url(),
+            DestinationPath = Path.Combine(_dir, "real-ftps-untrusted.bin"),
+            Connections = 1,
+        });
+
+        await act.Should().ThrowAsync<Exception>(
+            "an untrusted self-signed FTPS certificate must be rejected by real chain validation, not bypassed");
+    }
+
     [Fact]
     public async Task SchemeRoutingTransport_UnsupportedScheme_Throws()
     {
