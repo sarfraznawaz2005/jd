@@ -66,4 +66,11 @@ public sealed record EnqueueDownloadRequest
 
     /// <summary>The preferred output container for a muxed media download (TASK-154); <see langword="null"/> = muxer default.</summary>
     public MediaContainer? MediaContainer { get; init; }
+
+    /// <summary>
+    /// Alternate mirror URLs (TASK-144): if <see cref="Url"/> fails and every retry against it is exhausted,
+    /// the manager fails over to these, in order, resuming from whatever was already downloaded rather than
+    /// restarting. Empty (the default) means this download has no configured mirrors.
+    /// </summary>
+    public IReadOnlyList<Uri> AlternateUrls { get; init; } = [];
 }

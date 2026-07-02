@@ -110,6 +110,19 @@
       </StackPanel>
     </StackPanel>
 
+    <!-- Alternate mirror URLs (TASK-144) -->
+    <StackPanel Spacing="8">
+      <CheckBox IsChecked="{Binding UseAlternateUrls, Mode=TwoWay}"
+                Content="Add alternate mirror URLs"
+                Foreground="{DynamicResource TextDimBrush}" FontSize="12" />
+      <StackPanel Spacing="5" IsVisible="{Binding UseAlternateUrls}" Margin="22,0,0,0">
+        <TextBlock Text="One URL per line. Tried in order if the main URL fails." FontSize="11"
+                   Foreground="{DynamicResource TextFaintBrush}" />
+        <TextBox Text="{Binding AlternateUrlsText, Mode=TwoWay}" AcceptsReturn="True" Height="70"
+                 TextWrapping="Wrap" Watermark="https://mirror1.example.com/file.zip" />
+      </StackPanel>
+    </StackPanel>
+
     <!-- Footer -->
     <Grid ColumnDefinitions="Auto,*,Auto,Auto" Margin="0,4,0,0">
       <TextBlock Grid.Column="0" Text="Detecting…" VerticalAlignment="Center"

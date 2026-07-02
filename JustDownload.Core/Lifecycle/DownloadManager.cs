@@ -135,6 +135,7 @@ internal sealed partial class DownloadManager : IDownloadManager
             MediaKind = request.MediaKind is { } kind ? (int)kind : null,
             MediaAudioUrl = request.MediaAudioUrl?.ToString(),
             MediaContainer = request.MediaContainer is { } container ? (int)container : null,
+            AlternateUrls = JoinAlternateUrls(request.AlternateUrls),
         };
 
         long id = await _repository.AddAsync(record, cancellationToken).ConfigureAwait(false);
@@ -186,6 +187,11 @@ internal sealed partial class DownloadManager : IDownloadManager
             Proxy = proxyOverride,
         };
 
+        // The full source list for this download (TASK-144): the primary URL followed by its configured
+        // mirrors. mirrorIndex tracks which one is currently active so failover walks the remainder in order.
+        IReadOnlyList<Uri> mirrors = BuildMirrorList(record);
+        int mirrorIndex = 0;
+
         // Periodically flush the checkpoint so a crash loses at most one interval; pause/cancel flushes the
         // exact final offsets below, so a clean pause re-fetches nothing (AC0/AC1).
         using var checkpointCts = new CancellationTokenSource();
@@ -193,9 +199,39 @@ internal sealed partial class DownloadManager : IDownloadManager
 
         // Auto-retry transient (network) failures with exponential backoff, resuming from the checkpoint so
         // only the missing gaps are re-fetched (TASK-131). Permanent failures — auth, expiry, resume-refused
-        // — and a user pause are never retried.
+        // — and a user pause are never retried against the *same* URL, but each still gets a chance to fail
+        // over to the next configured mirror before the download is actually given up on (TASK-144).
         DownloadResult result;
         int retries = 0;
+
+        // Probes the remaining mirrors in order and, on the first one that checks out (TASK-144), switches
+        // the active source over to it: persists the new URL/validators, rebuilds the request, and resets the
+        // retry budget so the loop above retries the fresh source from scratch. Returns false (no state
+        // touched) when every remaining mirror is exhausted or none was ever configured.
+        async Task<bool> TryFailOverAsync()
+        {
+            MirrorSwitchResult? next = await TryFindNextMirrorAsync(
+                id, mirrors, mirrorIndex, active.TotalBytes, headers, proxyOverride, cancellationToken)
+                .ConfigureAwait(false);
+            if (next is not { } mirror)
+            {
+                return false;
+            }
+
+            active = active with
+            {
+                Url = mirror.Url.ToString(),
+                ETag = mirror.Probe.ETag ?? active.ETag,
+                TotalBytes = mirror.Probe.TotalLength ?? active.TotalBytes,
+                RetryCount = 0,
+            };
+            await _repository.UpdateAsync(active, CancellationToken.None).ConfigureAwait(false);
+            downloadRequest = downloadRequest with { Url = mirror.Url };
+            mirrorIndex = mirror.Index;
+            retries = 0;
+            return true;
+        }
+
         while (true)
         {
             try
@@ -228,7 +264,13 @@ internal sealed partial class DownloadManager : IDownloadManager
             }
             catch (DownloadExpiredException ex)
             {
-                // The link expired: keep the checkpoint so a renew with a fresh URL can resume the bytes.
+                if (await TryFailOverAsync().ConfigureAwait(false))
+                {
+                    continue;
+                }
+
+                // The link expired and no mirror could take over: keep the checkpoint so a renew with a
+                // fresh URL can resume the bytes.
                 await StopCheckpointLoopAsync(checkpointCts, checkpointLoop).ConfigureAwait(false);
                 await PersistSegmentsAsync(id, received, CancellationToken.None).ConfigureAwait(false);
                 await TransitionToTerminalAsync(id, active, DownloadStatus.Expired, ex.Message, completedAt: null)
@@ -238,8 +280,14 @@ internal sealed partial class DownloadManager : IDownloadManager
             }
             catch (ResourceProbeException ex) when (ExpiryDetection.IsExpiryStatusCode(ex.StatusCode))
             {
+                if (await TryFailOverAsync().ConfigureAwait(false))
+                {
+                    continue;
+                }
+
                 // The probe (e.g. when resuming a download whose validators were already captured) hit an
-                // expiry status — surface it as Expired and keep the checkpoint for a renew.
+                // expiry status and no mirror could take over — surface it as Expired and keep the checkpoint
+                // for a renew.
                 await StopCheckpointLoopAsync(checkpointCts, checkpointLoop).ConfigureAwait(false);
                 await PersistSegmentsAsync(id, received, CancellationToken.None).ConfigureAwait(false);
                 await TransitionToTerminalAsync(id, active, DownloadStatus.Expired, ex.Message, completedAt: null)
@@ -249,9 +297,14 @@ internal sealed partial class DownloadManager : IDownloadManager
             }
             catch (ResumeNotSupportedException ex)
             {
-                // The server rejected the resume offset: the partial bytes are unusable, so drop the
-                // checkpoint (the next start is a clean restart from zero) and surface a restart-required
-                // failure.
+                if (await TryFailOverAsync().ConfigureAwait(false))
+                {
+                    continue;
+                }
+
+                // The server rejected the resume offset and no mirror could take over: the partial bytes are
+                // unusable, so drop the checkpoint (the next start is a clean restart from zero) and surface
+                // a restart-required failure.
                 await StopCheckpointLoopAsync(checkpointCts, checkpointLoop).ConfigureAwait(false);
                 await ClearSegmentsAsync(id).ConfigureAwait(false);
                 await TransitionToTerminalAsync(id, active, DownloadStatus.Failed, ex.Message, completedAt: null)
@@ -285,8 +338,13 @@ internal sealed partial class DownloadManager : IDownloadManager
             }
             catch (Exception ex)
             {
-                // A permanent failure, or transient with retries exhausted, keeps its checkpoint so a manual
-                // retry resumes rather than restarts.
+                if (await TryFailOverAsync().ConfigureAwait(false))
+                {
+                    continue;
+                }
+
+                // A permanent failure, or transient with retries exhausted, and no mirror could take over:
+                // keeps its checkpoint so a manual retry resumes rather than restarts.
                 await StopCheckpointLoopAsync(checkpointCts, checkpointLoop).ConfigureAwait(false);
                 await PersistSegmentsAsync(id, received, CancellationToken.None).ConfigureAwait(false);
                 await TransitionToTerminalAsync(id, active, DownloadStatus.Failed, ex.Message, completedAt: null)
@@ -519,6 +577,95 @@ internal sealed partial class DownloadManager : IDownloadManager
 
     private readonly record struct ProxyOverridePersistence(
         int? Kind, string? Host, int? Port, string? Username, string? Domain, string? PasswordSecretRef);
+
+    /// <summary>The full ordered source list for a download (TASK-144): the primary URL, then its mirrors.</summary>
+    private static List<Uri> BuildMirrorList(Download record)
+    {
+        var mirrors = new List<Uri> { new(record.Url) };
+        mirrors.AddRange(ParseAlternateUrls(record.AlternateUrls));
+        return mirrors;
+    }
+
+    /// <summary>
+    /// Parses the newline-separated <see cref="Download.AlternateUrls"/> column back into URLs (TASK-144).
+    /// Lenient like the download-list import (blank/malformed lines are skipped) since these ultimately came
+    /// from validated <see cref="Uri"/> instances at enqueue time.
+    /// </summary>
+    private static List<Uri> ParseAlternateUrls(string? stored)
+    {
+        if (string.IsNullOrEmpty(stored))
+        {
+            return [];
+        }
+
+        var urls = new List<Uri>();
+        foreach (string line in stored.Split('\n'))
+        {
+            string trimmed = line.Trim();
+            if (trimmed.Length > 0 && Uri.TryCreate(trimmed, UriKind.Absolute, out Uri? uri))
+            {
+                urls.Add(uri);
+            }
+        }
+
+        return urls;
+    }
+
+    /// <summary>Joins mirror URLs for persistence (TASK-144), or <see langword="null"/> when there are none.</summary>
+    private static string? JoinAlternateUrls(IReadOnlyList<Uri> urls) =>
+        urls.Count == 0 ? null : string.Join('\n', urls.Select(static u => u.ToString()));
+
+    /// <summary>
+    /// Probes the mirrors after <paramref name="currentIndex"/> in order and returns the first one that both
+    /// answers and — when a reference size is already known — reports a matching total length (TASK-144).
+    /// This is the cheapest available guard against splicing bytes from two different resources together
+    /// mid-resume; it cannot confirm true content identity (that would need a full-content hash, out of scope
+    /// here), so a mismatching or unreadable mirror is simply skipped rather than trusted. Returns
+    /// <see langword="null"/> when no remaining mirror checks out.
+    /// </summary>
+    private async Task<MirrorSwitchResult?> TryFindNextMirrorAsync(
+        long id,
+        IReadOnlyList<Uri> mirrors,
+        int currentIndex,
+        long? expectedTotalBytes,
+        IReadOnlyList<KeyValuePair<string, string>> headers,
+        ProxyConfiguration? proxyOverride,
+        CancellationToken cancellationToken)
+    {
+        for (int i = currentIndex + 1; i < mirrors.Count; i++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            Uri candidate = mirrors[i];
+            ResourceProbeResult probe;
+            try
+            {
+                using IDisposable proxyScope = _proxy.BeginDownloadScope(proxyOverride);
+                probe = await _probe.ProbeAsync(candidate, headers, cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw; // A pause mid-failover is a pause, not a mirror rejection.
+            }
+            catch (Exception ex)
+            {
+                LogMirrorProbeFailed(_logger, id, candidate, ex);
+                continue;
+            }
+
+            if (expectedTotalBytes is { } expected && probe.TotalLength != expected)
+            {
+                LogMirrorSizeMismatch(_logger, id, candidate, expected, probe.TotalLength);
+                continue;
+            }
+
+            LogMirrorFailover(_logger, id, candidate);
+            return new MirrorSwitchResult(i, candidate, probe);
+        }
+
+        return null;
+    }
+
+    private readonly record struct MirrorSwitchResult(int Index, Uri Url, ResourceProbeResult Probe);
 
     /// <summary>
     /// Runs a media-variant download (TASK-154): drives the <see cref="IMediaDownloadCoordinator"/> (HLS today)
@@ -885,4 +1032,23 @@ internal sealed partial class DownloadManager : IDownloadManager
         Level = LogLevel.Warning,
         Message = "Download {Id} hit a transient failure; retry {Retry} after backoff.")]
     private static partial void LogRetrying(ILogger logger, long id, int retry, Exception exception);
+
+    [LoggerMessage(
+        EventId = 7,
+        Level = LogLevel.Warning,
+        Message = "Download {Id} failed over to mirror {Url}.")]
+    private static partial void LogMirrorFailover(ILogger logger, long id, Uri url);
+
+    [LoggerMessage(
+        EventId = 8,
+        Level = LogLevel.Debug,
+        Message = "Download {Id}: mirror {Url} could not be probed; skipping it.")]
+    private static partial void LogMirrorProbeFailed(ILogger logger, long id, Uri url, Exception exception);
+
+    [LoggerMessage(
+        EventId = 9,
+        Level = LogLevel.Warning,
+        Message = "Download {Id}: mirror {Url} reports size {ActualBytes} bytes, expected {ExpectedBytes}; skipping it.")]
+    private static partial void LogMirrorSizeMismatch(
+        ILogger logger, long id, Uri url, long expectedBytes, long? actualBytes);
 }

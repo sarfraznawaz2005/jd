@@ -124,6 +124,13 @@ public sealed partial class NewDownloadViewModel : ViewModelBase
     [ObservableProperty]
     private string _overrideProxyPassword = string.Empty;
 
+    [ObservableProperty]
+    private bool _useAlternateUrls;
+
+    /// <summary>Alternate mirror URLs (TASK-144), one per line; blank/malformed lines are ignored on submit.</summary>
+    [ObservableProperty]
+    private string _alternateUrlsText = string.Empty;
+
     public NewDownloadViewModel(
         IResourceProbe probe,
         IFileCategorizer categorizer,
@@ -340,6 +347,7 @@ public sealed partial class NewDownloadViewModel : ViewModelBase
             Referrer = _referrer,
             Cookies = _cookies,
             Proxy = BuildProxyOverride(),
+            AlternateUrls = ParseAlternateUrls(),
         };
 
         long id = await _manager.EnqueueAsync(request).ConfigureAwait(true);
@@ -372,6 +380,30 @@ public sealed partial class NewDownloadViewModel : ViewModelBase
                 string.IsNullOrWhiteSpace(OverrideProxyDomain) ? null : OverrideProxyDomain.Trim());
 
         return new ProxyConfiguration(OverrideProxyKind, OverrideProxyHost.Trim(), OverrideProxyPort, credentials);
+    }
+
+    /// <summary>
+    /// Parses <see cref="AlternateUrlsText"/> into mirror URLs (TASK-144), one per line. Empty when the
+    /// toggle is off. Lenient like the download-list import: blank or malformed lines are skipped rather than
+    /// blocking submission, since a mirror list is optional.
+    /// </summary>
+    private List<Uri> ParseAlternateUrls()
+    {
+        if (!UseAlternateUrls || string.IsNullOrWhiteSpace(AlternateUrlsText))
+        {
+            return [];
+        }
+
+        var urls = new List<Uri>();
+        foreach (string line in AlternateUrlsText.Split('\n'))
+        {
+            if (TryGetValidUri(line, out Uri? uri))
+            {
+                urls.Add(uri);
+            }
+        }
+
+        return urls;
     }
 
     /// <summary>The effective category: the user's explicit pick, or auto-derived from the file name.</summary>

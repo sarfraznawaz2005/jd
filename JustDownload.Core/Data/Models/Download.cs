@@ -126,4 +126,11 @@ public sealed record Download
     /// <c>JustDownload.Core.Settings.MediaContainer</c>. <see langword="null"/> uses the muxer default (MKV).
     /// </summary>
     public int? MediaContainer { get; init; }
+
+    /// <summary>
+    /// Alternate mirror URLs for failover (TASK-144), newline-separated (a URL cannot itself contain a raw
+    /// newline, so this needs no richer encoding). <see cref="Url"/> is always the primary/currently-active
+    /// source; <see langword="null"/> means the download has no configured mirrors.
+    /// </summary>
+    public string? AlternateUrls { get; init; }
 }

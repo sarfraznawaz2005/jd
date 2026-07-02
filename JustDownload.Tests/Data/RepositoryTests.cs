@@ -153,6 +153,31 @@ public sealed class RepositoryTests : IDisposable
     }
 
     [Fact]
+    public async Task DownloadRepository_RoundTrips_AlternateUrls()
+    {
+        var repo = _provider.GetRequiredService<IDownloadRepository>();
+
+        long id = await repo.AddAsync(SampleDownload() with
+        {
+            AlternateUrls = "https://mirror1.example.com/file.iso\nhttps://mirror2.example.com/file.iso",
+        });
+
+        Download? read = await repo.GetAsync(id);
+        read!.AlternateUrls.Should().Be(
+            "https://mirror1.example.com/file.iso\nhttps://mirror2.example.com/file.iso");
+
+        // No mirrors is the common case and round-trips as null, not an empty string.
+        long plain = await repo.AddAsync(SampleDownload());
+        Download? plainRead = await repo.GetAsync(plain);
+        plainRead!.AlternateUrls.Should().BeNull();
+
+        // The field survives an update too (e.g. after a failover switches the active URL and appends none).
+        Download updated = read with { AlternateUrls = "https://mirror3.example.com/file.iso" };
+        (await repo.UpdateAsync(updated)).Should().BeTrue();
+        (await repo.GetAsync(id))!.AlternateUrls.Should().Be("https://mirror3.example.com/file.iso");
+    }
+
+    [Fact]
     public async Task DownloadRepository_Update_OnMissingRow_ReturnsFalse()
     {
         var repo = _provider.GetRequiredService<IDownloadRepository>();
