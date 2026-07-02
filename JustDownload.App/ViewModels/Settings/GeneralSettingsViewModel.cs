@@ -55,16 +55,18 @@ public sealed partial class GeneralSettingsViewModel : ViewModelBase
     private bool _showTosNotice;
 
     public GeneralSettingsViewModel(
-        ISettingsService settings, IThemeService theme, JustDownload.Core.IPortableEnvironment portable)
+        ISettingsService settings, IThemeService theme, JustDownload.Core.IPortableEnvironment portable,
+        IAutostartService autostart)
     {
         ArgumentNullException.ThrowIfNull(settings);
         ArgumentNullException.ThrowIfNull(theme);
         ArgumentNullException.ThrowIfNull(portable);
+        ArgumentNullException.ThrowIfNull(autostart);
         _settings = settings;
         _theme = theme;
 
         // Launch-at-login writes the registry, which portable mode must never do (TASK-138/158).
-        CanLaunchAtStartup = OperatingSystem.IsWindows() && !portable.IsPortable;
+        CanLaunchAtStartup = autostart.IsSupported && !portable.IsPortable;
 
         _suppress = true;
         AppSettings current = settings.Current;
@@ -83,7 +85,7 @@ public sealed partial class GeneralSettingsViewModel : ViewModelBase
         _suppress = false;
     }
 
-    /// <summary>Whether launch-at-login is offered on this OS (Windows today, TASK-122).</summary>
+    /// <summary>Whether launch-at-login is offered on this OS (TASK-122/155/170).</summary>
     public bool CanLaunchAtStartup { get; }
 
     public IReadOnlyList<ThemeMode> Themes { get; } = [ThemeMode.Light, ThemeMode.Dark, ThemeMode.System];

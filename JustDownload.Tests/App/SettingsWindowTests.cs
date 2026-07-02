@@ -25,7 +25,8 @@ public sealed class SettingsWindowTests
             Substitute.For<INativeHostInstaller>(), Substitute.For<ISecretStore>(),
             Substitute.For<ISettingsTransfer>(), Substitute.For<IProxyTester>(),
             Substitute.For<JustDownload.Core.IPortableEnvironment>(), Substitute.For<JustDownload.Core.Security.ISavedCredentialsService>(),
-            ytDlpLocator ?? Substitute.For<IYtDlpLocator>(), ytDlpProvisioner ?? Substitute.For<IYtDlpProvisioner>());
+            ytDlpLocator ?? Substitute.For<IYtDlpLocator>(), ytDlpProvisioner ?? Substitute.For<IYtDlpProvisioner>(),
+            Substitute.For<IAutostartService>());
 
     [AvaloniaFact]
     public void Window_Mounts_AndShowsSelectedSectionContent()

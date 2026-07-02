@@ -27,6 +27,7 @@ public sealed partial class SettingsViewModel : ViewModelBase
     private readonly ISavedCredentialsService _savedCredentials;
     private readonly JustDownload.Core.Media.IYtDlpLocator _ytDlpLocator;
     private readonly JustDownload.Core.Media.IYtDlpProvisioner _ytDlpProvisioner;
+    private readonly IAutostartService _autostart;
 
     [ObservableProperty]
     private SettingsSectionViewModel _selectedSection;
@@ -46,7 +47,8 @@ public sealed partial class SettingsViewModel : ViewModelBase
         JustDownload.Core.IPortableEnvironment portable,
         ISavedCredentialsService savedCredentials,
         JustDownload.Core.Media.IYtDlpLocator ytDlpLocator,
-        JustDownload.Core.Media.IYtDlpProvisioner ytDlpProvisioner)
+        JustDownload.Core.Media.IYtDlpProvisioner ytDlpProvisioner,
+        IAutostartService autostart)
     {
         ArgumentNullException.ThrowIfNull(settings);
         ArgumentNullException.ThrowIfNull(theme);
@@ -59,6 +61,7 @@ public sealed partial class SettingsViewModel : ViewModelBase
         ArgumentNullException.ThrowIfNull(savedCredentials);
         ArgumentNullException.ThrowIfNull(ytDlpLocator);
         ArgumentNullException.ThrowIfNull(ytDlpProvisioner);
+        ArgumentNullException.ThrowIfNull(autostart);
         _settings = settings;
         _theme = theme;
         _folderRules = folderRules;
@@ -70,6 +73,7 @@ public sealed partial class SettingsViewModel : ViewModelBase
         _savedCredentials = savedCredentials;
         _ytDlpLocator = ytDlpLocator;
         _ytDlpProvisioner = ytDlpProvisioner;
+        _autostart = autostart;
 
         PopulateSections();
         _selectedSection = Sections[0];
@@ -82,7 +86,7 @@ public sealed partial class SettingsViewModel : ViewModelBase
     private void PopulateSections()
     {
         Sections.Clear();
-        Sections.Add(new SettingsSectionViewModel("General", "IconSetGeneral", new GeneralSettingsViewModel(_settings, _theme, _portable)));
+        Sections.Add(new SettingsSectionViewModel("General", "IconSetGeneral", new GeneralSettingsViewModel(_settings, _theme, _portable, _autostart)));
         Sections.Add(new SettingsSectionViewModel(
             "Video", "IconSetVideo", new VideoSettingsViewModel(_settings, _ytDlpLocator, _ytDlpProvisioner)));
         Sections.Add(new SettingsSectionViewModel("Connections", "IconSetConnections", new ConnectionsSettingsViewModel(_settings)));

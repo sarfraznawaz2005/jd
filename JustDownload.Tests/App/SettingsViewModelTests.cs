@@ -27,6 +27,13 @@ public sealed class SettingsViewModelTests
         return settings;
     }
 
+    private static IAutostartService Autostart(bool isSupported = true)
+    {
+        var autostart = Substitute.For<IAutostartService>();
+        autostart.IsSupported.Returns(isSupported);
+        return autostart;
+    }
+
     private static AppSettings Persisted(ISettingsService settings, AppSettings seed)
     {
         // Replay the last captured mutate against a known seed to inspect what would be saved.
@@ -39,7 +46,7 @@ public sealed class SettingsViewModelTests
     [Fact]
     public void AllEightSections_ArePresent_InOrder()
     {
-        var vm = new SettingsViewModel(Settings(), Substitute.For<IThemeService>(), CategoryFolderRules.CreateDefault(), Substitute.For<JustDownload.Core.NativeMessaging.INativeHostInstaller>(), Substitute.For<JustDownload.Core.Security.ISecretStore>(), Substitute.For<ISettingsTransfer>(), Substitute.For<IProxyTester>(), Substitute.For<JustDownload.Core.IPortableEnvironment>(), Substitute.For<JustDownload.Core.Security.ISavedCredentialsService>(), Substitute.For<JustDownload.Core.Media.IYtDlpLocator>(), Substitute.For<JustDownload.Core.Media.IYtDlpProvisioner>());
+        var vm = new SettingsViewModel(Settings(), Substitute.For<IThemeService>(), CategoryFolderRules.CreateDefault(), Substitute.For<JustDownload.Core.NativeMessaging.INativeHostInstaller>(), Substitute.For<JustDownload.Core.Security.ISecretStore>(), Substitute.For<ISettingsTransfer>(), Substitute.For<IProxyTester>(), Substitute.For<JustDownload.Core.IPortableEnvironment>(), Substitute.For<JustDownload.Core.Security.ISavedCredentialsService>(), Substitute.For<JustDownload.Core.Media.IYtDlpLocator>(), Substitute.For<JustDownload.Core.Media.IYtDlpProvisioner>(), Autostart());
 
         vm.Sections.Select(s => s.Label).Should()
             .Equal("General", "Video", "Connections", "Proxy", "Authentication", "Categories", "Browsers", "Advanced");
@@ -50,7 +57,7 @@ public sealed class SettingsViewModelTests
     [Fact]
     public void Select_SwitchesActiveSection()
     {
-        var vm = new SettingsViewModel(Settings(), Substitute.For<IThemeService>(), CategoryFolderRules.CreateDefault(), Substitute.For<JustDownload.Core.NativeMessaging.INativeHostInstaller>(), Substitute.For<JustDownload.Core.Security.ISecretStore>(), Substitute.For<ISettingsTransfer>(), Substitute.For<IProxyTester>(), Substitute.For<JustDownload.Core.IPortableEnvironment>(), Substitute.For<JustDownload.Core.Security.ISavedCredentialsService>(), Substitute.For<JustDownload.Core.Media.IYtDlpLocator>(), Substitute.For<JustDownload.Core.Media.IYtDlpProvisioner>());
+        var vm = new SettingsViewModel(Settings(), Substitute.For<IThemeService>(), CategoryFolderRules.CreateDefault(), Substitute.For<JustDownload.Core.NativeMessaging.INativeHostInstaller>(), Substitute.For<JustDownload.Core.Security.ISecretStore>(), Substitute.For<ISettingsTransfer>(), Substitute.For<IProxyTester>(), Substitute.For<JustDownload.Core.IPortableEnvironment>(), Substitute.For<JustDownload.Core.Security.ISavedCredentialsService>(), Substitute.For<JustDownload.Core.Media.IYtDlpLocator>(), Substitute.For<JustDownload.Core.Media.IYtDlpProvisioner>(), Autostart());
         SettingsSectionViewModel connections = vm.Sections.Single(s => s.Label == "Connections");
 
         vm.SelectCommand.Execute(connections);
@@ -65,7 +72,7 @@ public sealed class SettingsViewModelTests
             Substitute.For<JustDownload.Core.NativeMessaging.INativeHostInstaller>(),
             Substitute.For<ISecretStore>(), transfer, Substitute.For<IProxyTester>(),
             Substitute.For<JustDownload.Core.IPortableEnvironment>(), Substitute.For<JustDownload.Core.Security.ISavedCredentialsService>(),
-            Substitute.For<JustDownload.Core.Media.IYtDlpLocator>(), Substitute.For<JustDownload.Core.Media.IYtDlpProvisioner>());
+            Substitute.For<JustDownload.Core.Media.IYtDlpLocator>(), Substitute.For<JustDownload.Core.Media.IYtDlpProvisioner>(), Autostart());
 
     [Fact]
     public async Task ExportToAsync_ExportsCurrentSettings_AndReportsSuccess()
@@ -118,7 +125,7 @@ public sealed class SettingsViewModelTests
         ISettingsService settings = Settings();
         var theme = Substitute.For<IThemeService>();
         theme.Mode.Returns(ThemeMode.Light);
-        var vm = new GeneralSettingsViewModel(settings, theme, Substitute.For<JustDownload.Core.IPortableEnvironment>());
+        var vm = new GeneralSettingsViewModel(settings, theme, Substitute.For<JustDownload.Core.IPortableEnvironment>(), Autostart());
 
         vm.SelectedTheme = ThemeMode.Dark;
 
@@ -130,7 +137,7 @@ public sealed class SettingsViewModelTests
     public void General_DensityAndQualityPersist()
     {
         ISettingsService settings = Settings();
-        var vm = new GeneralSettingsViewModel(settings, Substitute.For<IThemeService>(), Substitute.For<JustDownload.Core.IPortableEnvironment>());
+        var vm = new GeneralSettingsViewModel(settings, Substitute.For<IThemeService>(), Substitute.For<JustDownload.Core.IPortableEnvironment>(), Autostart());
 
         vm.Density = UiDensity.Compact;
         Persisted(settings, new AppSettings()).Density.Should().Be(UiDensity.Compact);
@@ -143,7 +150,7 @@ public sealed class SettingsViewModelTests
     public void General_TrayTogglesPersist()
     {
         ISettingsService settings = Settings();
-        var vm = new GeneralSettingsViewModel(settings, Substitute.For<IThemeService>(), Substitute.For<JustDownload.Core.IPortableEnvironment>());
+        var vm = new GeneralSettingsViewModel(settings, Substitute.For<IThemeService>(), Substitute.For<JustDownload.Core.IPortableEnvironment>(), Autostart());
 
         vm.StartMinimizedToTray = true;
         Persisted(settings, new AppSettings()).StartMinimizedToTray.Should().BeTrue();
@@ -156,7 +163,7 @@ public sealed class SettingsViewModelTests
     public void General_HydratesTrayTogglesFromExistingSettings()
     {
         var current = new AppSettings { StartMinimizedToTray = true, CloseToTray = true };
-        var vm = new GeneralSettingsViewModel(Settings(current), Substitute.For<IThemeService>(), Substitute.For<JustDownload.Core.IPortableEnvironment>());
+        var vm = new GeneralSettingsViewModel(Settings(current), Substitute.For<IThemeService>(), Substitute.For<JustDownload.Core.IPortableEnvironment>(), Autostart());
 
         vm.StartMinimizedToTray.Should().BeTrue();
         vm.CloseToTray.Should().BeTrue();
@@ -166,14 +173,14 @@ public sealed class SettingsViewModelTests
     public void General_MonitorClipboard_PersistsAndHydrates()
     {
         ISettingsService settings = Settings();
-        var vm = new GeneralSettingsViewModel(settings, Substitute.For<IThemeService>(), Substitute.For<JustDownload.Core.IPortableEnvironment>());
+        var vm = new GeneralSettingsViewModel(settings, Substitute.For<IThemeService>(), Substitute.For<JustDownload.Core.IPortableEnvironment>(), Autostart());
 
         vm.MonitorClipboard.Should().BeFalse("off by default");
         vm.MonitorClipboard = true;
         Persisted(settings, new AppSettings()).MonitorClipboard.Should().BeTrue();
 
         var hydrated = new GeneralSettingsViewModel(
-            Settings(new AppSettings { MonitorClipboard = true }), Substitute.For<IThemeService>(), Substitute.For<JustDownload.Core.IPortableEnvironment>());
+            Settings(new AppSettings { MonitorClipboard = true }), Substitute.For<IThemeService>(), Substitute.For<JustDownload.Core.IPortableEnvironment>(), Autostart());
         hydrated.MonitorClipboard.Should().BeTrue();
     }
 
@@ -181,14 +188,14 @@ public sealed class SettingsViewModelTests
     public void General_AutoExtractArchives_PersistsAndHydrates()
     {
         ISettingsService settings = Settings();
-        var vm = new GeneralSettingsViewModel(settings, Substitute.For<IThemeService>(), Substitute.For<JustDownload.Core.IPortableEnvironment>());
+        var vm = new GeneralSettingsViewModel(settings, Substitute.For<IThemeService>(), Substitute.For<JustDownload.Core.IPortableEnvironment>(), Autostart());
 
         vm.AutoExtractArchives.Should().BeFalse("opt-in, off by default");
         vm.AutoExtractArchives = true;
         Persisted(settings, new AppSettings()).AutoExtractArchives.Should().BeTrue();
 
         var hydrated = new GeneralSettingsViewModel(
-            Settings(new AppSettings { AutoExtractArchives = true }), Substitute.For<IThemeService>(), Substitute.For<JustDownload.Core.IPortableEnvironment>());
+            Settings(new AppSettings { AutoExtractArchives = true }), Substitute.For<IThemeService>(), Substitute.For<JustDownload.Core.IPortableEnvironment>(), Autostart());
         hydrated.AutoExtractArchives.Should().BeTrue();
     }
 
@@ -198,7 +205,7 @@ public sealed class SettingsViewModelTests
         // TASK-160 AC2: the toggle reads "Show the notice" (on by default); turning it off sets the stored
         // SuppressTosNotice flag, and turning it back on clears it so the notice shows again.
         ISettingsService settings = Settings();
-        var vm = new GeneralSettingsViewModel(settings, Substitute.For<IThemeService>(), Substitute.For<JustDownload.Core.IPortableEnvironment>());
+        var vm = new GeneralSettingsViewModel(settings, Substitute.For<IThemeService>(), Substitute.For<JustDownload.Core.IPortableEnvironment>(), Autostart());
 
         vm.ShowTosNotice.Should().BeTrue("the notice is shown by default");
         vm.ShowTosNotice = false;
@@ -206,7 +213,7 @@ public sealed class SettingsViewModelTests
 
         ISettingsService suppressedSettings = Settings(new AppSettings { SuppressTosNotice = true });
         var hydrated = new GeneralSettingsViewModel(
-            suppressedSettings, Substitute.For<IThemeService>(), Substitute.For<JustDownload.Core.IPortableEnvironment>());
+            suppressedSettings, Substitute.For<IThemeService>(), Substitute.For<JustDownload.Core.IPortableEnvironment>(), Autostart());
         hydrated.ShowTosNotice.Should().BeFalse();
 
         hydrated.ShowTosNotice = true;
@@ -217,16 +224,16 @@ public sealed class SettingsViewModelTests
     public void General_LaunchAtStartup_PersistsAndHydrates()
     {
         ISettingsService settings = Settings();
-        var vm = new GeneralSettingsViewModel(settings, Substitute.For<IThemeService>(), Substitute.For<JustDownload.Core.IPortableEnvironment>());
+        var vm = new GeneralSettingsViewModel(settings, Substitute.For<IThemeService>(), Substitute.For<JustDownload.Core.IPortableEnvironment>(), Autostart());
 
         vm.LaunchAtStartup.Should().BeFalse("off by default");
-        vm.CanLaunchAtStartup.Should().Be(OperatingSystem.IsWindows());
+        vm.CanLaunchAtStartup.Should().BeTrue("the substitute IAutostartService reports IsSupported, and the vm isn't portable");
 
         vm.LaunchAtStartup = true;
         Persisted(settings, new AppSettings()).LaunchAtStartup.Should().BeTrue();
 
         var hydrated = new GeneralSettingsViewModel(
-            Settings(new AppSettings { LaunchAtStartup = true }), Substitute.For<IThemeService>(), Substitute.For<JustDownload.Core.IPortableEnvironment>());
+            Settings(new AppSettings { LaunchAtStartup = true }), Substitute.For<IThemeService>(), Substitute.For<JustDownload.Core.IPortableEnvironment>(), Autostart());
         hydrated.LaunchAtStartup.Should().BeTrue();
     }
 
@@ -235,16 +242,39 @@ public sealed class SettingsViewModelTests
     {
         var portable = Substitute.For<JustDownload.Core.IPortableEnvironment>();
         portable.IsPortable.Returns(true);
-        var vm = new GeneralSettingsViewModel(Settings(), Substitute.For<IThemeService>(), portable);
+        var vm = new GeneralSettingsViewModel(Settings(), Substitute.For<IThemeService>(), portable, Autostart(isSupported: true));
 
-        vm.CanLaunchAtStartup.Should().BeFalse("portable mode must not write the registry Run key");
+        vm.CanLaunchAtStartup.Should().BeFalse("portable mode must not write the registry Run key, even when autostart is supported");
+    }
+
+    [Fact]
+    public void General_CanLaunchAtStartup_FollowsAutostartServiceIsSupported_NotHardcodedToWindows()
+    {
+        // TASK-170: this used to hardcode OperatingSystem.IsWindows(), so mac/Linux never got the toggle even
+        // after TASK-155 added real IAutostartService implementations for them. Proven via a substitute so the
+        // assertion holds regardless of which OS actually runs the test.
+        var vm = new GeneralSettingsViewModel(
+            Settings(), Substitute.For<IThemeService>(), Substitute.For<JustDownload.Core.IPortableEnvironment>(),
+            Autostart(isSupported: true));
+
+        vm.CanLaunchAtStartup.Should().BeTrue();
+    }
+
+    [Fact]
+    public void General_CanLaunchAtStartup_False_WhenAutostartServiceUnsupported()
+    {
+        var vm = new GeneralSettingsViewModel(
+            Settings(), Substitute.For<IThemeService>(), Substitute.For<JustDownload.Core.IPortableEnvironment>(),
+            Autostart(isSupported: false));
+
+        vm.CanLaunchAtStartup.Should().BeFalse();
     }
 
     [Fact]
     public void General_NotificationsEnabled_DefaultsOn_AndPersists()
     {
         ISettingsService settings = Settings();
-        var vm = new GeneralSettingsViewModel(settings, Substitute.For<IThemeService>(), Substitute.For<JustDownload.Core.IPortableEnvironment>());
+        var vm = new GeneralSettingsViewModel(settings, Substitute.For<IThemeService>(), Substitute.For<JustDownload.Core.IPortableEnvironment>(), Autostart());
 
         vm.NotificationsEnabled.Should().BeTrue("notifications are on by default");
 
@@ -256,7 +286,7 @@ public sealed class SettingsViewModelTests
     public void General_DefaultDownloadFolderPersists_AndEmptyClearsToNull()
     {
         ISettingsService settings = Settings();
-        var vm = new GeneralSettingsViewModel(settings, Substitute.For<IThemeService>(), Substitute.For<JustDownload.Core.IPortableEnvironment>());
+        var vm = new GeneralSettingsViewModel(settings, Substitute.For<IThemeService>(), Substitute.For<JustDownload.Core.IPortableEnvironment>(), Autostart());
 
         vm.DefaultDownloadFolder = @"  D:\Saved  ";
         Persisted(settings, new AppSettings()).DefaultDownloadDirectory.Should().Be(@"D:\Saved");
@@ -270,7 +300,7 @@ public sealed class SettingsViewModelTests
     public void General_HydratesDefaultDownloadFolderFromExistingSettings()
     {
         var current = new AppSettings { DefaultDownloadDirectory = @"E:\Downloads" };
-        var vm = new GeneralSettingsViewModel(Settings(current), Substitute.For<IThemeService>(), Substitute.For<JustDownload.Core.IPortableEnvironment>());
+        var vm = new GeneralSettingsViewModel(Settings(current), Substitute.For<IThemeService>(), Substitute.For<JustDownload.Core.IPortableEnvironment>(), Autostart());
 
         vm.DefaultDownloadFolder.Should().Be(@"E:\Downloads");
     }
@@ -279,7 +309,7 @@ public sealed class SettingsViewModelTests
     public void General_InvalidDefaultDownloadFolder_ShowsError_AndDoesNotPersist()
     {
         ISettingsService settings = Settings();
-        var vm = new GeneralSettingsViewModel(settings, Substitute.For<IThemeService>(), Substitute.For<JustDownload.Core.IPortableEnvironment>());
+        var vm = new GeneralSettingsViewModel(settings, Substitute.For<IThemeService>(), Substitute.For<JustDownload.Core.IPortableEnvironment>(), Autostart());
 
         vm.DefaultDownloadFolder = "C:\\bad\0path"; // the NUL char is invalid on every platform
 
@@ -292,7 +322,7 @@ public sealed class SettingsViewModelTests
     public void General_MissingDefaultDownloadFolder_ShowsHint_AndStillPersists()
     {
         ISettingsService settings = Settings();
-        var vm = new GeneralSettingsViewModel(settings, Substitute.For<IThemeService>(), Substitute.For<JustDownload.Core.IPortableEnvironment>());
+        var vm = new GeneralSettingsViewModel(settings, Substitute.For<IThemeService>(), Substitute.For<JustDownload.Core.IPortableEnvironment>(), Autostart());
         string missing = Path.Combine(Path.GetTempPath(), "jd-missing-" + Guid.NewGuid().ToString("N"));
 
         vm.DefaultDownloadFolder = missing;
@@ -305,7 +335,7 @@ public sealed class SettingsViewModelTests
     [Fact]
     public void General_ExistingOrEmptyDefaultDownloadFolder_HasNoMessages()
     {
-        var vm = new GeneralSettingsViewModel(Settings(), Substitute.For<IThemeService>(), Substitute.For<JustDownload.Core.IPortableEnvironment>());
+        var vm = new GeneralSettingsViewModel(Settings(), Substitute.For<IThemeService>(), Substitute.For<JustDownload.Core.IPortableEnvironment>(), Autostart());
 
         vm.DefaultDownloadFolder = string.Empty;
         vm.DefaultDownloadFolderError.Should().BeNull();
