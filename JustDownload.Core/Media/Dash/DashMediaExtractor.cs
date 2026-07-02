@@ -5,11 +5,13 @@ using Microsoft.Extensions.Logging;
 namespace JustDownload.Core.Media.Dash;
 
 /// <summary>
-/// The DASH extractor (TASK-039). Recognises <c>.mpd</c> URLs (by extension or the DASH content type),
-/// fetches and parses the manifest, and — when it finds downloadable progressive representations — reports
-/// the media as <see cref="MediaKind.SeparateStreams"/>, surfacing the video <see cref="VideoVariant"/>s and
-/// audio <see cref="AudioVariant"/>s for selection and later muxing. A manifest with no progressive
-/// representation (SegmentTemplate-only) declines gracefully so the registry moves on.
+/// The DASH extractor (TASK-039/102). Recognises <c>.mpd</c> URLs (by extension or the DASH content type),
+/// fetches and parses the manifest, and — when it finds downloadable representations — surfaces the video
+/// <see cref="VideoVariant"/>s and audio <see cref="AudioVariant"/>s for selection and later muxing: plain
+/// <c>BaseURL</c> manifests report <see cref="MediaKind.SeparateStreams"/> (a single file per stream);
+/// SegmentTemplate/SegmentList manifests report <see cref="MediaKind.Dash"/> so the coordinator downloads
+/// each representation's segments and concatenates them first. A manifest with no downloadable
+/// representation at all declines gracefully so the registry moves on.
 /// </summary>
 internal sealed partial class DashMediaExtractor : IMediaExtractor
 {
@@ -67,7 +69,7 @@ internal sealed partial class DashMediaExtractor : IMediaExtractor
 
         if (manifest.VideoRepresentations.Count == 0 && manifest.AudioRepresentations.Count == 0)
         {
-            return null; // Nothing downloadable (e.g. SegmentTemplate-only) — degrade gracefully.
+            return null; // Nothing downloadable (no BaseURL and no resolvable segments) — degrade gracefully.
         }
 
         IReadOnlyList<VideoVariant> videoVariants = manifest.VideoRepresentations
@@ -81,7 +83,7 @@ internal sealed partial class DashMediaExtractor : IMediaExtractor
         return new MediaSource
         {
             ExtractorName = Name,
-            Kind = MediaKind.SeparateStreams,
+            Kind = manifest.IsSegmented ? MediaKind.Dash : MediaKind.SeparateStreams,
             Url = request.Url,
             SuggestedFileName = DeriveName(request.Url),
             Variants = videoVariants,

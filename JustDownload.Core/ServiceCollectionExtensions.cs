@@ -425,6 +425,11 @@ public static class ServiceCollectionExtensions
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IMediaExtractor, DashMediaExtractor>());
         services.TryAddSingleton<ISeparateStreamDownloader, SeparateStreamDownloader>();
 
+        // DASH SegmentTemplate/SegmentList (TASK-102): downloads a representation's init + media segments
+        // (re-resolved from the manifest at download time) with bounded parallelism, mirroring the HLS path.
+        services.TryAddSingleton(new DashOptions());
+        services.TryAddSingleton<IDashSegmentDownloader, DashSegmentDownloader>();
+
         // A/V mux (TASK-041): stream-copy the two streams into one container (MKV default, MP4 when codecs allow).
         services.TryAddSingleton<IMediaMuxer, MediaMuxer>();
 
