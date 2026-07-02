@@ -38,6 +38,23 @@ public sealed class MediaExtractorRegistryTests
             Task.FromResult(_handle(request));
     }
 
+    /// <summary>
+    /// Stands in for a third party's own <see cref="IMediaExtractor"/> implementation living outside
+    /// JustDownload.Core (TASK-150) — a parameterless class so it can be registered via
+    /// <see cref="ThirdPartyMediaExtractorExtensions.AddThirdPartyMediaExtractor{TExtractor}"/>, exactly as
+    /// a real third party would register their own type.
+    /// </summary>
+    private sealed class AcmeClipsExtractor : IMediaExtractor
+    {
+        public string Name => "acme-clips";
+
+        // The open 100-999 band: after protocol-level HLS (100)/DASH (110), before Progressive's catch-all (1000).
+        public int Priority => 500;
+
+        public Task<MediaSource?> TryExtractAsync(MediaRequest request, CancellationToken cancellationToken = default) =>
+            Task.FromResult(request.Url.Host == "acme-clips.example" ? SourceFrom(Name, request) : null);
+    }
+
     private static MediaSource SourceFrom(string extractorName, MediaRequest request) => new()
     {
         ExtractorName = extractorName,
@@ -176,5 +193,35 @@ public sealed class MediaExtractorRegistryTests
             "the yt-dlp fallback extractor registers at startup too (TASK-163)");
         registry.Extractors[^1].Name.Should().Be("yt-dlp",
             "yt-dlp must run strictly last, after every in-house extractor including Progressive's catch-all");
+    }
+
+    [Fact]
+    public async Task CompositionRoot_RegistersThirdPartyExtractor_WithoutModifyingCoreCode()
+    {
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddJustDownloadTransport(); // HLS/DASH extractors depend on ITransport
+
+        var settings = Substitute.For<ISettingsService>();
+        settings.Current.Returns(new AppSettings());
+        services.AddSingleton(settings);
+
+        // A third party registers their own extractor via the public seam, never touching
+        // ServiceCollectionExtensions.cs — this is the entire proof for TASK-150's acceptance criterion.
+        services.AddJustDownloadMedia();
+        services.AddThirdPartyMediaExtractor<AcmeClipsExtractor>();
+        using ServiceProvider provider = services.BuildServiceProvider();
+
+        var registry = provider.GetRequiredService<IMediaExtractorRegistry>();
+
+        // Priority 500 sits in the open band: after HLS (100)/DASH (110) but before Progressive's
+        // catch-all (1000) and yt-dlp's last-resort (int.MaxValue).
+        registry.Extractors.Select(e => e.Name).Should().ContainInOrder("hls", "dash", "acme-clips", "progressive", "yt-dlp");
+
+        MediaSource? result = await registry.ExtractAsync(Request("https://acme-clips.example/watch?v=1"));
+
+        result.Should().NotBeNull();
+        result!.ExtractorName.Should().Be("acme-clips",
+            "the third-party extractor was registered without touching ServiceCollectionExtensions.cs and is actually dispatched to");
     }
 }
