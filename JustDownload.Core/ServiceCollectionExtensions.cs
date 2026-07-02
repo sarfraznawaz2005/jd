@@ -26,6 +26,7 @@ using JustDownload.Core.Transport;
 using JustDownload.Core.Transport.Auth;
 using JustDownload.Core.Transport.Ftp;
 using JustDownload.Core.Transport.Proxy;
+using JustDownload.Core.Updates;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
@@ -61,6 +62,7 @@ public static class ServiceCollectionExtensions
 
         services.TryAddSingleton<IClock, SystemClock>();
         services.TryAddSingleton<IAppInfoProvider, AppInfoProvider>();
+        services.TryAddSingleton<IAppVersionProvider, AppVersionProvider>();
 
         // Post-download integrity check against a user/page-supplied MD5/SHA-256 hash (TASK-132). Stateless.
         services.TryAddSingleton<IChecksumVerifier, ChecksumVerifier>();
@@ -77,6 +79,7 @@ public static class ServiceCollectionExtensions
         services.AddJustDownloadLifecycle();
         services.AddJustDownloadMedia();
         services.AddJustDownloadNativeMessaging();
+        services.AddJustDownloadUpdates();
 
         // Typed settings store over the settings repository (TASK-021): sane defaults, change
         // notifications, and persistence across restarts. Singleton so the cached snapshot and the
@@ -519,6 +522,35 @@ public static class ServiceCollectionExtensions
         // Self-registration on app startup so browsers can find/launch the host (TASK-089), and the
         // in-app Browsers panel's status/register/unregister (TASK-093).
         services.TryAddSingleton<INativeHostInstaller, NativeHostInstaller>();
+
+        return services;
+    }
+
+    /// <summary>
+    /// Registers the opt-in GitHub Releases update checker (TASK-080, PRD 6.3): version detection, ECDSA
+    /// P-256 signature verification of a release's checksums manifest and SHA-256 verification of the
+    /// target asset before trusting anything, and — Windows only for now, since macOS/Linux packaging
+    /// doesn't exist yet (TASK-077/078) — launching the verified installer. Nothing is ever fetched unless
+    /// the user opts in via <see cref="Settings.AppSettings.AutoUpdateEnabled"/>.
+    /// </summary>
+    /// <param name="services">The service collection to populate.</param>
+    /// <returns>The same <paramref name="services"/> instance, for chaining.</returns>
+    public static IServiceCollection AddJustDownloadUpdates(this IServiceCollection services)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+
+        services.TryAddSingleton<IAppVersionProvider, AppVersionProvider>();
+        services.TryAddSingleton(new UpdateOptions());
+        services.TryAddSingleton<IUpdateChecker, UpdateChecker>();
+
+        if (OperatingSystem.IsWindows())
+        {
+            services.TryAddSingleton<IUpdateApplier, WindowsUpdateApplier>();
+        }
+        else
+        {
+            services.TryAddSingleton<IUpdateApplier, UnsupportedUpdateApplier>();
+        }
 
         return services;
     }

@@ -159,4 +159,11 @@ public sealed record AppSettings
     /// invoked while this is off. Opt-in — default <see langword="false"/>.
     /// </summary>
     public bool VideoCaptureEnabled { get; init; }
+
+    /// <summary>
+    /// Master toggle for the GitHub Releases update check (TASK-080, PRD 6.3). Gates whether checking for
+    /// updates is available at all — no network call is made, not even by the manual "Check for Updates"
+    /// button, while this is off. Opt-in — default <see langword="false"/>.
+    /// </summary>
+    public bool AutoUpdateEnabled { get; init; }
 }

@@ -2,17 +2,20 @@ using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using JustDownload.App.Services;
+using JustDownload.Core.Abstractions;
 using JustDownload.Core.Categorization;
 using JustDownload.Core.Security;
 using JustDownload.Core.Settings;
+using JustDownload.Core.Updates;
 
 namespace JustDownload.App.ViewModels.Settings;
 
 /// <summary>
-/// The settings window's view-model (TASK-057, PRD 2.4.5): a navigation rail of the eight sections — General,
-/// Video, Connections, Proxy, Authentication, Categories, Browsers, Advanced — and the selected section's
-/// content. General/Video/Connections/Categories are bound to the persisted <see cref="ISettingsService"/>;
-/// the remaining sections describe their (not-yet-a-preference) subsystem honestly until it lands.
+/// The settings window's view-model (TASK-057, PRD 2.4.5): a navigation rail of the nine sections — General,
+/// Video, Connections, Proxy, Authentication, Categories, Browsers, Advanced, Updates — and the selected
+/// section's content. General/Video/Connections/Categories/Updates are bound to the persisted
+/// <see cref="ISettingsService"/>; the remaining sections describe their (not-yet-a-preference) subsystem
+/// honestly until it lands.
 /// </summary>
 public sealed partial class SettingsViewModel : ViewModelBase
 {
@@ -28,6 +31,8 @@ public sealed partial class SettingsViewModel : ViewModelBase
     private readonly JustDownload.Core.Media.IYtDlpLocator _ytDlpLocator;
     private readonly JustDownload.Core.Media.IYtDlpProvisioner _ytDlpProvisioner;
     private readonly IAutostartService _autostart;
+    private readonly IUpdateChecker _updateChecker;
+    private readonly IAppVersionProvider _appVersion;
 
     [ObservableProperty]
     private SettingsSectionViewModel _selectedSection;
@@ -48,7 +53,9 @@ public sealed partial class SettingsViewModel : ViewModelBase
         ISavedCredentialsService savedCredentials,
         JustDownload.Core.Media.IYtDlpLocator ytDlpLocator,
         JustDownload.Core.Media.IYtDlpProvisioner ytDlpProvisioner,
-        IAutostartService autostart)
+        IAutostartService autostart,
+        IUpdateChecker updateChecker,
+        IAppVersionProvider appVersion)
     {
         ArgumentNullException.ThrowIfNull(settings);
         ArgumentNullException.ThrowIfNull(theme);
@@ -62,6 +69,8 @@ public sealed partial class SettingsViewModel : ViewModelBase
         ArgumentNullException.ThrowIfNull(ytDlpLocator);
         ArgumentNullException.ThrowIfNull(ytDlpProvisioner);
         ArgumentNullException.ThrowIfNull(autostart);
+        ArgumentNullException.ThrowIfNull(updateChecker);
+        ArgumentNullException.ThrowIfNull(appVersion);
         _settings = settings;
         _theme = theme;
         _folderRules = folderRules;
@@ -74,13 +83,15 @@ public sealed partial class SettingsViewModel : ViewModelBase
         _ytDlpLocator = ytDlpLocator;
         _ytDlpProvisioner = ytDlpProvisioner;
         _autostart = autostart;
+        _updateChecker = updateChecker;
+        _appVersion = appVersion;
 
         PopulateSections();
         _selectedSection = Sections[0];
         _selectedSection.IsSelected = true;
     }
 
-    /// <summary>The seven settings sections in display order.</summary>
+    /// <summary>The nine settings sections in display order.</summary>
     public ObservableCollection<SettingsSectionViewModel> Sections { get; } = new();
 
     private void PopulateSections()
@@ -98,6 +109,8 @@ public sealed partial class SettingsViewModel : ViewModelBase
             "Browsers", "IconSetBrowsers", new BrowsersViewModel(_nativeHostInstaller, _portable)));
         Sections.Add(new SettingsSectionViewModel(
             "Advanced", "IconSetAdvanced", new AdvancedSettingsViewModel(_settings)));
+        Sections.Add(new SettingsSectionViewModel(
+            "Updates", "IconSetUpdates", new UpdateSettingsViewModel(_settings, _updateChecker, _appVersion)));
     }
 
     /// <summary>

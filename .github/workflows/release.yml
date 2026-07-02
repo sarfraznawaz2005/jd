@@ -1,0 +1,81 @@
+name: Release
+
+# Builds the Windows installer, computes SHA-256 checksums for the release assets, signs the checksums
+# manifest with the ECDSA P-256 production signing key (TASK-080, docs/release-signing.md), and publishes a
+# GitHub Release with the installer + the signed manifest as assets. Triggered by pushing a version tag
+# (e.g. v1.2.3) — push the tag only once ci.yml is green on the commit it points at; this workflow does not
+# re-run the full test suite itself (kept basic per TASK-080 scope).
+#
+# Requires the UPDATE_SIGNING_PRIVATE_KEY repository secret (base64 PKCS8 ECDSA P-256 private key) — see
+# docs/release-signing.md for how a maintainer generates it offline. Without that secret this workflow
+# fails loudly rather than publishing an unsigned release.
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write # to create the GitHub Release
+
+jobs:
+  release:
+    name: build, sign, and publish
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Build the Windows installer
+        shell: pwsh
+        run: ./build/build-installer.ps1
+
+      - name: Compute checksums and sign the manifest
+        shell: pwsh
+        env:
+          UPDATE_SIGNING_PRIVATE_KEY: ${{ secrets.UPDATE_SIGNING_PRIVATE_KEY }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ([string]::IsNullOrWhiteSpace($env:UPDATE_SIGNING_PRIVATE_KEY)) {
+            throw 'UPDATE_SIGNING_PRIVATE_KEY repository secret is not set — see docs/release-signing.md.'
+          }
+
+          $outDir = Join-Path $PWD 'build' 'installer' 'out'
+          $assets = Get-ChildItem -Path $outDir -File | Where-Object { $_.Extension -in '.msi', '.exe' }
+          if ($assets.Count -eq 0) {
+            throw "No installer assets found under $outDir; build-installer.ps1 should have produced them."
+          }
+
+          # sha256sum-style lines, lowercase hex, LF-only — the exact bytes the signature below covers.
+          $lines = foreach ($asset in $assets) {
+            $hash = (Get-FileHash -Path $asset.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$hash  $($asset.Name)"
+          }
+          $checksumsPath = Join-Path $outDir 'checksums.txt'
+          $utf8NoBom = [System.Text.UTF8Encoding]::new($false)
+          [System.IO.File]::WriteAllText($checksumsPath, (($lines -join "`n") + "`n"), $utf8NoBom)
+
+          $privateKeyBytes = [Convert]::FromBase64String($env:UPDATE_SIGNING_PRIVATE_KEY)
+          $ecdsa = [System.Security.Cryptography.ECDsa]::Create()
+          $bytesRead = 0
+          $ecdsa.ImportPkcs8PrivateKey($privateKeyBytes, [ref]$bytesRead)
+
+          $checksumsBytes = [System.IO.File]::ReadAllBytes($checksumsPath)
+          $sha256 = [System.Security.Cryptography.HashAlgorithmName]::SHA256
+          $signature = $ecdsa.SignData($checksumsBytes, $sha256)
+          [System.IO.File]::WriteAllBytes((Join-Path $outDir 'checksums.txt.sig'), $signature)
+
+          Write-Host "Signed checksums.txt for $($assets.Count) asset(s)."
+
+      - name: Publish the GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            build/installer/out/*.msi
+            build/installer/out/*.exe
+            build/installer/out/checksums.txt
+            build/installer/out/checksums.txt.sig

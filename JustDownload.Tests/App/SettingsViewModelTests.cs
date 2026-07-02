@@ -1,11 +1,13 @@
 using FluentAssertions;
 using JustDownload.App.Services;
 using JustDownload.App.ViewModels.Settings;
+using JustDownload.Core.Abstractions;
 using JustDownload.Core.Categorization;
 using JustDownload.Core.Media;
 using JustDownload.Core.Security;
 using JustDownload.Core.Settings;
 using JustDownload.Core.Transport.Proxy;
+using JustDownload.Core.Updates;
 using NSubstitute;
 using Xunit;
 
@@ -44,12 +46,12 @@ public sealed class SettingsViewModelTests
     }
 
     [Fact]
-    public void AllEightSections_ArePresent_InOrder()
+    public void AllNineSections_ArePresent_InOrder()
     {
-        var vm = new SettingsViewModel(Settings(), Substitute.For<IThemeService>(), CategoryFolderRules.CreateDefault(), Substitute.For<JustDownload.Core.NativeMessaging.INativeHostInstaller>(), Substitute.For<JustDownload.Core.Security.ISecretStore>(), Substitute.For<ISettingsTransfer>(), Substitute.For<IProxyTester>(), Substitute.For<JustDownload.Core.IPortableEnvironment>(), Substitute.For<JustDownload.Core.Security.ISavedCredentialsService>(), Substitute.For<JustDownload.Core.Media.IYtDlpLocator>(), Substitute.For<JustDownload.Core.Media.IYtDlpProvisioner>(), Autostart());
+        var vm = new SettingsViewModel(Settings(), Substitute.For<IThemeService>(), CategoryFolderRules.CreateDefault(), Substitute.For<JustDownload.Core.NativeMessaging.INativeHostInstaller>(), Substitute.For<JustDownload.Core.Security.ISecretStore>(), Substitute.For<ISettingsTransfer>(), Substitute.For<IProxyTester>(), Substitute.For<JustDownload.Core.IPortableEnvironment>(), Substitute.For<JustDownload.Core.Security.ISavedCredentialsService>(), Substitute.For<JustDownload.Core.Media.IYtDlpLocator>(), Substitute.For<JustDownload.Core.Media.IYtDlpProvisioner>(), Autostart(), Substitute.For<JustDownload.Core.Updates.IUpdateChecker>(), Substitute.For<JustDownload.Core.Abstractions.IAppVersionProvider>());
 
         vm.Sections.Select(s => s.Label).Should()
-            .Equal("General", "Video", "Connections", "Proxy", "Authentication", "Categories", "Browsers", "Advanced");
+            .Equal("General", "Video", "Connections", "Proxy", "Authentication", "Categories", "Browsers", "Advanced", "Updates");
         vm.SelectedSection.Label.Should().Be("General");
         vm.Sections[0].IsSelected.Should().BeTrue();
     }
@@ -57,7 +59,7 @@ public sealed class SettingsViewModelTests
     [Fact]
     public void Select_SwitchesActiveSection()
     {
-        var vm = new SettingsViewModel(Settings(), Substitute.For<IThemeService>(), CategoryFolderRules.CreateDefault(), Substitute.For<JustDownload.Core.NativeMessaging.INativeHostInstaller>(), Substitute.For<JustDownload.Core.Security.ISecretStore>(), Substitute.For<ISettingsTransfer>(), Substitute.For<IProxyTester>(), Substitute.For<JustDownload.Core.IPortableEnvironment>(), Substitute.For<JustDownload.Core.Security.ISavedCredentialsService>(), Substitute.For<JustDownload.Core.Media.IYtDlpLocator>(), Substitute.For<JustDownload.Core.Media.IYtDlpProvisioner>(), Autostart());
+        var vm = new SettingsViewModel(Settings(), Substitute.For<IThemeService>(), CategoryFolderRules.CreateDefault(), Substitute.For<JustDownload.Core.NativeMessaging.INativeHostInstaller>(), Substitute.For<JustDownload.Core.Security.ISecretStore>(), Substitute.For<ISettingsTransfer>(), Substitute.For<IProxyTester>(), Substitute.For<JustDownload.Core.IPortableEnvironment>(), Substitute.For<JustDownload.Core.Security.ISavedCredentialsService>(), Substitute.For<JustDownload.Core.Media.IYtDlpLocator>(), Substitute.For<JustDownload.Core.Media.IYtDlpProvisioner>(), Autostart(), Substitute.For<JustDownload.Core.Updates.IUpdateChecker>(), Substitute.For<JustDownload.Core.Abstractions.IAppVersionProvider>());
         SettingsSectionViewModel connections = vm.Sections.Single(s => s.Label == "Connections");
 
         vm.SelectCommand.Execute(connections);
@@ -72,7 +74,8 @@ public sealed class SettingsViewModelTests
             Substitute.For<JustDownload.Core.NativeMessaging.INativeHostInstaller>(),
             Substitute.For<ISecretStore>(), transfer, Substitute.For<IProxyTester>(),
             Substitute.For<JustDownload.Core.IPortableEnvironment>(), Substitute.For<JustDownload.Core.Security.ISavedCredentialsService>(),
-            Substitute.For<JustDownload.Core.Media.IYtDlpLocator>(), Substitute.For<JustDownload.Core.Media.IYtDlpProvisioner>(), Autostart());
+            Substitute.For<JustDownload.Core.Media.IYtDlpLocator>(), Substitute.For<JustDownload.Core.Media.IYtDlpProvisioner>(), Autostart(),
+            Substitute.For<JustDownload.Core.Updates.IUpdateChecker>(), Substitute.For<JustDownload.Core.Abstractions.IAppVersionProvider>());
 
     [Fact]
     public async Task ExportToAsync_ExportsCurrentSettings_AndReportsSuccess()
@@ -101,7 +104,7 @@ public sealed class SettingsViewModelTests
         await settings.Received().UpdateAsync(Arg.Any<Func<AppSettings, AppSettings>>(), Arg.Any<CancellationToken>());
         Persisted(settings, new AppSettings()).Should().Be(imported);
         vm.Sections.Select(s => s.Label).Should()
-            .Equal("General", "Video", "Connections", "Proxy", "Authentication", "Categories", "Browsers", "Advanced");
+            .Equal("General", "Video", "Connections", "Proxy", "Authentication", "Categories", "Browsers", "Advanced", "Updates");
         vm.SelectedSection.Label.Should().Be("General");
         vm.TransferStatus.Should().Be("Settings imported.");
     }
@@ -776,5 +779,82 @@ public sealed class SettingsViewModelTests
 
         vm.Status.Should().Be(YtDlpStatus.Error);
         vm.ErrorMessage.Should().NotBeNullOrEmpty();
+    }
+
+    // --- Updates (TASK-080) -----------------------------------------------------------------------
+
+    private static IAppVersionProvider VersionProvider(string version = "1.0.0")
+    {
+        var provider = Substitute.For<IAppVersionProvider>();
+        provider.CurrentVersion.Returns(version);
+        return provider;
+    }
+
+    [Fact]
+    public void Updates_Toggle_DefaultsOff_PersistsAndHydrates()
+    {
+        ISettingsService settings = Settings();
+        var vm = new UpdateSettingsViewModel(settings, Substitute.For<IUpdateChecker>(), VersionProvider());
+
+        vm.AutoUpdateEnabled.Should().BeFalse("opt-in; off by default (AC0)");
+        vm.AutoUpdateEnabled = true;
+        Persisted(settings, new AppSettings()).AutoUpdateEnabled.Should().BeTrue();
+
+        var hydrated = new UpdateSettingsViewModel(
+            Settings(new AppSettings { AutoUpdateEnabled = true }), Substitute.For<IUpdateChecker>(), VersionProvider());
+        hydrated.AutoUpdateEnabled.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Updates_CheckCommand_DisabledUntilToggleIsOn()
+    {
+        var vm = new UpdateSettingsViewModel(Settings(), Substitute.For<IUpdateChecker>(), VersionProvider());
+
+        vm.CheckForUpdatesCommand.CanExecute(null).Should().BeFalse("AC2: no check while the feature is off");
+
+        vm.AutoUpdateEnabled = true;
+        vm.CheckForUpdatesCommand.CanExecute(null).Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Updates_CheckCommand_ReportsUpToDate()
+    {
+        var checker = Substitute.For<IUpdateChecker>();
+        checker.CheckAsync(Arg.Any<CancellationToken>())
+            .Returns(new UpdateCheckResult(UpdateCheckStatus.UpToDate, "1.0.0"));
+        var vm = new UpdateSettingsViewModel(Settings(new AppSettings { AutoUpdateEnabled = true }), checker, VersionProvider())
+        {
+            AutoUpdateEnabled = true,
+        };
+
+        await vm.CheckForUpdatesCommand.ExecuteAsync(null);
+
+        vm.LastStatus.Should().Be(UpdateCheckStatus.UpToDate);
+        vm.StatusText.Should().Be("You're up to date.");
+    }
+
+    [Fact]
+    public async Task Updates_CheckCommand_ReportsRejection_WithoutThrowing()
+    {
+        var checker = Substitute.For<IUpdateChecker>();
+        checker.CheckAsync(Arg.Any<CancellationToken>())
+            .Returns(new UpdateCheckResult(UpdateCheckStatus.RejectedInvalidSignature, "2.0.0"));
+        var vm = new UpdateSettingsViewModel(Settings(new AppSettings { AutoUpdateEnabled = true }), checker, VersionProvider())
+        {
+            AutoUpdateEnabled = true,
+        };
+
+        await vm.CheckForUpdatesCommand.ExecuteAsync(null);
+
+        vm.LastStatus.Should().Be(UpdateCheckStatus.RejectedInvalidSignature);
+        vm.StatusText.Should().Contain("rejected");
+    }
+
+    [Fact]
+    public void Updates_CurrentVersion_ReflectsAppVersionProvider()
+    {
+        var vm = new UpdateSettingsViewModel(Settings(), Substitute.For<IUpdateChecker>(), VersionProvider("3.2.1"));
+
+        vm.CurrentVersion.Should().Be("3.2.1");
     }
 }

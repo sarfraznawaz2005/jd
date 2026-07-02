@@ -218,6 +218,30 @@ public sealed class SettingsServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task AutoUpdateEnabled_PersistsAcrossRestarts()
+    {
+        // TASK-080 AC0: the opt-in update-check toggle is off by default and round-trips the same way as
+        // every other setting.
+        ServiceProvider first = NewProvider();
+        var writer = first.GetRequiredService<ISettingsService>();
+        await writer.LoadAsync();
+
+        writer.Current.AutoUpdateEnabled.Should().BeFalse("off by default (AC0)");
+        await writer.UpdateAsync(s => s with { AutoUpdateEnabled = true });
+
+        first.Dispose();
+        _providers.Remove(first);
+        SqliteConnection.ClearAllPools();
+
+        var reopened = NewProvider().GetRequiredService<ISettingsService>();
+        await reopened.LoadAsync();
+        reopened.Current.AutoUpdateEnabled.Should().BeTrue();
+
+        await reopened.UpdateAsync(s => s with { AutoUpdateEnabled = false });
+        reopened.Current.AutoUpdateEnabled.Should().BeFalse();
+    }
+
+    [Fact]
     public async Task LoadAsync_WithCorruptStoredValue_FallsBackToDefault()
     {
         // Robustness: a garbage value in storage must not crash startup — it degrades to the default.

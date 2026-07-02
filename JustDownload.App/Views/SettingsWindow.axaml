@@ -371,6 +371,30 @@
       </StackPanel>
     </DataTemplate>
 
+    <!-- Updates (TASK-080, opt-in) -->
+    <DataTemplate DataType="vm:UpdateSettingsViewModel">
+      <StackPanel Spacing="18">
+        <TextBlock Text="Updates" Classes="SettingsHeading" />
+        <StackPanel Spacing="6">
+          <TextBlock Text="{Binding CurrentVersion, StringFormat='Current version: {0}'}" Classes="SettingsHint" />
+          <StackPanel Orientation="Horizontal" Spacing="12">
+            <ToggleSwitch IsChecked="{Binding AutoUpdateEnabled, Mode=TwoWay}" />
+            <TextBlock Text="Check for updates" VerticalAlignment="Center"
+                       Foreground="{DynamicResource TextBrush}" />
+          </StackPanel>
+          <TextBlock Text="Off by default. When on, a release's checksums are verified against an embedded signing key before anything is downloaded or launched — an unsigned or tampered release is always rejected."
+                     Classes="SettingsHint" TextWrapping="Wrap" />
+        </StackPanel>
+        <StackPanel Spacing="10" IsVisible="{Binding AutoUpdateEnabled}">
+          <StackPanel Orientation="Horizontal" Spacing="12">
+            <Button Classes="App Accent" Content="Check for Updates" Command="{Binding CheckForUpdatesCommand}" HorizontalAlignment="Left" />
+            <TextBlock Text="{Binding StatusText}" VerticalAlignment="Center" Foreground="{DynamicResource TextDimBrush}"
+                       TextWrapping="Wrap" />
+          </StackPanel>
+        </StackPanel>
+      </StackPanel>
+    </DataTemplate>
+
   </Window.DataTemplates>
 
   <Grid ColumnDefinitions="208,*" RowDefinitions="*,Auto">

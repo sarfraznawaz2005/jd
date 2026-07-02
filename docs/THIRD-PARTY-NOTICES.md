@@ -144,3 +144,9 @@ runs alongside JustDownload, is not linked into any assembly, and none of its fi
 installed product (the MSI's payload is exactly the win-x64 publish output, listed above). It is therefore
 analogous to the compiler/MSBuild toolchain rather than a runtime dependency, and out of scope for the
 `licenses.allowlist.json` gate (which enforces every `PackageReference` a shipped project compiles against).
+
+The release workflow (TASK-080, `.github/workflows/release.yml`) publishes each tagged release with
+[`softprops/action-gh-release`](https://github.com/softprops/action-gh-release) (MIT). Like WiX above, this
+is CI-only tooling — it runs on GitHub's runner to attach build artifacts to a GitHub Release, is never
+shipped, compiled against, or linked into JustDownload itself, and is out of scope for
+`licenses.allowlist.json` for the same reason.
