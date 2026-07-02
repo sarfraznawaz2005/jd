@@ -16,7 +16,8 @@ namespace JustDownload.Tests.Transport;
 /// the proxy using .NET's real challenge-response with our credentials (AC0); a missing/wrong credential
 /// surfaces as an <see cref="AuthenticationRequiredException"/> so the UI re-prompts (AC2); and the
 /// credential store keeps the password only in the OS keychain (AC1). NTLM uses the same handler credential
-/// mechanism and is validated against a real server by the fixture task; here its plumbing is asserted.
+/// mechanism, its plumbing is asserted directly, and its real NTLMv2 handshake against a server is validated
+/// end-to-end (TASK-110, via <see cref="LoopbackNtlmAuthServer"/>).
 /// </summary>
 public sealed class AuthTests : IDisposable
 {
@@ -174,13 +175,54 @@ public sealed class AuthTests : IDisposable
     public void NtlmCredentials_WithDomain_RequireDedicatedHandler()
     {
         // NTLM/Negotiate credentials (with a domain) are carried on a dedicated handler that .NET uses to
-        // answer the challenge — the same mechanism as Basic/Digest. Full NTLM is validated against a real
-        // server by the fixture task.
+        // answer the challenge — the same mechanism as Basic/Digest. The full handshake against a real
+        // server is validated below (TASK-110).
         var profile = new ConnectionProfile(
             ProxyConfiguration.None, new NetworkCredentials("alice", "s3cret", "CORP"));
 
         profile.RequiresDedicatedHandler.Should().BeTrue();
         profile.Credentials!.Domain.Should().Be("CORP");
+    }
+
+    // --- TASK-110: a real NTLMv2 handshake, not just the handler plumbing above -------------------
+
+    [Fact]
+    public async Task NtlmAuthenticatedOrigin_WithCorrectCredentials_Succeeds()
+    {
+        byte[] body = Bytes(20_000);
+        await using var server = new LoopbackNtlmAuthServer("alice", "s3cret", "CORP", body);
+        using ServiceProvider provider = BuildProvider();
+        var downloader = provider.GetRequiredService<ISegmentedDownloader>();
+        string dest = Path.Combine(_dir, "ntlm.bin");
+
+        await downloader.DownloadAsync(new DownloadRequest
+        {
+            Url = server.Url("file.bin"),
+            DestinationPath = dest,
+            Connections = 1,
+            Credentials = new NetworkCredentials("alice", "s3cret", "CORP"),
+        });
+
+        (await File.ReadAllBytesAsync(dest)).Should().Equal(body, "a real NTLMv2 handshake should authenticate and download fully");
+    }
+
+    [Fact]
+    public async Task NtlmAuthenticatedOrigin_WithWrongPassword_ThrowsAuthRequired()
+    {
+        await using var server = new LoopbackNtlmAuthServer("alice", "s3cret", "CORP", Bytes(100));
+        using ServiceProvider provider = BuildProvider();
+        var downloader = provider.GetRequiredService<ISegmentedDownloader>();
+
+        Func<Task> act = () => downloader.DownloadAsync(new DownloadRequest
+        {
+            Url = server.Url("file.bin"),
+            DestinationPath = Path.Combine(_dir, "ntlm-wrong.bin"),
+            Connections = 1,
+            Credentials = new NetworkCredentials("alice", "WRONG", "CORP"),
+        });
+
+        await act.Should().ThrowAsync<AuthenticationRequiredException>(
+            "the server cryptographically verifies the NTLMv2 response, so a wrong password genuinely fails");
     }
 
     // --- AC1: credentials stored only in the OS keychain -----------------------------------------
