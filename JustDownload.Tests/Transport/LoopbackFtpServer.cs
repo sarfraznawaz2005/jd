@@ -53,6 +53,13 @@ internal sealed class LoopbackFtpServer : IAsyncDisposable
 
     public int Port { get; }
 
+    /// <summary>
+    /// The self-signed certificate presented during <c>AUTH TLS</c> (only set when <see cref="RequireTls"/>
+    /// is <see langword="true"/>). Exposed so a test can pin it (TASK-112 AC0) without weakening production
+    /// certificate validation — it is never installed into any OS trust store.
+    /// </summary>
+    public X509Certificate2? Certificate => _certificate;
+
     /// <summary>The <c>ftp://</c>/<c>ftps://</c> URL for <see cref="Path"/>, with credentials embedded.</summary>
     public Uri Url() => new(string.Create(
         CultureInfo.InvariantCulture,

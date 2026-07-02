@@ -1,4 +1,6 @@
 using System.Net;
+using System.Net.Security;
+using System.Security.Cryptography.X509Certificates;
 using FluentFTP;
 
 namespace JustDownload.Core.Transport.Ftp;
@@ -14,7 +16,15 @@ internal sealed class FluentFtpConnection : IFtpConnection
 {
     private readonly AsyncFtpClient _client;
 
-    public FluentFtpConnection(Uri uri)
+    /// <param name="uri">The <c>ftp://</c>/<c>ftps://</c> URL (host, port, credentials and scheme).</param>
+    /// <param name="testCertificateValidator">
+    /// Test-only hook (TASK-112): when non-null, wired to FluentFTP's <c>ValidateCertificate</c> event so a
+    /// test fixture can pin one specific known certificate instead of trusting the OS chain. Never supplied
+    /// by <see cref="FluentFtpConnectionFactory"/> (the DI-registered production factory), so production
+    /// FTPS connections always fall through to normal chain validation — an unhandled certificate error
+    /// still aborts the connection exactly as before this parameter existed.
+    /// </param>
+    internal FluentFtpConnection(Uri uri, Func<X509Certificate, X509Chain?, SslPolicyErrors, bool>? testCertificateValidator = null)
     {
         ArgumentNullException.ThrowIfNull(uri);
 
@@ -28,6 +38,11 @@ internal sealed class FluentFtpConnection : IFtpConnection
         {
             _client.Config.EncryptionMode = FtpEncryptionMode.Auto;
             _client.Config.ValidateAnyCertificate = false;
+            if (testCertificateValidator is not null)
+            {
+                _client.ValidateCertificate += (_, e) =>
+                    e.Accept = testCertificateValidator(e.Certificate, e.Chain, e.PolicyErrors);
+            }
         }
     }
 

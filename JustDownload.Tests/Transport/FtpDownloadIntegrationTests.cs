@@ -1,3 +1,4 @@
+using System.Security.Cryptography.X509Certificates;
 using FluentAssertions;
 using JustDownload.Core;
 using JustDownload.Core.Downloading;
@@ -210,6 +211,80 @@ public sealed class FtpDownloadIntegrationTests : IDisposable
 
         await act.Should().ThrowAsync<Exception>(
             "an untrusted self-signed FTPS certificate must be rejected by real chain validation, not bypassed");
+    }
+
+    // --- TASK-112 AC0: a real, successful FTPS transfer (pinned cert — no OS trust store touched) --------
+
+    private static ServiceProvider BuildPinnedFtpsProvider(X509Certificate2 pinnedCertificate)
+    {
+        // Same real FluentFtpConnectionFactory codepath as BuildRealFtpProvider, except TLS certificate
+        // validation is pinned to one specific known test certificate (TASK-112) instead of the OS chain —
+        // production's AddJustDownloadTransport registration (FluentFtpConnectionFactory, no pinning) is
+        // untouched by this override, which only this test provider installs.
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddSingleton<IFtpConnectionFactory>(new PinnedCertificateFtpConnectionFactory(pinnedCertificate));
+        services.AddSingleton(new SegmentationOptions
+        {
+            DefaultConnections = 4,
+            MinSegmentSize = 16 * 1024,
+            MinStealSize = 16 * 1024,
+        });
+        services.AddJustDownloadTransport();
+        services.AddJustDownloadDownloading();
+        return services.BuildServiceProvider();
+    }
+
+    [Fact]
+    public async Task RealFtpsServer_SegmentedDownload_WithPinnedCertificate_WritesCorrectFile_UsingRestPerSegment()
+    {
+        byte[] body = Bytes(256 * 1024);
+        await using var server = new LoopbackFtpServer("erin", "s3cret", "/pub/file.bin", body, requireTls: true);
+        using ServiceProvider provider = BuildPinnedFtpsProvider(server.Certificate!);
+        var downloader = provider.GetRequiredService<ISegmentedDownloader>();
+        string dest = Path.Combine(_dir, "real-ftps.bin");
+
+        DownloadResult result = await downloader.DownloadAsync(new DownloadRequest
+        {
+            Url = server.Url(),
+            DestinationPath = dest,
+            Connections = 4,
+        });
+
+        result.SingleConnection.Should().BeFalse("the real FTPS server reports a size via SIZE, so segmentation is enabled");
+        result.InitialSegments.Should().Be(4);
+        (await File.ReadAllBytesAsync(dest)).Should().Equal(
+            body, "a real TLS handshake plus REST-resumed segment reads must reassemble byte-correct data");
+    }
+
+    [Fact]
+    public async Task RealFtpsServer_ResumeDownload_WithPinnedCertificate_FetchesOnlyGaps_ViaRest()
+    {
+        byte[] body = Bytes(200 * 1024);
+        await using var server = new LoopbackFtpServer("frank", "hunter2", "/file.bin", body, requireTls: true);
+        using ServiceProvider provider = BuildPinnedFtpsProvider(server.Certificate!);
+        var downloader = provider.GetRequiredService<ISegmentedDownloader>();
+        string dest = Path.Combine(_dir, "real-ftps-resume.bin");
+
+        // Pre-seed the first half as already received; only the second half should be fetched via REST
+        // over the resumed TLS connection.
+        var received = new ReceivedRanges();
+        received.Add(0, body.Length / 2);
+
+        DownloadResult result = await downloader.DownloadAsync(
+            new DownloadRequest
+            {
+                Url = server.Url(),
+                DestinationPath = dest,
+                Connections = 2,
+            },
+            received: received);
+
+        result.TotalBytes.Should().Be(body.Length);
+        (await File.ReadAllBytesAsync(dest))[(body.Length / 2)..]
+            .Should().Equal(
+                body[(body.Length / 2)..],
+                "resume must fetch the real missing bytes via REST over FTPS, not re-download the whole file");
     }
 
     [Fact]
