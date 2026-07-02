@@ -1,0 +1,19 @@
+version: 2
+
+# Known-safe, deliberately fake secrets used as test fixtures. Each one exercises the app's own
+# secret-redaction (JustDownload.Core/Logging) or OS-keychain (JustDownload.Core/Security) code —
+# never a real credential, never used against any live account or service. See the incident
+# review referenced in the JustDownload git history around 2026-07-03 for the investigation that
+# confirmed each of these as a false positive before this file was added.
+secret:
+  ignored-matches:
+    - name: secret-redactor-test-bearer-token-1
+      match: topsecretvalue12345
+    - name: secret-redactor-test-bearer-token-2
+      match: abcDEF123456ghiJKL789
+    - name: secret-redactor-test-bearer-token-3
+      match: secrettokenvalue123
+    - name: secret-store-test-sample-secret
+      match: hunter2-Sup3r!Secret-Pa$$w0rd-7f3a9c
+    - name: proxy-settings-viewmodel-test-password
+      match: s3cret
