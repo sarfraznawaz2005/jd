@@ -1,0 +1,13 @@
+<!--
+  TASK-101 research fixture. Trimmed extract of a real, logged-out www.facebook.com video watch page
+  (fetched 2026-07-02). Confirms an empirical finding: the full watch page's server-rendered JSON exposes
+  "video_id" (used here as the id-resolution fallback for opaque URLs like fb.watch short links) but does
+  NOT expose hd_src/sd_src to an anonymous fetch the way the public embed endpoint does — Facebook only
+  serves the direct playback URLs via /video/embed?video_id=... (see facebook-embed-real.html). This
+  fixture exercises FacebookMediaExtractor's video_id-from-page-body fallback.
+-->
+<html><head><title>How to share with just friends.</title></head><body>
+<script>
+require("CometRelayRuntime").exports({"data":{"video":{"search_keywords":null,"video_id":"10153231379946729"}},"showHashtagPillsSidePane":false});
+</script>
+</body></html>

@@ -1,0 +1,11 @@
+<!--
+  TASK-101 research fixture. Trimmed extract of a real YouTube watch page (fetched 2026-07-02, video
+  "dQw4w9WgXcQ") showing today's common case: the progressive format is fully protected by a
+  signatureCipher, so no bare/playable URL is present at all. Tracking/session tokens in the cipher blob
+  are cosmetically shortened (they are single-use, time-expiring signing tokens, not personal data) but the
+  JSON shape — including the presence of "signatureCipher" and the absence of a top-level "url" — is real.
+  YouTubeMediaExtractor must decline (return null) on this fixture: it never attempts to solve the cipher.
+-->
+<html><head><title>Rick Astley - Never Gonna Give You Up</title></head><body>
+<script>var ytInitialPlayerResponse = {"responseContext":{},"playabilityStatus":{"status":"OK"},"streamingData":{"expiresInSeconds":"21540","formats":[{"itag":18,"mimeType":"video/mp4; codecs=\"avc1.42001E, mp4a.40.2\"","bitrate":444226,"width":640,"height":360,"lastModified":"1766960953317159","quality":"medium","fps":25,"qualityLabel":"360p","projectionType":"RECTANGULAR","audioQuality":"AUDIO_QUALITY_LOW","approxDurationMs":"213089","audioSampleRate":"44100","audioChannels":2,"signatureCipher":"s=AbCdEf01234_ExampleShortenedCipherToken&sp=sig&url=https%3A%2F%2Frr1---sn-example.googlevideo.com%2Fvideoplayback%3Fexpire%3D1783017075%26itag%3D18"}],"adaptiveFormats":[{"itag":140,"mimeType":"audio/mp4; codecs=\"mp4a.40.2\"","bitrate":130381,"lastModified":"1766960943350359","contentLength":"3421248"}],"serverAbrStreamingUrl":"https://rr1---sn-example.googlevideo.com/videoplayback?server_abr_stream"},"videoDetails":{"videoId":"dQw4w9WgXcQ","title":"Rick Astley - Never Gonna Give You Up"}};var ytInitialData = {};</script>
+</body></html>

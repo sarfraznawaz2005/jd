@@ -1,0 +1,13 @@
+<!--
+  TASK-101 research fixture. Trimmed extract of Facebook's public embed endpoint response
+  (https://www.facebook.com/video/embed?video_id=...), fetched anonymously (no login/cookies) on
+  2026-07-02 for a public video. Confirmed empirically: the hd_src URL below (before token-shortening) was
+  fetched directly and returned a real, valid MP4 (HTTP 206, ISO Media / ftypisom header). CDN signing
+  tokens (_nc_oc/_nc_ohc/oh/efg/etc, all single-use and time-expiring, not personal data) are shortened;
+  the JSON shape — escaped "hd_src"/"sd_src" string fields with \/ and \u-escapes — is real.
+-->
+<html><head><title>Facebook embed</title></head><body>
+<script>
+require("VideoInlinePlayerConfig").init([{"video_id":"10153231379946729","hd_src":"https:\/\/video.fkhi20-1.fna.fbcdn.net\/o1\/v\/t2\/f2\/m412\/AQO00example_hd_token.mp4?_nc_cat=101&_nc_oc=Adexample&_nc_sid=8bf8fe&efg=exampleEfgToken%3D&oh=00_AQBexampleOh&oe=6A4C179D&bitrate=580000&tag=hd","sd_src":"https:\/\/video.fkhi20-1.fna.fbcdn.net\/o1\/v\/t2\/f2\/m412\/AQPDexample_sd_token.mp4?_nc_cat=111&_nc_oc=Adexample2&_nc_sid=8bf8fe&oh=00_AQBexampleOh2&oe=6A4C15A3&bitrate=127000&tag=sd","hd_tag":"","sd_tag":"","stream_type":"progressive","dash_manifest":null}],1]);
+</script>
+</body></html>

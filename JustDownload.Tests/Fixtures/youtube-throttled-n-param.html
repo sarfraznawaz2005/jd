@@ -1,0 +1,13 @@
+<!--
+  TASK-101 research fixture. Trimmed extract of a real YouTube watch page (fetched 2026-07-02, video
+  "jNQXAC9IVRw", the first YouTube video ever uploaded) showing the other common real-world case: the
+  progressive format DOES carry a bare, uncicphered "url" field, but that URL embeds an "n" query
+  parameter that YouTube's player JS must recompute before the URL is actually playable (confirmed
+  empirically: fetching this exact URL unmodified returns HTTP 403). Session/signing tokens are shortened
+  (single-use, time-expiring, not personal data); the JSON shape — a bare "url" with a real "n" param and no
+  cipher field — is real. YouTubeMediaExtractor must decline (return null) on this fixture too: presence of
+  an unresolved "n" parameter means the URL is not actually playable as-is.
+-->
+<html><head><title>Me at the zoo</title></head><body>
+<script>var ytInitialPlayerResponse = {"responseContext":{},"playabilityStatus":{"status":"OK"},"streamingData":{"expiresInSeconds":"21540","formats":[{"itag":18,"url":"https://rr2---sn-example.googlevideo.com/videoplayback?expire=1783016973&ei=example&ip=203.0.113.1&id=o-example&itag=18&source=youtube&requiressl=yes&mime=video%2Fmp4&ratebypass=yes&dur=19.063&n=5XrVwelEBysV6kd&sig=ExampleShortenedSignatureToken","mimeType":"video/mp4; codecs=\"avc1.42001E, mp4a.40.2\"","bitrate":266531,"width":320,"height":240,"lastModified":"1772437158054287","quality":"small","fps":15,"qualityLabel":"240p","projectionType":"RECTANGULAR","audioQuality":"AUDIO_QUALITY_LOW","approxDurationMs":"19063","audioSampleRate":"44100","audioChannels":2}],"adaptiveFormats":[{"itag":133,"mimeType":"video/mp4; codecs=\"avc1.4d400c\"","bitrate":183848,"width":320,"height":240,"lastModified":"1767107069601671","contentLength":"433081"}],"serverAbrStreamingUrl":"https://rr2---sn-example.googlevideo.com/videoplayback?server_abr_stream"},"videoDetails":{"videoId":"jNQXAC9IVRw","title":"Me at the zoo"}};var ytInitialData = {};</script>
+</body></html>

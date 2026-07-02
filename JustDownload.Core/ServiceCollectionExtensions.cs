@@ -11,8 +11,10 @@ using JustDownload.Core.Logging;
 using JustDownload.Core.Media;
 using JustDownload.Core.Media.Dash;
 using JustDownload.Core.Media.Extraction;
+using JustDownload.Core.Media.Facebook;
 using JustDownload.Core.Media.Hls;
 using JustDownload.Core.Media.Streams;
+using JustDownload.Core.Media.YouTube;
 using JustDownload.Core.NativeMessaging;
 using JustDownload.Core.NativeMessaging.Registration;
 using JustDownload.Core.PostProcess;
@@ -429,6 +431,12 @@ public static class ServiceCollectionExtensions
         // (re-resolved from the manifest at download time) with bounded parallelism, mirroring the HLS path.
         services.TryAddSingleton(new DashOptions());
         services.TryAddSingleton<IDashSegmentDownloader, DashSegmentDownloader>();
+
+        // Hostile-site best-effort extractors (TASK-101, D3): YouTube and Facebook each recognise their own
+        // host and degrade gracefully (return null) when nothing safely extractable is found. Registered
+        // before the generic catch-alls via their low Priority.
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IMediaExtractor, YouTubeMediaExtractor>());
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IMediaExtractor, FacebookMediaExtractor>());
 
         // A/V mux (TASK-041): stream-copy the two streams into one container (MKV default, MP4 when codecs allow).
         services.TryAddSingleton<IMediaMuxer, MediaMuxer>();

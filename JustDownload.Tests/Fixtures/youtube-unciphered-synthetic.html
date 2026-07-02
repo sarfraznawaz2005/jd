@@ -1,0 +1,10 @@
+<!--
+  TASK-101 test fixture. SYNTHETIC — not captured from a real page. Across every real YouTube watch page
+  fetched during TASK-101's research, no video exposed a format meeting this extractor's honest bar (bare
+  url, no cipher, no "n" param); this fixture exists only to exercise YouTubeMediaExtractor's positive
+  parsing path (proving the JSON-walking/brace-scanning logic is correct) using the exact same shape a
+  qualifying entry would have, per the real ytInitialPlayerResponse structure observed during research.
+-->
+<html><head><title>Synthetic unciphered fixture</title></head><body>
+<script>var ytInitialPlayerResponse = {"responseContext":{},"playabilityStatus":{"status":"OK"},"streamingData":{"expiresInSeconds":"21540","formats":[{"itag":18,"url":"https://rr1---sn-example.googlevideo.com/videoplayback?id=example-unciphered&itag=18&mime=video%2Fmp4","mimeType":"video/mp4; codecs=\"avc1.42001E, mp4a.40.2\"","bitrate":444226,"width":640,"height":360,"quality":"medium","qualityLabel":"360p"}],"adaptiveFormats":[]},"videoDetails":{"videoId":"synthetic01","title":"Synthetic unciphered fixture"}};var ytInitialData = {};</script>
+</body></html>
