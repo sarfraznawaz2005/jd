@@ -73,7 +73,21 @@ public sealed partial class NewDownloadViewModel : ViewModelBase
     private bool _isDetecting;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsDetectionInfoVisible))]
     private string? _detectionMessage;
+
+    /// <summary>
+    /// Whether <see cref="DetectionMessage"/> currently holds failure guidance rather than neutral
+    /// size/resumability info — the two are shown in different places in the view (a centered red banner
+    /// under the header for the failure case, a quiet inline hint next to the segmentation toggle for the
+    /// info case), never both at once.
+    /// </summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsDetectionInfoVisible))]
+    private bool _detectionMessageIsError;
+
+    /// <summary>Whether the quiet inline size/resumability hint (not the red failure banner) should show.</summary>
+    public bool IsDetectionInfoVisible => DetectionMessage is not null && !DetectionMessageIsError;
 
     /// <summary>
     /// A prominent warning shown when a pre-queue HEAD probe found the link itself is bad — a 404/410/403 or an
@@ -241,6 +255,7 @@ public sealed partial class NewDownloadViewModel : ViewModelBase
 
         IsDetecting = true;
         DetectionMessage = null;
+        DetectionMessageIsError = false;
         UrlWarning = null;
         DuplicateWarning = null;
         try
@@ -272,6 +287,7 @@ public sealed partial class NewDownloadViewModel : ViewModelBase
             // be fine, so this is guidance rather than a hard warning (no silent failures, §1).
             LogDetectFailed(_logger, uri, ex);
             DetectionMessage = "Couldn't read this link automatically — check the URL or enter the details manually.";
+            DetectionMessageIsError = true;
         }
         finally
         {
