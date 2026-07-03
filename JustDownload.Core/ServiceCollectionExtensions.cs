@@ -529,9 +529,10 @@ public static class ServiceCollectionExtensions
     /// <summary>
     /// Registers the opt-in GitHub Releases update checker (TASK-080, PRD 6.3): version detection, ECDSA
     /// P-256 signature verification of a release's checksums manifest and SHA-256 verification of the
-    /// target asset before trusting anything, and — Windows only for now, since macOS/Linux packaging
-    /// doesn't exist yet (TASK-077/078) — launching the verified installer. Nothing is ever fetched unless
-    /// the user opts in via <see cref="Settings.AppSettings.AutoUpdateEnabled"/>.
+    /// target asset before trusting anything, then launching the verified installer via a per-OS
+    /// <see cref="IUpdateApplier"/> (Windows/macOS/Linux, TASK-172 — see <c>UpdateChecker.ResolveInstallerAssetName</c>
+    /// for how the per-OS/arch asset name is picked). Nothing is ever fetched unless the user opts in via
+    /// <see cref="Settings.AppSettings.AutoUpdateEnabled"/>.
     /// </summary>
     /// <param name="services">The service collection to populate.</param>
     /// <returns>The same <paramref name="services"/> instance, for chaining.</returns>
@@ -546,6 +547,14 @@ public static class ServiceCollectionExtensions
         if (OperatingSystem.IsWindows())
         {
             services.TryAddSingleton<IUpdateApplier, WindowsUpdateApplier>();
+        }
+        else if (OperatingSystem.IsMacOS())
+        {
+            services.TryAddSingleton<IUpdateApplier, MacOsUpdateApplier>();
+        }
+        else if (OperatingSystem.IsLinux())
+        {
+            services.TryAddSingleton<IUpdateApplier, LinuxUpdateApplier>();
         }
         else
         {

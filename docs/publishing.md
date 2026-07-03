@@ -199,6 +199,24 @@ macOS install available, so:
   browser extension has committed brand-mark PNGs); building one was left out here
   as out-of-scope for a packaging task, not silently forgotten.
 
+## Auto-update asset coverage (TASK-172) vs. the release workflow (a known gap)
+
+`UpdateChecker.ResolveInstallerAssetName` (`JustDownload.Core/Updates/UpdateChecker.cs`)
+now resolves a per-OS/arch installer asset name — the Windows bootstrapper, the
+matching-arch macOS `.dmg`, or the Linux `.AppImage` (deb/rpm are published but
+deliberately not auto-applied — see `LinuxUpdateApplier`'s doc comment) — and
+`MacOsUpdateApplier`/`LinuxUpdateApplier` know how to launch them. **But
+`.github/workflows/release.yml` still only builds on `windows-latest` and only
+collects `.msi`/`.exe` into the release** (it never invokes
+`build-macos-packages.ps1`/`build-linux-packages.ps1`, and its checksums.txt only
+ever covers the Windows asset). So today, a macOS/Linux user's `CheckAsync` will
+always resolve a name that isn't in the release yet and cleanly fall back to
+`AvailableForManualDownload` — the C#-side auto-apply is real and tested, but
+nothing will actually auto-apply on macOS/Linux until the release workflow is
+widened to publish those assets too. That's a CI/CD change, out of this task's
+acceptance criteria, and deliberately not made unilaterally here (a release
+workflow is shared, visible infrastructure).
+
 ## NativeAOT evaluation (decision: not now — R2R instead)
 
 NativeAOT was evaluated against the App and rejected for this release:

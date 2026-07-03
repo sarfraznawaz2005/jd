@@ -1,6 +1,7 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Net.Http;
 using System.Net.Http.Json;
+using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -20,9 +21,10 @@ namespace JustDownload.Core.Updates;
 /// verified against the embedded ECDSA P-256 public key (AC1) and the target asset's SHA-256 is checked
 /// against the now-trusted manifest before anything is downloaded and launched.
 /// <para>
-/// Version/asset detection is OS-agnostic, but the release workflow (TASK-080 scope) only ever publishes a
-/// Windows installer asset — macOS/Linux packaging doesn't exist yet (TASK-077/078) — so verification and
-/// the launch step only ever run on Windows; other platforms get <see cref="UpdateCheckStatus.AvailableForManualDownload"/>
+/// Version/asset detection resolves a per-OS/arch installer asset name (<see cref="ResolveInstallerAssetName"/>,
+/// TASK-172) once macOS (<c>build/build-macos-packages.ps1</c>, TASK-077) and Linux
+/// (<c>build/build-linux-packages.ps1</c>, TASK-078) packaging exists; a platform/arch with no known asset —
+/// or a release that doesn't carry it yet — gets <see cref="UpdateCheckStatus.AvailableForManualDownload"/>
 /// with a link to the release instead.
 /// </para>
 /// </summary>
@@ -40,6 +42,10 @@ internal sealed partial class UpdateChecker : IUpdateChecker
     private readonly IAppInfoProvider _appInfo;
     private readonly IChecksumVerifier _checksum;
     private readonly IUpdateApplier _applier;
+    private readonly bool _isWindows;
+    private readonly bool _isMacOs;
+    private readonly bool _isLinux;
+    private readonly Architecture _architecture;
     private readonly ILogger<UpdateChecker> _logger;
 
     public UpdateChecker(
@@ -50,6 +56,32 @@ internal sealed partial class UpdateChecker : IUpdateChecker
         IAppInfoProvider appInfo,
         IChecksumVerifier checksum,
         IUpdateApplier applier,
+        ILogger<UpdateChecker> logger)
+        : this(
+            settings, versionProvider, options, handlerProvider, appInfo, checksum, applier,
+            OperatingSystem.IsWindows(), OperatingSystem.IsMacOS(), OperatingSystem.IsLinux(),
+            RuntimeInformation.OSArchitecture, logger)
+    {
+    }
+
+    /// <summary>
+    /// Creates a checker with explicit platform/architecture info instead of the real
+    /// <see cref="OperatingSystem"/>/<see cref="RuntimeInformation"/> — used by tests to exercise the
+    /// macOS/Linux asset-resolution and apply paths from a single (Windows) CI machine, the same way
+    /// <c>NativeHostManifestLocations</c>' explicit-platform constructor does for native-messaging paths.
+    /// </summary>
+    internal UpdateChecker(
+        ISettingsService settings,
+        IAppVersionProvider versionProvider,
+        UpdateOptions options,
+        ISharedHttpHandlerProvider handlerProvider,
+        IAppInfoProvider appInfo,
+        IChecksumVerifier checksum,
+        IUpdateApplier applier,
+        bool isWindows,
+        bool isMacOs,
+        bool isLinux,
+        Architecture architecture,
         ILogger<UpdateChecker> logger)
     {
         ArgumentNullException.ThrowIfNull(settings);
@@ -67,6 +99,10 @@ internal sealed partial class UpdateChecker : IUpdateChecker
         _appInfo = appInfo;
         _checksum = checksum;
         _applier = applier;
+        _isWindows = isWindows;
+        _isMacOs = isMacOs;
+        _isLinux = isLinux;
+        _architecture = architecture;
         _logger = logger;
     }
 
@@ -128,14 +164,15 @@ internal sealed partial class UpdateChecker : IUpdateChecker
             return new UpdateCheckResult(UpdateCheckStatus.UpToDate, latestVersionText, releaseUrl);
         }
 
-        if (!OperatingSystem.IsWindows())
+        string? installerAssetName = ResolveInstallerAssetName(_isWindows, _isMacOs, _isLinux, _architecture, latestVersionText);
+        if (installerAssetName is null)
         {
-            // Locked scope: apply — and the verification that precedes it — is Windows-only for now; no
-            // macOS/Linux installer asset exists to verify (TASK-077/078).
+            // No known installer asset for this OS/arch (or an OS with no packaging at all) — detected,
+            // not applied.
             return new UpdateCheckResult(UpdateCheckStatus.AvailableForManualDownload, latestVersionText, releaseUrl);
         }
 
-        if (FindAsset(release, WindowsInstallerAssetName) is not { BrowserDownloadUrl: { Length: > 0 } installerUrl })
+        if (FindAsset(release, installerAssetName) is not { BrowserDownloadUrl: { Length: > 0 } installerUrl })
         {
             return new UpdateCheckResult(UpdateCheckStatus.AvailableForManualDownload, latestVersionText, releaseUrl);
         }
@@ -168,7 +205,7 @@ internal sealed partial class UpdateChecker : IUpdateChecker
             return new UpdateCheckResult(UpdateCheckStatus.RejectedInvalidSignature, latestVersionText, releaseUrl);
         }
 
-        string? expectedHash = FindChecksum(checksumsBytes, WindowsInstallerAssetName);
+        string? expectedHash = FindChecksum(checksumsBytes, installerAssetName);
         if (expectedHash is null)
         {
             LogRejected(_logger, UpdateCheckStatus.RejectedAssetHashMismatch, "the signed manifest doesn't list this asset");
@@ -178,7 +215,7 @@ internal sealed partial class UpdateChecker : IUpdateChecker
         string vendorDir = _options.VendorDirectory ?? Path.Combine(AppDataPaths.Directory(_appInfo), "updates");
         Directory.CreateDirectory(vendorDir);
         string tempPath = Path.Combine(vendorDir, ".update-download.partial");
-        string finalPath = Path.Combine(vendorDir, WindowsInstallerAssetName);
+        string finalPath = Path.Combine(vendorDir, installerAssetName);
         try
         {
             await DownloadAsync(client, installerUrl, tempPath, cancellationToken).ConfigureAwait(false);
@@ -253,6 +290,47 @@ internal sealed partial class UpdateChecker : IUpdateChecker
         await using var destination = new FileStream(
             destinationPath, FileMode.Create, FileAccess.Write, FileShare.None);
         await source.CopyToAsync(destination, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// The installer asset name to look for on this OS/arch (TASK-172), or <see langword="null"/> when
+    /// there is none — e.g. an OS with no packaging, or an architecture with no published build. Windows'
+    /// name is version-independent (<see cref="WindowsInstallerAssetName"/> — <c>build/build-installer.ps1</c>
+    /// always emits the same bootstrapper name); macOS/Linux bake the version into the filename
+    /// (<c>build/build-macos-packages.ps1</c>, <c>build/build-linux-packages.ps1</c>), hence
+    /// <paramref name="version"/>. Of Linux's three package formats (AppImage/deb/rpm), only the AppImage is
+    /// auto-applied here — deb/rpm need an elevated package-manager install (pkexec/apt/dnf) that a plain
+    /// process launch can't drive; see <see cref="LinuxUpdateApplier"/>. Of macOS's two per-arch dmgs, the
+    /// one matching <paramref name="architecture"/> is picked (<see cref="RuntimeInformation.OSArchitecture"/>
+    /// — the underlying hardware, not the running process' architecture, so a Rosetta-translated process
+    /// still gets the native arm64 build). A pure function of explicit inputs (not read from
+    /// <see cref="OperatingSystem"/>/<see cref="RuntimeInformation"/> directly) so every branch is testable
+    /// from one machine.
+    /// </summary>
+    internal static string? ResolveInstallerAssetName(
+        bool isWindows, bool isMacOs, bool isLinux, Architecture architecture, string version)
+    {
+        if (isWindows)
+        {
+            return WindowsInstallerAssetName;
+        }
+
+        if (isMacOs)
+        {
+            return architecture switch
+            {
+                Architecture.Arm64 => $"JustDownload-{version}-osx-arm64.dmg",
+                Architecture.X64 => $"JustDownload-{version}-osx-x64.dmg",
+                _ => null,
+            };
+        }
+
+        if (isLinux)
+        {
+            return architecture == Architecture.X64 ? $"JustDownload-{version}-x86_64.AppImage" : null;
+        }
+
+        return null;
     }
 
     private static GitHubReleaseAssetDto? FindAsset(GitHubReleaseDto release, string name) =>

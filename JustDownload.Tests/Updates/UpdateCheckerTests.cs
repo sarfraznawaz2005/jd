@@ -1,4 +1,5 @@
 using System.Net.Http;
+using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
 using FluentAssertions;
@@ -103,6 +104,93 @@ public sealed class UpdateCheckerTests : IDisposable
         }
 
         result.LatestVersion.Should().Be("2.0.0");
+    }
+
+    [Theory]
+    [InlineData(true, false, false, Architecture.X64, "JustDownload-win-x64-Setup.exe")]
+    [InlineData(false, true, false, Architecture.Arm64, "JustDownload-2.1.0-osx-arm64.dmg")]
+    [InlineData(false, true, false, Architecture.X64, "JustDownload-2.1.0-osx-x64.dmg")]
+    [InlineData(false, false, true, Architecture.X64, "JustDownload-2.1.0-x86_64.AppImage")]
+    [InlineData(false, true, false, Architecture.Arm, null)] // no 32-bit-ARM macOS build is published
+    [InlineData(false, false, true, Architecture.Arm64, null)] // only the x64 AppImage is auto-applied (TASK-172)
+    [InlineData(false, false, false, Architecture.X64, null)] // an OS with no packaging at all (e.g. FreeBSD)
+    public void ResolveInstallerAssetName_PicksThePerOsArchAssetOrNull(
+        bool isWindows, bool isMacOs, bool isLinux, Architecture architecture, string? expected)
+    {
+        string? actual = UpdateChecker.ResolveInstallerAssetName(isWindows, isMacOs, isLinux, architecture, "2.1.0");
+
+        actual.Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData(Architecture.Arm64, "JustDownload-2.0.0-osx-arm64.dmg")]
+    [InlineData(Architecture.X64, "JustDownload-2.0.0-osx-x64.dmg")]
+    public async Task CheckAsync_VerifiesAndApplies_OnMacOs(Architecture architecture, string assetName)
+    {
+        await using var server = new PathRoutingLoopbackServer();
+        (byte[] installerBytes, string sha256) = FakeInstaller();
+        byte[] checksumsBytes = ChecksumsFile(sha256, assetName);
+        byte[] signature = TestSigningKeys.Sign(checksumsBytes);
+        RouteFullRelease(server, "v2.0.0", installerBytes, checksumsBytes, signature, assetName);
+
+        var applier = new FakeUpdateApplier();
+        UpdateChecker checker = CreateChecker(
+            server, autoUpdateEnabled: true, TestSigningKeys.PublicKeyBase64, applier, currentVersion: "1.0.0",
+            isWindows: false, isMacOs: true, isLinux: false, architecture: architecture);
+
+        UpdateCheckResult result = await checker.CheckAsync();
+
+        result.Status.Should().Be(UpdateCheckStatus.Applied);
+        result.LatestVersion.Should().Be("2.0.0");
+        applier.ApplyCount.Should().Be(1);
+        applier.AppliedPath.Should().NotBeNull();
+        Path.GetFileName(applier.AppliedPath!).Should().Be(assetName, "the arm64/x64 dmg must match the resolved arch, not the other one");
+        File.ReadAllBytes(applier.AppliedPath!).Should().Equal(installerBytes);
+    }
+
+    [Fact]
+    public async Task CheckAsync_VerifiesAndApplies_OnLinux()
+    {
+        const string assetName = "JustDownload-2.0.0-x86_64.AppImage";
+        await using var server = new PathRoutingLoopbackServer();
+        (byte[] installerBytes, string sha256) = FakeInstaller();
+        byte[] checksumsBytes = ChecksumsFile(sha256, assetName);
+        byte[] signature = TestSigningKeys.Sign(checksumsBytes);
+        RouteFullRelease(server, "v2.0.0", installerBytes, checksumsBytes, signature, assetName);
+
+        var applier = new FakeUpdateApplier();
+        UpdateChecker checker = CreateChecker(
+            server, autoUpdateEnabled: true, TestSigningKeys.PublicKeyBase64, applier, currentVersion: "1.0.0",
+            isWindows: false, isMacOs: false, isLinux: true, architecture: Architecture.X64);
+
+        UpdateCheckResult result = await checker.CheckAsync();
+
+        result.Status.Should().Be(UpdateCheckStatus.Applied);
+        result.LatestVersion.Should().Be("2.0.0");
+        applier.ApplyCount.Should().Be(1);
+        Path.GetFileName(applier.AppliedPath!).Should().Be(assetName);
+        File.ReadAllBytes(applier.AppliedPath!).Should().Equal(installerBytes);
+    }
+
+    [Fact]
+    public async Task CheckAsync_ReportsAvailableForManualDownload_OnLinux_WhenReleaseHasNoLinuxAsset()
+    {
+        // A release that only carries the Windows asset (today's actual release workflow, TASK-080 —
+        // widening it to publish macOS/Linux assets too is a separate, un-landed follow-up).
+        await using var server = new PathRoutingLoopbackServer();
+        server.RouteJson($"/repos/{Owner}/{Repo}/releases/latest", ReleaseJson(
+            "v2.0.0",
+            (UpdateChecker.WindowsInstallerAssetName, server.Url(UpdateChecker.WindowsInstallerAssetName).ToString())));
+
+        var applier = new FakeUpdateApplier();
+        UpdateChecker checker = CreateChecker(
+            server, autoUpdateEnabled: true, TestSigningKeys.PublicKeyBase64, applier, currentVersion: "1.0.0",
+            isWindows: false, isMacOs: false, isLinux: true, architecture: Architecture.X64);
+
+        UpdateCheckResult result = await checker.CheckAsync();
+
+        result.Status.Should().Be(UpdateCheckStatus.AvailableForManualDownload);
+        applier.ApplyCount.Should().Be(0);
     }
 
     [Fact]
@@ -256,7 +344,11 @@ public sealed class UpdateCheckerTests : IDisposable
         bool autoUpdateEnabled,
         string publicKeyBase64,
         IUpdateApplier applier,
-        string currentVersion = "1.0.0")
+        string currentVersion = "1.0.0",
+        bool? isWindows = null,
+        bool? isMacOs = null,
+        bool? isLinux = null,
+        Architecture architecture = Architecture.X64)
     {
         var settings = Substitute.For<ISettingsService>();
         settings.Current.Returns(new AppSettings { AutoUpdateEnabled = autoUpdateEnabled });
@@ -276,26 +368,35 @@ public sealed class UpdateCheckerTests : IDisposable
             VendorDirectory = _vendorDir,
         };
 
+        // Real OS/arch by default (matches every existing test's behaviour); explicit overrides let
+        // TASK-172's macOS/Linux tests force those branches from a single (e.g. Windows) CI machine.
         return new UpdateChecker(
             settings, versionProvider, options, new TestHandlerProvider(), appInfo,
-            new ChecksumVerifier(), applier, NullLogger<UpdateChecker>.Instance);
+            new ChecksumVerifier(), applier,
+            isWindows ?? OperatingSystem.IsWindows(),
+            isMacOs ?? OperatingSystem.IsMacOS(),
+            isLinux ?? OperatingSystem.IsLinux(),
+            architecture,
+            NullLogger<UpdateChecker>.Instance);
     }
 
     private static void RouteFullRelease(
-        PathRoutingLoopbackServer server, string tag, byte[] installerBytes, byte[] checksumsBytes, byte[] signatureBytes)
+        PathRoutingLoopbackServer server, string tag, byte[] installerBytes, byte[] checksumsBytes, byte[] signatureBytes,
+        string? installerAssetName = null)
     {
+        string assetName = installerAssetName ?? UpdateChecker.WindowsInstallerAssetName;
         server.RouteJson($"/repos/{Owner}/{Repo}/releases/latest", ReleaseJson(
             tag,
-            (UpdateChecker.WindowsInstallerAssetName, server.Url(UpdateChecker.WindowsInstallerAssetName).ToString()),
+            (assetName, server.Url(assetName).ToString()),
             (UpdateChecker.ChecksumsAssetName, server.Url(UpdateChecker.ChecksumsAssetName).ToString()),
             (UpdateChecker.ChecksumsSignatureAssetName, server.Url(UpdateChecker.ChecksumsSignatureAssetName).ToString())));
-        server.Route(UpdateChecker.WindowsInstallerAssetName, installerBytes);
+        server.Route(assetName, installerBytes);
         server.Route(UpdateChecker.ChecksumsAssetName, checksumsBytes);
         server.Route(UpdateChecker.ChecksumsSignatureAssetName, signatureBytes);
     }
 
-    private static byte[] ChecksumsFile(string sha256Hex) =>
-        Encoding.UTF8.GetBytes($"{sha256Hex}  {UpdateChecker.WindowsInstallerAssetName}\n");
+    private static byte[] ChecksumsFile(string sha256Hex, string? installerAssetName = null) =>
+        Encoding.UTF8.GetBytes($"{sha256Hex}  {installerAssetName ?? UpdateChecker.WindowsInstallerAssetName}\n");
 
     private static (byte[] Bytes, string Sha256Hex) FakeInstaller()
     {
