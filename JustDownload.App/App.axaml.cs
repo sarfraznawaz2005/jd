@@ -419,7 +419,14 @@ public partial class App : Application
         }
     }
 
-    /// <summary>Delivers links the extension handed off while the app was closed (TASK-070 AC1).</summary>
+    /// <summary>
+    /// Delivers links the extension handed off while the app was closed (TASK-070 AC1) or while it was
+    /// running but hidden to the tray (TASK-182, re-triggered live). Brings the main window to front first
+    /// — before this fix, a hand-off arriving while minimized to tray opened the New Download dialog owned
+    /// by a still-hidden window, so it never actually became visible (user-reported: downloads "did not
+    /// work" while in the tray, for direct-click, the context menu, and video icons alike — all three share
+    /// this same delivery path).
+    /// </summary>
     private async Task DeliverPendingLinksAsync()
     {
         IReadOnlyList<JustDownload.Core.NativeMessaging.PendingLink> pending =
@@ -428,6 +435,11 @@ public partial class App : Application
         if (pending.Count == 0)
         {
             return;
+        }
+
+        if (Current?.ApplicationLifetime is IClassicDesktopStyleApplicationLifetime { MainWindow: { } window })
+        {
+            BringToFront(window);
         }
 
         MainWindowViewModel mainViewModel = Services.GetRequiredService<MainWindowViewModel>();

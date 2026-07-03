@@ -77,15 +77,10 @@
       </Border>
     </StackPanel>
 
-    <!-- Segmentation toggle + detection status -->
-    <Grid ColumnDefinitions="Auto,*" >
-      <CheckBox Grid.Column="0" IsChecked="{Binding UseSegmentation, Mode=TwoWay}"
-                Content="{Binding ConnectionsHint}" Foreground="{DynamicResource TextDimBrush}" FontSize="12" />
-      <TextBlock Grid.Column="1" Text="{Binding DetectionMessage}" VerticalAlignment="Center"
-                 TextWrapping="Wrap" TextAlignment="Right" Margin="12,0,0,0"
-                 IsVisible="{Binding IsDetectionInfoVisible}"
-                 FontSize="11.5" Foreground="{DynamicResource TextFaintBrush}" />
-    </Grid>
+    <!-- Segmentation toggle (the size/resumability status that used to sit here now lives in the footer,
+         in the same spot "Detecting…" occupies while in progress) -->
+    <CheckBox IsChecked="{Binding UseSegmentation, Mode=TwoWay}"
+              Content="{Binding ConnectionsHint}" Foreground="{DynamicResource TextDimBrush}" FontSize="12" />
 
     <!-- Per-download proxy override (TASK-153) -->
     <StackPanel Spacing="8">
@@ -131,8 +126,17 @@
 
     <!-- Footer -->
     <Grid ColumnDefinitions="Auto,*,Auto,Auto" Margin="0,4,0,0">
-      <TextBlock Grid.Column="0" Text="Detecting…" VerticalAlignment="Center"
-                 IsVisible="{Binding IsDetecting}" FontSize="11.5" Foreground="{DynamicResource TextFaintBrush}" />
+      <TextBlock Grid.Column="0" Text="Detecting…" VerticalAlignment="Center" FontWeight="Bold"
+                 IsVisible="{Binding IsDetecting}" FontSize="11.5" Foreground="{DynamicResource GreenBrush}" />
+      <TextBlock Grid.Column="0" Text="{Binding DetectionMessage}" VerticalAlignment="Center" FontWeight="Bold"
+                 IsVisible="{Binding IsDetectionInfoVisible}" FontSize="11.5"
+                 Foreground="{DynamicResource GreenBrush}" Classes.NotResumable="{Binding IsNotResumable}">
+        <TextBlock.Styles>
+          <Style Selector="TextBlock.NotResumable">
+            <Setter Property="Foreground" Value="{DynamicResource AmberBrush}" />
+          </Style>
+        </TextBlock.Styles>
+      </TextBlock>
       <Button Grid.Column="2" Classes="App" Content="Add paused" Margin="0,0,8,0"
               Command="{Binding AddPausedCommand}" />
       <Button Grid.Column="3" Classes="App Accent" Content="Download now"

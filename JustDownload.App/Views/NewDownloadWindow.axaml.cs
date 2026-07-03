@@ -1,7 +1,10 @@
+using System;
+using System.ComponentModel;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Platform.Storage;
+using Avalonia.Threading;
 using JustDownload.App.ViewModels;
 
 namespace JustDownload.App.Views;
@@ -13,6 +16,12 @@ namespace JustDownload.App.Views;
 /// </summary>
 public partial class NewDownloadWindow : Window
 {
+    // Debounce so detection doesn't fire on every keystroke while typing/pasting (TASK-184) — waits for a
+    // short pause instead. Previously detection only fired on blur/Enter, which read as "nothing happens"
+    // until you clicked away (user-reported).
+    private static readonly TimeSpan AutoDetectDebounce = TimeSpan.FromMilliseconds(500);
+    private readonly DispatcherTimer _autoDetectTimer;
+
     public NewDownloadWindow()
     {
         InitializeComponent();
@@ -25,17 +34,30 @@ public partial class NewDownloadWindow : Window
         // view so the view-model's property setters stay side-effect-free and testable.
         UrlBox.LostFocus += OnUrlCommitted;
         UrlBox.KeyDown += OnUrlKeyDown;
+
+        _autoDetectTimer = new DispatcherTimer { Interval = AutoDetectDebounce };
+        _autoDetectTimer.Tick += (_, _) =>
+        {
+            _autoDetectTimer.Stop();
+            TriggerDetect();
+        };
+        Closed += (_, _) => _autoDetectTimer.Stop();
     }
 
     private void OnUrlKeyDown(object? sender, KeyEventArgs e)
     {
         if (e.Key == Key.Enter)
         {
+            _autoDetectTimer.Stop();
             TriggerDetect();
         }
     }
 
-    private void OnUrlCommitted(object? sender, RoutedEventArgs e) => TriggerDetect();
+    private void OnUrlCommitted(object? sender, RoutedEventArgs e)
+    {
+        _autoDetectTimer.Stop();
+        TriggerDetect();
+    }
 
     private void TriggerDetect()
     {
@@ -51,6 +73,18 @@ public partial class NewDownloadWindow : Window
         {
             vm.CloseRequested -= OnCloseRequested;
             vm.CloseRequested += OnCloseRequested;
+            vm.PropertyChanged -= OnViewModelPropertyChanged;
+            vm.PropertyChanged += OnViewModelPropertyChanged;
+        }
+    }
+
+    // Restarts the debounce on every Url edit — typing/pasting, not just losing focus (TASK-184).
+    private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(NewDownloadViewModel.Url))
+        {
+            _autoDetectTimer.Stop();
+            _autoDetectTimer.Start();
         }
     }
 

@@ -89,6 +89,16 @@ public sealed partial class NewDownloadViewModel : ViewModelBase
     /// <summary>Whether the quiet inline size/resumability hint (not the red failure banner) should show.</summary>
     public bool IsDetectionInfoVisible => DetectionMessage is not null && !DetectionMessageIsError;
 
+    /// <summary>Whether the just-completed detection found the link resumable — drives the footer message's
+    /// color (green when resumable, amber when not) alongside <see cref="DetectionMessage"/>.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsNotResumable))]
+    private bool _isResumable;
+
+    /// <summary>The inverse of <see cref="IsResumable"/>, for the AXAML style selector that colors the
+    /// footer detection message amber instead of green.</summary>
+    public bool IsNotResumable => !IsResumable;
+
     /// <summary>
     /// A prominent warning shown when a pre-queue HEAD probe found the link itself is bad — a 404/410/403 or an
     /// expired signed URL (TASK-142) — so the user catches a broken link before queuing. <see langword="null"/>
@@ -259,6 +269,7 @@ public sealed partial class NewDownloadViewModel : ViewModelBase
         IsDetecting = true;
         DetectionMessage = null;
         DetectionMessageIsError = false;
+        IsResumable = false;
         UrlWarning = null;
         DuplicateWarning = null;
         try
@@ -321,6 +332,7 @@ public sealed partial class NewDownloadViewModel : ViewModelBase
         DetectionMessage = totalBytes is > 0
             ? string.Create(CultureInfo.InvariantCulture, $"{ByteFormatter.FormatSize(totalBytes.Value)}{(resumable ? " · resumable" : " · no resume")}")
             : resumable ? "Size unknown · resumable" : "Size unknown · no resume";
+        IsResumable = resumable;
     }
 
     /// <summary>
