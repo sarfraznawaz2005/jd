@@ -126,6 +126,12 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<ILogLevelSwitch>(new LogLevelSwitch(options.MinimumLevel));
         services.AddLogging(builder => builder.SetMinimumLevel(LogLevel.Trace));
 
+        // A real sink for Error/Critical (TASK-179): before this, nothing was registered as an
+        // ILoggerProvider at all, so even IGlobalErrorHandler's captures were logged into a pipeline with
+        // no destination. Internal diagnostic trail only — no Settings UI, no verbosity control. Every host
+        // (App, NativeHost, Cli) gets this automatically.
+        services.AddSingleton<ILoggerProvider, ErrorLogFileProvider>();
+
         // Decorate ILoggerFactory so every logger redacts secrets before reaching any provider.
         // Registered last so it wins resolution; Logger<T> (the ILogger<> implementation) then
         // pulls this factory. The inner LoggerFactory is reconstructed from the same DI-registered
