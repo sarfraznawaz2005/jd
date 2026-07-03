@@ -499,6 +499,10 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<IExtensionInbox, ExtensionInbox>();
         services.TryAddSingleton<IAppLauncher, AppLauncher>();
 
+        // Real "has a browser's extension actually contacted us" tracking (TASK-175), independent of whether
+        // the host manifest file merely exists (that gets written on every app startup regardless).
+        services.TryAddSingleton<IExtensionContactTracker, ExtensionContactTracker>();
+
         // The extension router handles ping, blacklist sync (TASK-069), and download links — queueing them and
         // launching the app (TASK-070). Replaces the bare ping handler from TASK-064.
         services.TryAddSingleton<INativeMessageHandler, ExtensionMessageHandler>();

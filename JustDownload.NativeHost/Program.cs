@@ -38,6 +38,21 @@ if (!ExtensionOrigin.IsAllowed(origin, options.AllowedExtensionIds))
     return 1;
 }
 
+// A real, browser-initiated launch from a known extension — record contact (TASK-175) before the message
+// loop starts, so the app's Browsers panel can show a genuine "extension installed and talking to us"
+// signal instead of just "we wrote a manifest file". Best-effort: a write failure here must never block
+// the actual native-messaging conversation the browser is waiting on.
+if (ExtensionOrigin.Categorize(origin) is { } contactOrigin)
+{
+    try
+    {
+        await provider.GetRequiredService<IExtensionContactTracker>().RecordContactAsync(contactOrigin);
+    }
+    catch (IOException)
+    {
+    }
+}
+
 var host = provider.GetRequiredService<NativeMessageHost>();
 await using Stream stdin = Console.OpenStandardInput();
 await using Stream stdout = Console.OpenStandardOutput();

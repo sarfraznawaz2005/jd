@@ -7,14 +7,23 @@ using JustDownload.Core.NativeMessaging;
 namespace JustDownload.App.ViewModels;
 
 /// <summary>
-/// The Browsers panel (TASK-093): shows whether the native messaging host is registered for each browser and
-/// lets the user connect (register) or disconnect (unregister) browser integration. Drives the engine through
-/// <see cref="INativeHostInstaller"/> only (§6). In portable mode (TASK-138) registration is disabled because
-/// it would write the host manifest into the registry — which portable mode must never do.
+/// The Browsers panel (TASK-093, connection status reworked in TASK-175): lets the user register/unregister
+/// the native messaging host, and shows whether each browser family's extension has actually connected.
+/// "Connected" (<see cref="BrowserStatusRow"/>) is driven by <see cref="IExtensionContactTracker"/> — real
+/// contact the host has observed — not by whether a host manifest file merely exists
+/// (<see cref="INativeHostInstaller.GetStatus"/> just reflects that a manifest was written, which happens
+/// automatically on every app startup regardless of whether any browser or extension exists; conflating the
+/// two made every fresh install show "Connected" for browsers with no extension installed at all). Chrome
+/// and Edge share one Chromium extension id (<see cref="NativeHostIdentity.ChromiumExtensionId"/>) and can't
+/// be told apart at the native-messaging layer, so they're shown as one row. Drives the engine through
+/// <see cref="INativeHostInstaller"/> and <see cref="IExtensionContactTracker"/> only (§6). In portable mode
+/// (TASK-138) registration is disabled because it would write the host manifest into the registry — which
+/// portable mode must never do.
 /// </summary>
 public sealed partial class BrowsersViewModel : ViewModelBase
 {
     private readonly INativeHostInstaller _installer;
+    private readonly IExtensionContactTracker _contactTracker;
 
     [ObservableProperty]
     private bool _hostAvailable;
@@ -22,11 +31,14 @@ public sealed partial class BrowsersViewModel : ViewModelBase
     [ObservableProperty]
     private string? _statusMessage;
 
-    public BrowsersViewModel(INativeHostInstaller installer, IPortableEnvironment portable)
+    public BrowsersViewModel(
+        INativeHostInstaller installer, IExtensionContactTracker contactTracker, IPortableEnvironment portable)
     {
         ArgumentNullException.ThrowIfNull(installer);
+        ArgumentNullException.ThrowIfNull(contactTracker);
         ArgumentNullException.ThrowIfNull(portable);
         _installer = installer;
+        _contactTracker = contactTracker;
         IsPortable = portable.IsPortable;
         if (IsPortable)
         {
@@ -42,7 +54,7 @@ public sealed partial class BrowsersViewModel : ViewModelBase
     /// <summary>Whether browser integration can be (un)registered — never in portable mode.</summary>
     public bool CanManageRegistration => !IsPortable;
 
-    /// <summary>Per-browser registration status.</summary>
+    /// <summary>Per-browser-family connection status, driven by real observed contact (TASK-175).</summary>
     public ObservableCollection<BrowserStatusRow> Browsers { get; } = new();
 
     [RelayCommand]
@@ -50,10 +62,12 @@ public sealed partial class BrowsersViewModel : ViewModelBase
     {
         HostAvailable = _installer.IsHostPresent;
         Browsers.Clear();
-        foreach (BrowserRegistrationStatus status in _installer.GetStatus())
-        {
-            Browsers.Add(new BrowserStatusRow(status.Browser.ToString(), status.IsRegistered));
-        }
+        Browsers.Add(new BrowserStatusRow(
+            "Chromium browsers (Chrome, Edge)",
+            _contactTracker.GetLastContact(ExtensionContactOrigin.Chromium) is not null));
+        Browsers.Add(new BrowserStatusRow(
+            "Firefox",
+            _contactTracker.GetLastContact(ExtensionContactOrigin.Firefox) is not null));
     }
 
     [RelayCommand(CanExecute = nameof(CanManageRegistration))]
@@ -64,9 +78,11 @@ public sealed partial class BrowsersViewModel : ViewModelBase
             return; // never write the host manifest to the registry in portable mode (TASK-138)
         }
 
+        // Registering only makes the host *reachable* — it doesn't mean anything has connected yet, so this
+        // deliberately doesn't say "Connected" (TASK-175).
         StatusMessage = _installer.Install()
-            ? "Connected — your browsers can now hand downloads to JustDownload."
-            : "Couldn't connect: the native host wasn't found next to the app.";
+            ? "Host registered — install the browser extension to finish connecting."
+            : "Couldn't register: the native host wasn't found next to the app.";
         Refresh();
     }
 
@@ -84,9 +100,9 @@ public sealed partial class BrowsersViewModel : ViewModelBase
     }
 }
 
-/// <summary>One browser's connection state in the Browsers panel (TASK-093).</summary>
-public sealed record BrowserStatusRow(string Name, bool IsRegistered)
+/// <summary>One browser family's connection state in the Browsers panel (TASK-093, TASK-175).</summary>
+public sealed record BrowserStatusRow(string Name, bool IsConnected)
 {
     /// <summary>Human-readable status for the row.</summary>
-    public string StatusText => IsRegistered ? "Connected" : "Not connected";
+    public string StatusText => IsConnected ? "Connected" : "Not connected";
 }

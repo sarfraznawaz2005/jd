@@ -50,4 +50,25 @@ public static class ExtensionOrigin
 
         return arguments.Count > 0 ? arguments[0] : null;
     }
+
+    /// <summary>
+    /// Categorizes an already-validated <paramref name="launchArgument"/> (one that passed
+    /// <see cref="IsAllowed"/>) into a browser family for contact tracking (TASK-175), or
+    /// <see langword="null"/> if it doesn't actually match either known id — defensive, since this is only
+    /// ever called after <see cref="IsAllowed"/> already confirmed a match.
+    /// </summary>
+    public static ExtensionContactOrigin? Categorize(string launchArgument)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(launchArgument);
+
+        if (NativeHostIdentity.ChromiumExtensionId is { Length: > 0 } chromiumId &&
+            launchArgument.Contains(chromiumId, StringComparison.OrdinalIgnoreCase))
+        {
+            return ExtensionContactOrigin.Chromium;
+        }
+
+        return launchArgument.Contains(NativeHostIdentity.FirefoxExtensionId, StringComparison.OrdinalIgnoreCase)
+            ? ExtensionContactOrigin.Firefox
+            : null;
+    }
 }

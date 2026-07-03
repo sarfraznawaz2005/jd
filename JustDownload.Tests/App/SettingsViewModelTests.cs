@@ -48,7 +48,7 @@ public sealed class SettingsViewModelTests
     [Fact]
     public void AllNineSections_ArePresent_InOrder()
     {
-        var vm = new SettingsViewModel(Settings(), Substitute.For<IThemeService>(), CategoryFolderRules.CreateDefault(), Substitute.For<JustDownload.Core.NativeMessaging.INativeHostInstaller>(), Substitute.For<JustDownload.Core.Security.ISecretStore>(), Substitute.For<ISettingsTransfer>(), Substitute.For<IProxyTester>(), Substitute.For<JustDownload.Core.IPortableEnvironment>(), Substitute.For<JustDownload.Core.Security.ISavedCredentialsService>(), Substitute.For<JustDownload.Core.Media.IYtDlpLocator>(), Substitute.For<JustDownload.Core.Media.IYtDlpProvisioner>(), Autostart(), Substitute.For<JustDownload.Core.Updates.IUpdateChecker>(), Substitute.For<JustDownload.Core.Abstractions.IAppVersionProvider>());
+        var vm = new SettingsViewModel(Settings(), Substitute.For<IThemeService>(), CategoryFolderRules.CreateDefault(), Substitute.For<JustDownload.Core.NativeMessaging.INativeHostInstaller>(), Substitute.For<JustDownload.Core.NativeMessaging.IExtensionContactTracker>(), Substitute.For<JustDownload.Core.Security.ISecretStore>(), Substitute.For<ISettingsTransfer>(), Substitute.For<IProxyTester>(), Substitute.For<JustDownload.Core.IPortableEnvironment>(), Substitute.For<JustDownload.Core.Security.ISavedCredentialsService>(), Substitute.For<JustDownload.Core.Media.IYtDlpLocator>(), Substitute.For<JustDownload.Core.Media.IYtDlpProvisioner>(), Autostart(), Substitute.For<JustDownload.Core.Updates.IUpdateChecker>(), Substitute.For<JustDownload.Core.Abstractions.IAppVersionProvider>());
 
         vm.Sections.Select(s => s.Label).Should()
             .Equal("General", "Video", "Connections", "Proxy", "Authentication", "Categories", "Browsers", "Advanced", "Updates");
@@ -59,7 +59,7 @@ public sealed class SettingsViewModelTests
     [Fact]
     public void Select_SwitchesActiveSection()
     {
-        var vm = new SettingsViewModel(Settings(), Substitute.For<IThemeService>(), CategoryFolderRules.CreateDefault(), Substitute.For<JustDownload.Core.NativeMessaging.INativeHostInstaller>(), Substitute.For<JustDownload.Core.Security.ISecretStore>(), Substitute.For<ISettingsTransfer>(), Substitute.For<IProxyTester>(), Substitute.For<JustDownload.Core.IPortableEnvironment>(), Substitute.For<JustDownload.Core.Security.ISavedCredentialsService>(), Substitute.For<JustDownload.Core.Media.IYtDlpLocator>(), Substitute.For<JustDownload.Core.Media.IYtDlpProvisioner>(), Autostart(), Substitute.For<JustDownload.Core.Updates.IUpdateChecker>(), Substitute.For<JustDownload.Core.Abstractions.IAppVersionProvider>());
+        var vm = new SettingsViewModel(Settings(), Substitute.For<IThemeService>(), CategoryFolderRules.CreateDefault(), Substitute.For<JustDownload.Core.NativeMessaging.INativeHostInstaller>(), Substitute.For<JustDownload.Core.NativeMessaging.IExtensionContactTracker>(), Substitute.For<JustDownload.Core.Security.ISecretStore>(), Substitute.For<ISettingsTransfer>(), Substitute.For<IProxyTester>(), Substitute.For<JustDownload.Core.IPortableEnvironment>(), Substitute.For<JustDownload.Core.Security.ISavedCredentialsService>(), Substitute.For<JustDownload.Core.Media.IYtDlpLocator>(), Substitute.For<JustDownload.Core.Media.IYtDlpProvisioner>(), Autostart(), Substitute.For<JustDownload.Core.Updates.IUpdateChecker>(), Substitute.For<JustDownload.Core.Abstractions.IAppVersionProvider>());
         SettingsSectionViewModel connections = vm.Sections.Single(s => s.Label == "Connections");
 
         vm.SelectCommand.Execute(connections);
@@ -72,6 +72,7 @@ public sealed class SettingsViewModelTests
     private static SettingsViewModel Build(ISettingsService settings, ISettingsTransfer transfer) =>
         new(settings, Substitute.For<IThemeService>(), CategoryFolderRules.CreateDefault(),
             Substitute.For<JustDownload.Core.NativeMessaging.INativeHostInstaller>(),
+            Substitute.For<JustDownload.Core.NativeMessaging.IExtensionContactTracker>(),
             Substitute.For<ISecretStore>(), transfer, Substitute.For<IProxyTester>(),
             Substitute.For<JustDownload.Core.IPortableEnvironment>(), Substitute.For<JustDownload.Core.Security.ISavedCredentialsService>(),
             Substitute.For<JustDownload.Core.Media.IYtDlpLocator>(), Substitute.For<JustDownload.Core.Media.IYtDlpProvisioner>(), Autostart(),

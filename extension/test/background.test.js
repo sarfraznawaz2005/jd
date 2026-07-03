@@ -22,7 +22,7 @@ function makeApi() {
   return {
     webRequest: { onBeforeRequest: listener() },
     tabs: { onUpdated: listener(), onRemoved: listener() },
-    runtime: { onInstalled: listener(), onMessage: listener() },
+    runtime: { onInstalled: listener(), onStartup: listener(), onMessage: listener() },
     contextMenus: {
       onClicked: listener(),
       removeAll(cb) { if (cb) cb(); },

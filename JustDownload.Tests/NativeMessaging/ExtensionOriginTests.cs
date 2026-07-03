@@ -45,4 +45,26 @@ public sealed class ExtensionOriginTests
     {
         ExtensionOrigin.FromArguments([]).Should().BeNull();
     }
+
+    [Fact]
+    public void Categorize_ChromiumOrigin_ReturnsChromium()
+    {
+        // Real id (TASK-175): Chrome and Edge share it, so a Chromium-origin launch is categorized the
+        // same regardless of which of the two actually launched the host.
+        string origin = $"chrome-extension://{NativeHostIdentity.ChromiumExtensionId}/";
+
+        ExtensionOrigin.Categorize(origin).Should().Be(ExtensionContactOrigin.Chromium);
+    }
+
+    [Fact]
+    public void Categorize_FirefoxOrigin_ReturnsFirefox()
+    {
+        ExtensionOrigin.Categorize(NativeHostIdentity.FirefoxExtensionId).Should().Be(ExtensionContactOrigin.Firefox);
+    }
+
+    [Fact]
+    public void Categorize_UnrecognizedOrigin_ReturnsNull()
+    {
+        ExtensionOrigin.Categorize("chrome-extension://someotherextensionidthatisnotours/").Should().BeNull();
+    }
 }

@@ -91,7 +91,23 @@ api.runtime.onInstalled.addListener(() => {
       contexts: ["link", "image", "video", "audio"],
     });
   });
+  pingHost(); // announce this install to the desktop app right away (TASK-175), not just on popup-open
 });
+
+// Re-announce on every browser startup too, so the app's "last contacted" state stays fresh across
+// sessions rather than only reflecting a one-time install ping (TASK-175).
+api.runtime.onStartup.addListener(() => pingHost());
+
+/** Fire-and-forget native-messaging ping, purely to register real contact with the desktop app. */
+function pingHost() {
+  try {
+    api.runtime.sendNativeMessage(NATIVE_HOST, { type: "ping" }, () => {
+      void api.runtime.lastError; // the host may not be running yet; nothing to do either way
+    });
+  } catch {
+    /* native messaging unavailable (e.g. host not installed yet) — nothing to do */
+  }
+}
 
 api.contextMenus.onClicked.addListener((info, tab) => {
   if (info.menuItemId === MENU_ROOT) {

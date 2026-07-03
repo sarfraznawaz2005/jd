@@ -23,6 +23,7 @@ public sealed partial class SettingsViewModel : ViewModelBase
     private readonly IThemeService _theme;
     private readonly CategoryFolderRules _folderRules;
     private readonly JustDownload.Core.NativeMessaging.INativeHostInstaller _nativeHostInstaller;
+    private readonly JustDownload.Core.NativeMessaging.IExtensionContactTracker _extensionContactTracker;
     private readonly ISecretStore _secrets;
     private readonly ISettingsTransfer _transfer;
     private readonly JustDownload.Core.Transport.Proxy.IProxyTester _proxyTester;
@@ -46,6 +47,7 @@ public sealed partial class SettingsViewModel : ViewModelBase
         IThemeService theme,
         CategoryFolderRules folderRules,
         JustDownload.Core.NativeMessaging.INativeHostInstaller nativeHostInstaller,
+        JustDownload.Core.NativeMessaging.IExtensionContactTracker extensionContactTracker,
         ISecretStore secrets,
         ISettingsTransfer transfer,
         JustDownload.Core.Transport.Proxy.IProxyTester proxyTester,
@@ -61,6 +63,7 @@ public sealed partial class SettingsViewModel : ViewModelBase
         ArgumentNullException.ThrowIfNull(theme);
         ArgumentNullException.ThrowIfNull(folderRules);
         ArgumentNullException.ThrowIfNull(nativeHostInstaller);
+        ArgumentNullException.ThrowIfNull(extensionContactTracker);
         ArgumentNullException.ThrowIfNull(secrets);
         ArgumentNullException.ThrowIfNull(transfer);
         ArgumentNullException.ThrowIfNull(proxyTester);
@@ -75,6 +78,7 @@ public sealed partial class SettingsViewModel : ViewModelBase
         _theme = theme;
         _folderRules = folderRules;
         _nativeHostInstaller = nativeHostInstaller;
+        _extensionContactTracker = extensionContactTracker;
         _secrets = secrets;
         _transfer = transfer;
         _proxyTester = proxyTester;
@@ -106,7 +110,7 @@ public sealed partial class SettingsViewModel : ViewModelBase
             "Authentication", "IconSetAuth", new AuthenticationSettingsViewModel(_savedCredentials)));
         Sections.Add(new SettingsSectionViewModel("Categories", "IconSetCategories", new CategoriesSettingsViewModel(_settings, _folderRules)));
         Sections.Add(new SettingsSectionViewModel(
-            "Browsers", "IconSetBrowsers", new BrowsersViewModel(_nativeHostInstaller, _portable)));
+            "Browsers", "IconSetBrowsers", new BrowsersViewModel(_nativeHostInstaller, _extensionContactTracker, _portable)));
         Sections.Add(new SettingsSectionViewModel(
             "Advanced", "IconSetAdvanced", new AdvancedSettingsViewModel(_settings)));
         Sections.Add(new SettingsSectionViewModel(

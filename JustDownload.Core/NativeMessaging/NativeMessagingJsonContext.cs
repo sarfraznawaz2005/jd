@@ -11,6 +11,7 @@ namespace JustDownload.Core.NativeMessaging;
 [JsonSourceGenerationOptions(WriteIndented = false)]
 [JsonSerializable(typeof(List<PendingLink>))]
 [JsonSerializable(typeof(ExtensionSettingsDto))]
+[JsonSerializable(typeof(ExtensionContactRecord))]
 internal sealed partial class NativeMessagingJsonContext : JsonSerializerContext;
 
 /// <summary>

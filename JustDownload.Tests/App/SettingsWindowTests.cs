@@ -28,7 +28,7 @@ public sealed class SettingsWindowTests
         var versionProvider = Substitute.For<IAppVersionProvider>();
         versionProvider.CurrentVersion.Returns("1.0.0");
         return new(settings, new ThemeService(), CategoryFolderRules.CreateDefault(),
-            Substitute.For<INativeHostInstaller>(), Substitute.For<ISecretStore>(),
+            Substitute.For<INativeHostInstaller>(), Substitute.For<IExtensionContactTracker>(), Substitute.For<ISecretStore>(),
             Substitute.For<ISettingsTransfer>(), Substitute.For<IProxyTester>(),
             Substitute.For<JustDownload.Core.IPortableEnvironment>(), Substitute.For<JustDownload.Core.Security.ISavedCredentialsService>(),
             ytDlpLocator ?? Substitute.For<IYtDlpLocator>(), ytDlpProvisioner ?? Substitute.For<IYtDlpProvisioner>(),
