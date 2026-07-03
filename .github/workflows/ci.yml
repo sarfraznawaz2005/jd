@@ -44,8 +44,13 @@ jobs:
         run: dotnet build JustDownload.sln -c Release --no-restore
 
       - name: Test (with coverage)
+        # RealSecretStore (TASK-168) mutates the real OS Keychain/Secret Service and needs environment
+        # setup (an unlocked D-Bus Secret Service on Linux) this job doesn't provide -- it runs in its own
+        # dedicated .github/workflows/verify-secret-stores.yml instead, same reasoning as nightly-corpus.yml
+        # keeping ExtractorCorpus off the everyday push/PR gate.
         run: >-
           dotnet test JustDownload.sln -c Release --no-build
+          --filter "Category!=RealSecretStore"
           --collect:"XPlat Code Coverage"
           --results-directory ${{ github.workspace }}/coverage
           --logger "trx;LogFileName=test-results.trx"
