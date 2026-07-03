@@ -195,13 +195,22 @@ public sealed class AuthTests : IDisposable
         var downloader = provider.GetRequiredService<ISegmentedDownloader>();
         string dest = Path.Combine(_dir, "ntlm.bin");
 
-        await downloader.DownloadAsync(new DownloadRequest
+        try
         {
-            Url = server.Url("file.bin"),
-            DestinationPath = dest,
-            Connections = 1,
-            Credentials = new NetworkCredentials("alice", "s3cret", "CORP"),
-        });
+            await downloader.DownloadAsync(new DownloadRequest
+            {
+                Url = server.Url("file.bin"),
+                DestinationPath = dest,
+                Connections = 1,
+                Credentials = new NetworkCredentials("alice", "s3cret", "CORP"),
+            });
+        }
+        catch (Exception ex)
+        {
+            // TEMP diagnostic (TASK-173): embed what the server actually observed in the failure so a
+            // real cross-platform mismatch can be diagnosed from CI output, not guessed.
+            throw new InvalidOperationException($"[NTLM-DIAG] {string.Join(" | ", server.Diagnostics)}", ex);
+        }
 
         (await File.ReadAllBytesAsync(dest)).Should().Equal(body, "a real NTLMv2 handshake should authenticate and download fully");
     }
