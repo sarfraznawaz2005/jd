@@ -386,11 +386,19 @@
                      Classes="SettingsHint" TextWrapping="Wrap" />
         </StackPanel>
         <StackPanel Spacing="10" IsVisible="{Binding AutoUpdateEnabled}">
-          <StackPanel Orientation="Horizontal" Spacing="12">
-            <Button Classes="App Accent" Content="Check for Updates" Command="{Binding CheckForUpdatesCommand}" HorizontalAlignment="Left" />
-            <TextBlock Text="{Binding StatusText}" VerticalAlignment="Center" Foreground="{DynamicResource TextDimBrush}"
-                       TextWrapping="Wrap" />
-          </StackPanel>
+          <Grid ColumnDefinitions="Auto,*">
+            <Button Grid.Column="0" Classes="App Accent" Content="Check for Updates"
+                    Command="{Binding CheckForUpdatesCommand}" HorizontalAlignment="Left" VerticalAlignment="Top" />
+            <TextBlock Grid.Column="1" Text="{Binding StatusText}" VerticalAlignment="Center" Margin="12,0,0,0"
+                       TextWrapping="Wrap" Classes.Error="{Binding IsStatusError}"
+                       Foreground="{DynamicResource TextDimBrush}">
+              <TextBlock.Styles>
+                <Style Selector="TextBlock.Error">
+                  <Setter Property="Foreground" Value="{DynamicResource RedBrush}" />
+                </Style>
+              </TextBlock.Styles>
+            </TextBlock>
+          </Grid>
         </StackPanel>
       </StackPanel>
     </DataTemplate>

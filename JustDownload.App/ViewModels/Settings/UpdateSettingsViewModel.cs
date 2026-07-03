@@ -30,6 +30,7 @@ public sealed partial class UpdateSettingsViewModel : ViewModelBase
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(StatusText))]
+    [NotifyPropertyChangedFor(nameof(IsStatusError))]
     private UpdateCheckStatus? _lastStatus;
 
     [ObservableProperty]
@@ -39,6 +40,12 @@ public sealed partial class UpdateSettingsViewModel : ViewModelBase
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(StatusText))]
     private string? _errorMessage;
+
+    /// <summary>Whether <see cref="StatusText"/> currently describes a failure (network error or a
+    /// security rejection) rather than a neutral/success outcome — drives the red banner treatment in
+    /// the view instead of the quiet dim-text default.</summary>
+    public bool IsStatusError => LastStatus is UpdateCheckStatus.Error or UpdateCheckStatus.RejectedUnsigned
+        or UpdateCheckStatus.RejectedInvalidSignature or UpdateCheckStatus.RejectedAssetHashMismatch;
 
     public UpdateSettingsViewModel(ISettingsService settings, IUpdateChecker checker, IAppVersionProvider versionProvider)
     {
