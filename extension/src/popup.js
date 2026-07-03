@@ -1,12 +1,12 @@
 // JustDownload — popup logic (MV3)
 //
-// Wires the popup to the background worker: app-connection status, sending the current page link, the
-// per-site "detect videos on this site" toggle whose state is the inverse of the blacklist — toggling it
-// off blacklists the site so the icon overlay never shows (TASK-069), persisting to sync storage and
-// pushing the blacklist to the desktop app — and the global "take over browser downloads" toggle
-// (TASK-183). No detected-media list here (TASK-187): the per-video icon overlay (content.js) and
-// automatic download takeover (TASK-183) cover detection/download end to end now, so a redundant list of
-// raw sniffed URLs in the popup was just noise, not a real workflow.
+// Wires the popup to the background worker: app-connection status, the per-site "detect videos on this
+// site" toggle whose state is the inverse of the blacklist — toggling it off blacklists the site so the
+// icon overlay never shows (TASK-069), persisting to sync storage and pushing the blacklist to the desktop
+// app — and the global "take over browser downloads" toggle (TASK-183). No detected-media list and no
+// "send this page link" button here (TASK-187/188): the per-video icon overlay (content.js), automatic
+// download takeover (TASK-183), and the right-click context menu already cover detection/download end to
+// end, so both were just redundant, lower-value paths to the same outcome.
 (() => {
   "use strict";
 
@@ -79,13 +79,6 @@
   }
 
   function wireInteractions() {
-    document.getElementById("send-link")?.addEventListener("click", async () => {
-      const tab = await activeTab();
-      if (tab?.url) {
-        await api.runtime.sendMessage({ type: "DOWNLOAD_LINK", url: tab.url });
-      }
-    });
-
     document.getElementById("site-toggle")?.addEventListener("click", async (e) => {
       const el = e.currentTarget;
       const on = !el.classList.contains("on");

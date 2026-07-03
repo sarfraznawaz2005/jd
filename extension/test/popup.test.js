@@ -1,9 +1,9 @@
-// Popup logic tests (TASK-187), run with `node --test`.
+// Popup logic tests (TASK-187/188), run with `node --test`.
 //
-// The detected-media list this file used to test was removed (TASK-187): the icon overlay and automatic
-// download takeover cover detection/download end to end, so a redundant raw-URL list in the popup was
-// just noise. This now covers what's actually left: connection status, the per-site and global toggles,
-// and "send this page link".
+// The detected-media list and "send this page link" button this file used to test were both removed
+// (TASK-187/188): the icon overlay, automatic download takeover, and the right-click context menu already
+// cover detection/download end to end, so both were redundant. This now covers what's actually left:
+// connection status and the per-site and global toggles.
 "use strict";
 
 const test = require("node:test");
@@ -52,7 +52,7 @@ function makeElement(tag = "div") {
 function makeSandbox(options = {}) {
   const { activeTabUrl = "https://example.com/page", pingOk = true, blacklist = [], interceptDownloads } = options;
   const elementsById = new Map();
-  const ids = ["status", "status-dot", "status-text", "site-toggle", "intercept-toggle", "send-link", "open-settings"];
+  const ids = ["status", "status-dot", "status-text", "site-toggle", "intercept-toggle", "open-settings"];
   for (const id of ids) {
     elementsById.set(id, makeElement());
   }
@@ -152,15 +152,6 @@ test("intercept-toggle defaults on and persists a toggle-off", async () => {
   await new Promise((resolve) => setTimeout(resolve, 0));
 
   assert.equal(storage.interceptDownloads, false);
-});
-
-test("send-link forwards the active tab's own URL", async () => {
-  const { elementsById, sentMessages } = await runPopup({ activeTabUrl: "https://example.com/file.zip" });
-
-  elementsById.get("send-link").listeners.click();
-  await new Promise((resolve) => setTimeout(resolve, 0));
-
-  assert.ok(sentMessages.some((m) => m.type === "DOWNLOAD_LINK" && m.url === "https://example.com/file.zip"));
 });
 
 test("open-settings opens the options page", async () => {
