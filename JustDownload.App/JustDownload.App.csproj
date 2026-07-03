@@ -40,17 +40,41 @@
                       ReferenceOutputAssembly="false" Private="false" />
   </ItemGroup>
 
-  <!-- Glob inside the targets (not a static ItemGroup) so the host's freshly-built files are picked up. -->
-  <Target Name="CopyNativeHostToBuildOutput" AfterTargets="Build">
+  <!--
+    Glob inside the targets (not a static ItemGroup) so the host's freshly-built files are picked up. Only
+    for plain dev builds (no RuntimeIdentifier) — a RID build/publish gets the RID-correct host via
+    PublishNativeHostForRid/CopyNativeHostToPublishOutput below; running this too would copy the build
+    machine's own-OS apphost into a cross-published bundle (it lands in $(OutDir), which the SDK's publish
+    step then sweeps into $(PublishDir) alongside the correct one) — TASK-078.
+  -->
+  <Target Name="CopyNativeHostToBuildOutput" AfterTargets="Build" Condition="'$(RuntimeIdentifier)' == ''">
     <ItemGroup>
       <_NativeHostFiles Include="$(MSBuildThisFileDirectory)..\JustDownload.NativeHost\bin\$(Configuration)\$(TargetFramework)\JustDownload.NativeHost.*" />
     </ItemGroup>
     <Copy SourceFiles="@(_NativeHostFiles)" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
   </Target>
 
+  <!--
+    Publishing with a RuntimeIdentifier (per-OS profiles, docs/publishing.md) cross-targets a different OS
+    than the machine doing the build (e.g. publishing linux-x64 from a Windows dev box, TASK-078). The plain
+    NativeHost build output above is always an apphost for the *build* machine's OS, so copying it into a
+    cross-published bundle would ship a Windows .exe inside a Linux/macOS package — unexecutable, silently
+    breaking native messaging (D8) on that platform. Publish NativeHost itself for the App's RID first, then
+    copy from that RID-specific output.
+  -->
+  <Target Name="PublishNativeHostForRid" BeforeTargets="Publish" Condition="'$(RuntimeIdentifier)' != ''">
+    <MSBuild Projects="$(MSBuildThisFileDirectory)..\JustDownload.NativeHost\JustDownload.NativeHost.csproj"
+             Targets="Restore;Publish"
+             Properties="Configuration=$(Configuration);RuntimeIdentifier=$(RuntimeIdentifier);SelfContained=false;PublishProfile=;PublishDir=$(MSBuildThisFileDirectory)..\JustDownload.NativeHost\bin\$(Configuration)\$(TargetFramework)\$(RuntimeIdentifier)\publish\" />
+  </Target>
+
   <Target Name="CopyNativeHostToPublishOutput" AfterTargets="Publish">
+    <PropertyGroup>
+      <_NativeHostBinDir Condition="'$(RuntimeIdentifier)' != ''">$(MSBuildThisFileDirectory)..\JustDownload.NativeHost\bin\$(Configuration)\$(TargetFramework)\$(RuntimeIdentifier)\publish\</_NativeHostBinDir>
+      <_NativeHostBinDir Condition="'$(RuntimeIdentifier)' == ''">$(MSBuildThisFileDirectory)..\JustDownload.NativeHost\bin\$(Configuration)\$(TargetFramework)\</_NativeHostBinDir>
+    </PropertyGroup>
     <ItemGroup>
-      <_NativeHostFiles Include="$(MSBuildThisFileDirectory)..\JustDownload.NativeHost\bin\$(Configuration)\$(TargetFramework)\JustDownload.NativeHost.*" />
+      <_NativeHostFiles Include="$(_NativeHostBinDir)JustDownload.NativeHost.*" />
     </ItemGroup>
     <Copy SourceFiles="@(_NativeHostFiles)" DestinationFolder="$(PublishDir)" SkipUnchangedFiles="true" />
   </Target>

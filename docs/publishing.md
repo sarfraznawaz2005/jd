@@ -79,7 +79,64 @@ dotnet run --project JustDownload.Perf -c Release -- --bundle artifacts/JustDown
 
 The Native Messaging Host (`JustDownload.NativeHost`) is co-located into the publish
 output by the app's `CopyNativeHostToPublishOutput` target, so each bundle is
-self-registering for browser integration (D8).
+self-registering for browser integration (D8). Publishing with a `RuntimeIdentifier`
+now also publishes `JustDownload.NativeHost` itself for that same RID first
+(`PublishNativeHostForRid`, TASK-078) — cross-publishing e.g. `linux-x64` from a
+Windows dev box used to bundle the *build machine's* apphost (a Windows `.exe`)
+inside the Linux package, which would have silently broken native messaging on
+Linux/macOS installs since the host is never executable there. Verified by
+re-publishing both `linux-x64` (bundled host is now a real ELF binary) and `win-x64`
+(still a PE `.exe`, no regression) and confirming the file signatures directly.
+
+## Linux packaging: AppImage, .deb, .rpm (TASK-078)
+
+`build/build-linux-packages.ps1` publishes `linux-x64` and packages it three ways.
+Unlike `publish.ps1`, this script only runs on Linux — it shells out to
+`appimagetool`, `dpkg-deb`, and `rpmbuild`, none of which exist on Windows:
+
+```bash
+./build/build-linux-packages.ps1                   # AppImage + deb + rpm
+./build/build-linux-packages.ps1 -Formats deb,rpm   # a subset
+```
+
+Supporting assets live in `build/linux/`: the freedesktop `.desktop` entry, a
+`hicolor`-theme icon set (16 through 256px, rendered from the same brand mark as
+the browser extension — see `build/linux/gen-app-icon.js`, which reuses
+`extension/scripts/gen-icons.js`'s rasterizer instead of duplicating it), and the
+`.spec` template for the rpm build.
+
+**Host manifest registration (AC2)** needs no packaging-time code: every bundle
+already carries `JustDownload.App`, which calls `INativeHostInstaller.Install()` on
+first launch and writes the per-browser manifests to the correct per-user Linux
+paths (`NativeHostManifestLocations`, unit-tested independently of this script).
+Deregistration on package removal is wired into the `.deb`'s `prerm` and the
+`.rpm`'s `%preun`, both calling `JustDownload.App --uninstall-cleanup` — the same
+switch the Windows MSI's uninstall custom action already uses
+(`JustDownload.App/Services/UninstallCleanup.cs`), so all three platforms share one
+cleanup code path.
+
+**What is and isn't verified.** This was built and reviewed on a Windows dev
+machine with no Linux install available, so:
+
+- The `linux-x64` publish step, the RID-aware NativeHost fix, and the icon
+  generator were run and verified directly (file signatures, PNG validity, a full
+  `dotnet build`/`dotnet test`/`dotnet format` pass — see TASK-078 notes).
+- The AppImage/deb/rpm assembly logic (AppDir layout, `DEBIAN/control`, the rpm
+  spec) was written and reasoned through carefully but **has not been executed**
+  — no `appimagetool`, `dpkg-deb`, or `rpmbuild` available here. Acceptance
+  criteria AC0 ("AppImage runs on a clean distro") and AC1 ("deb and rpm
+  install/uninstall cleanly") are **not verified** and must be run on real Linux
+  (or Linux CI) before being signed off.
+
+**A real tension worth a decision, not a silent choice:** JustDownload ships
+framework-dependent (above), so the AppImage still requires the user to have the
+.NET 8 Runtime installed — it is *not* the traditional zero-dependency "runs on any
+Linux with nothing preinstalled" AppImage. The `.deb`/`.rpm` sidestep this cleanly
+by declaring `Depends`/`Requires: dotnet-runtime-8.0` and letting the package
+manager install it. If a truly standalone AppImage is wanted, the fix is a
+self-contained (not framework-dependent) publish for that one target specifically
+— bigger (self-contained .NET on Linux typically extracts to 70–100 MB) but
+dependency-free. Left as a follow-up rather than decided unilaterally here.
 
 ## NativeAOT evaluation (decision: not now — R2R instead)
 

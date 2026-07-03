@@ -12,6 +12,10 @@
  * Usage:
  *   node scripts/gen-icons.js          (re)generate all sizes
  *   require("./scripts/gen-icons").generateAll({ force })   from build.js
+ *
+ * renderRgba/encodePng are also exported so other packaging steps (e.g. build/linux/gen-app-icon.js,
+ * TASK-078) can render the same brand mark at their own sizes/output paths without duplicating the
+ * rasterizer.
  */
 "use strict";
 
@@ -148,7 +152,7 @@ function generateAll({ force = false } = {}) {
   return written;
 }
 
-module.exports = { generateAll, SIZES };
+module.exports = { generateAll, renderRgba, encodePng, SIZES };
 
 if (require.main === module) {
   const written = generateAll({ force: true });

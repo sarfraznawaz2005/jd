@@ -8,6 +8,10 @@
     <OutputType>Exe</OutputType>
     <RootNamespace>JustDownload.NativeHost</RootNamespace>
     <AssemblyName>JustDownload.NativeHost</AssemblyName>
+    <!-- Restore assets for every RID JustDownload.App's publish profiles target (docs/publishing.md), so
+         JustDownload.App.csproj's PublishNativeHostForRid target can publish this project per-RID instead
+         of always bundling the build machine's own apphost into a cross-published package (TASK-078). -->
+    <RuntimeIdentifiers>win-x64;linux-x64;osx-x64;osx-arm64</RuntimeIdentifiers>
   </PropertyGroup>
 
   <ItemGroup>

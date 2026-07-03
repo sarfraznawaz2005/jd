@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=JustDownload
+GenericName=Download Manager
+Comment=Extremely light & fast cross-platform download manager
+Exec=justdownload %U
+Icon=justdownload
+Terminal=false
+Categories=Network;FileTransfer;
+StartupWMClass=JustDownload.App
