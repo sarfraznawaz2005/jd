@@ -49,9 +49,6 @@ internal sealed class LoopbackNtlmAuthServer : IAsyncDisposable
 
     public Uri Url(string relativePath) => new(BaseUri, relativePath);
 
-    /// <summary>TEMP diagnostic (TASK-173): every step this connection handler observed, in order.</summary>
-    public System.Collections.Concurrent.ConcurrentQueue<string> Diagnostics { get; } = new();
-
     private async Task AcceptLoopAsync(CancellationToken ct)
     {
         while (!ct.IsCancellationRequested)
@@ -80,7 +77,6 @@ internal sealed class LoopbackNtlmAuthServer : IAsyncDisposable
         {
             try
             {
-                Diagnostics.Enqueue("connection accepted");
                 NetworkStream stream = client.GetStream();
                 byte[] serverChallenge = [];
                 bool authenticated = false;
@@ -90,11 +86,8 @@ internal sealed class LoopbackNtlmAuthServer : IAsyncDisposable
                     Request? request = await ReadRequestAsync(stream, ct).ConfigureAwait(false);
                     if (request is not { } req)
                     {
-                        Diagnostics.Enqueue("ReadRequestAsync returned null (connection closed/no data)");
                         break;
                     }
-
-                    Diagnostics.Enqueue($"request method={req.Method} authorization={req.Authorization ?? "(none)"}");
 
                     if (authenticated)
                     {
@@ -114,12 +107,6 @@ internal sealed class LoopbackNtlmAuthServer : IAsyncDisposable
 
                     if (messageType == 1)
                     {
-                        // TEMP diagnostic (TASK-173): dump the client's real NEGOTIATE flags so a genuine
-                        // cross-platform mismatch can be diagnosed from actual CI evidence, not guessed.
-                        uint clientFlags = message.Length >= 16 ? BitConverter.ToUInt32(message, 12) : 0;
-                        Diagnostics.Enqueue(
-                            $"Type1 len={message.Length} flags=0x{clientFlags:X8} bytes={Convert.ToHexString(message)}");
-
                         serverChallenge = RandomNumberGenerator.GetBytes(8);
                         byte[] challenge = NtlmMessages.BuildChallenge(serverChallenge, TargetDomain, TargetComputer);
                         await WriteChallengeAsync(stream, Convert.ToBase64String(challenge), ct).ConfigureAwait(false);
@@ -128,13 +115,9 @@ internal sealed class LoopbackNtlmAuthServer : IAsyncDisposable
 
                     if (messageType == 3)
                     {
-                        // TEMP diagnostic (TASK-173).
-                        Diagnostics.Enqueue($"Type3 len={message.Length} bytes={Convert.ToHexString(message)}");
-
                         (string domain, string username, byte[] ntResponse) = NtlmMessages.ParseAuthenticate(message);
                         bool cryptoOk = NtlmMessages.VerifyNtlmV2(domain, username, Password, serverChallenge, ntResponse);
                         authenticated = username.Equals(Username, StringComparison.OrdinalIgnoreCase) && cryptoOk;
-                        Diagnostics.Enqueue($"domain={domain} username={username} cryptoOk={cryptoOk}");
 
                         if (!authenticated)
                         {
@@ -149,13 +132,11 @@ internal sealed class LoopbackNtlmAuthServer : IAsyncDisposable
                     await WriteChallengeAsync(stream, ntlmToken: null, ct).ConfigureAwait(false);
                 }
             }
-            catch (IOException ex)
+            catch (IOException)
             {
-                Diagnostics.Enqueue($"IOException: {ex.Message}");
             }
             catch (OperationCanceledException)
             {
-                Diagnostics.Enqueue("OperationCanceledException");
             }
         }
     }
