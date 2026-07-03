@@ -107,11 +107,9 @@ internal sealed partial class YtDlpMediaExtractor : IMediaExtractor
 
         if (result.ExitCode != 0)
         {
-            if (_logger.IsEnabled(LogLevel.Debug))
-            {
-                LogNonZeroExit(_logger, request.Url, result.ExitCode, Truncate(result.StandardError));
-            }
-
+#pragma warning disable CA1873 // Truncate is a cheap length check + substring, not worth an IsEnabled guard
+            LogNonZeroExit(_logger, request.Url, result.ExitCode, Truncate(result.StandardError));
+#pragma warning restore CA1873
             return null;
         }
 

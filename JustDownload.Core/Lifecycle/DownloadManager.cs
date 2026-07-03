@@ -139,10 +139,9 @@ internal sealed partial class DownloadManager : IDownloadManager
         };
 
         long id = await _repository.AddAsync(record, cancellationToken).ConfigureAwait(false);
-        if (_logger.IsEnabled(LogLevel.Information))
-        {
-            LogEnqueued(_logger, id, SafeLogUrl.Of(record.Url));
-        }
+#pragma warning disable CA1873 // SafeLogUrl.Of is a cheap Uri.TryCreate + string interpolation, not worth an IsEnabled guard
+        LogEnqueued(_logger, id, SafeLogUrl.Of(record.Url));
+#pragma warning restore CA1873
         RaiseStatus(id, previous: null, DownloadStatus.Queued);
         return id;
     }

@@ -140,10 +140,9 @@ internal sealed partial class ExtensionMessageHandler : INativeMessageHandler
             cancellationToken).ConfigureAwait(false);
 
         await _launcher.EnsureRunningAsync(cancellationToken).ConfigureAwait(false);
-        if (_logger.IsEnabled(LogLevel.Information))
-        {
-            LogQueued(_logger, SafeLogUrl.Of(url));
-        }
+#pragma warning disable CA1873 // SafeLogUrl.Of is a cheap Uri.TryCreate + string interpolation, not worth an IsEnabled guard
+        LogQueued(_logger, SafeLogUrl.Of(url));
+#pragma warning restore CA1873
     }
 
     private async Task<string> GetSettingsAsync(CancellationToken cancellationToken)
