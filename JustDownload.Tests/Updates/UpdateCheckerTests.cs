@@ -305,20 +305,40 @@ public sealed class UpdateCheckerTests : IDisposable
     }
 
     [Fact]
-    public async Task CheckAsync_ReportsNotConfigured_AndMakesNoNetworkCall_WhenPublicKeyIsThePlaceholder()
+    public async Task CheckAsync_ReportsNotConfigured_AndMakesNoNetworkCall_WhenPublicKeyIsEmpty()
     {
         await using var server = new PathRoutingLoopbackServer();
         server.RouteJson($"/repos/{Owner}/{Repo}/releases/latest", ReleaseJson("v9.9.9")); // would 200 if ever called
         var applier = new FakeUpdateApplier();
 
-        // The production placeholder is the empty string (UpdateSigningKey.ProductionPublicKeyBase64).
-        UpdateChecker checker = CreateChecker(server, autoUpdateEnabled: true, UpdateSigningKey.ProductionPublicKeyBase64, applier);
+        // An empty string, not UpdateSigningKey.ProductionPublicKeyBase64: that constant is the real
+        // committed production key as of TASK-171 (the "unconfigured placeholder" state it started in is
+        // no longer its live value), but the fail-closed behavior this test guards -- an empty/unparseable
+        // key must never be treated as "trust anyway" -- has to hold regardless of whether a real key is
+        // currently configured, so it's asserted directly against a literal empty key here.
+        UpdateChecker checker = CreateChecker(server, autoUpdateEnabled: true, publicKeyBase64: "", applier);
 
         UpdateCheckResult result = await checker.CheckAsync();
 
         result.Status.Should().Be(UpdateCheckStatus.NotConfigured);
         server.RequestCount.Should().Be(0, "an unconfigured signing key must fail closed with zero downloads attempted");
         applier.ApplyCount.Should().Be(0);
+    }
+
+    [Fact]
+    public void ProductionPublicKey_IsConfigured_AndImportsAsAValidEcdsaP256Key()
+    {
+        // TASK-171: once the maintainer has generated and committed the real production key, it must
+        // actually be usable -- a non-empty string that fails to import would ALSO fail closed
+        // (TryImportPublicKey catches CryptographicException), silently masking a bad paste.
+        UpdateSigningKey.ProductionPublicKeyBase64.Should().NotBeNullOrWhiteSpace(
+            "TASK-171 AC0: the maintainer has generated and committed the real production key");
+
+        using ECDsa key = ECDsa.Create();
+        Action import = () => key.ImportSubjectPublicKeyInfo(
+            Convert.FromBase64String(UpdateSigningKey.ProductionPublicKeyBase64), out _);
+        import.Should().NotThrow("the committed key must be a well-formed DER SubjectPublicKeyInfo");
+        key.KeySize.Should().Be(256, "the policy (docs/release-signing.md) is ECDSA P-256");
     }
 
     [Fact]

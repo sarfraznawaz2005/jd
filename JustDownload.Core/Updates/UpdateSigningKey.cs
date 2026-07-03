@@ -15,5 +15,5 @@ namespace JustDownload.Core.Updates;
 internal static class UpdateSigningKey
 {
     /// <summary>Base64 DER SubjectPublicKeyInfo of the production signing key, or empty when unconfigured.</summary>
-    public const string ProductionPublicKeyBase64 = "";
+    public const string ProductionPublicKeyBase64 = "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE6ti4v0YjJHrpsxDdkIW4MRgWZTEwVxungoy8b+9NYxeE04e9Cfx6i0WwOfg9wjrx39FxjkON2ueSmNpULDiGCQ==";
 }
