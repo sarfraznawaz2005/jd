@@ -34,9 +34,13 @@ public class LoggingPipelineTests
         {
             ILogger logger = provider.GetRequiredService<ILogger<LoggingPipelineTests>>();
 
+            // Deliberately logging for real (the sink is enabled) to assert on actual redacted output below --
+            // an IsEnabled guard would be wrong here, this test's whole point is exercising the real log call.
+#pragma warning disable CA1873
             logger.LogInformation(
                 "Requesting {Url} with header Authorization: Bearer topsecretvalue12345",
                 "https://cdn.example.com/v.mp4?X-Amz-Signature=abc123def456ghijkl");
+#pragma warning restore CA1873
 
             sink.Entries.Should().ContainSingle();
             sink.Entries.TryDequeue(out (LogLevel Level, string Message) entry).Should().BeTrue();

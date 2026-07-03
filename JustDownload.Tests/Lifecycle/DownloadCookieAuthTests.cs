@@ -27,7 +27,7 @@ public sealed class DownloadCookieAuthTests : IDisposable
         private readonly Dictionary<string, string> _values = new(StringComparer.Ordinal);
         private int _counter;
 
-        public IReadOnlyDictionary<string, string> Values => _values;
+        public Dictionary<string, string> Values => _values;
 
         public Task<string> StoreAsync(string secret, CancellationToken cancellationToken = default)
         {
