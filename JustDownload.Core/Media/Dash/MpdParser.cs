@@ -73,7 +73,7 @@ public static class MpdParser
                         continue; // Can't build a stable, re-resolvable identifier without a representation id.
                     }
 
-                    IReadOnlyList<Uri>? segments = TryResolveSegments(period, set, representation, setBase);
+                    List<Uri>? segments = TryResolveSegments(period, set, representation, setBase);
                     if (segments is null || segments.Count == 0)
                     {
                         continue; // SegmentTemplate/SegmentList present but unresolvable (e.g. no duration or

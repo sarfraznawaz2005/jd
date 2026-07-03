@@ -140,7 +140,10 @@ internal sealed partial class ExtensionMessageHandler : INativeMessageHandler
             cancellationToken).ConfigureAwait(false);
 
         await _launcher.EnsureRunningAsync(cancellationToken).ConfigureAwait(false);
-        LogQueued(_logger, SafeLogUrl.Of(url));
+        if (_logger.IsEnabled(LogLevel.Information))
+        {
+            LogQueued(_logger, SafeLogUrl.Of(url));
+        }
     }
 
     private async Task<string> GetSettingsAsync(CancellationToken cancellationToken)

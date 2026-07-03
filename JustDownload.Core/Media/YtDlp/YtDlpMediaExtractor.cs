@@ -107,7 +107,11 @@ internal sealed partial class YtDlpMediaExtractor : IMediaExtractor
 
         if (result.ExitCode != 0)
         {
-            LogNonZeroExit(_logger, request.Url, result.ExitCode, Truncate(result.StandardError));
+            if (_logger.IsEnabled(LogLevel.Debug))
+            {
+                LogNonZeroExit(_logger, request.Url, result.ExitCode, Truncate(result.StandardError));
+            }
+
             return null;
         }
 

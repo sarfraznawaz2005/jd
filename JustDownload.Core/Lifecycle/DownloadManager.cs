@@ -139,7 +139,10 @@ internal sealed partial class DownloadManager : IDownloadManager
         };
 
         long id = await _repository.AddAsync(record, cancellationToken).ConfigureAwait(false);
-        LogEnqueued(_logger, id, SafeLogUrl.Of(record.Url));
+        if (_logger.IsEnabled(LogLevel.Information))
+        {
+            LogEnqueued(_logger, id, SafeLogUrl.Of(record.Url));
+        }
         RaiseStatus(id, previous: null, DownloadStatus.Queued);
         return id;
     }
