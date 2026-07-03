@@ -31,7 +31,9 @@ for a one-time, human-run script).
 ```csharp
 using System.Security.Cryptography;
 
-using ECDsa key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+// A plain declaration, not a "using" declaration — Roslyn's C# scripting engine (dotnet-script, and
+// csx generally) doesn't support the C# 8 `using var x = ...;` statement form at the top level.
+ECDsa key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
 
 // The PUBLIC half: paste this into JustDownload.Core/Updates/UpdateSigningKey.cs
 // (UpdateSigningKey.ProductionPublicKeyBase64) and commit it — it's not a secret.

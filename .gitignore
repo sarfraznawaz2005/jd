@@ -57,6 +57,9 @@ Thumbs.db
 # ---- Secrets / signing keys (NEVER commit) ----
 .keys/
 
+# ---- Local scratch scripts (e.g. docs/release-signing.md's offline sign-key.csx) — never commit ----
+/scripts/
+
 # Publish output (TASK-075)
 artifacts/
 
