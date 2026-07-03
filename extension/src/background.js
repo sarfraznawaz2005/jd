@@ -36,6 +36,53 @@ async function getBlacklist() {
   }
 }
 
+/** Whether automatic download takeover (TASK-183) is on — default on, opt-out via the popup toggle. */
+async function isInterceptEnabled() {
+  try {
+    const stored = await api.storage.sync.get("interceptDownloads");
+    return stored?.interceptDownloads !== false;
+  } catch {
+    return true;
+  }
+}
+
+// Automatic download takeover (TASK-183): every real download the browser starts is handed to the app
+// instead, IDM/FDM-style — this is the actual point of a download manager, not just a manual right-click
+// action. chrome.downloads.onCreated fires as soon as the browser begins a download; cancel it immediately
+// and forward the same URL through the existing native-messaging path (auth context, launch-or-notify —
+// TASK-070/182 — all already handled by sendDownload/forwardToApp). blob:/data: URLs are skipped: they're
+// page-local, in-memory content with no real network address the desktop app could ever fetch (the same
+// limitation the content-script icon overlay has, TASK-181) — the browser is the only thing that can save
+// those, so they're left alone.
+if (api.downloads?.onCreated) {
+  api.downloads.onCreated.addListener((item) => {
+    void handleBrowserDownload(item);
+  });
+}
+
+async function handleBrowserDownload(item) {
+  if (!item?.url || item.url.startsWith("blob:") || item.url.startsWith("data:")) {
+    return;
+  }
+  if (!(await isInterceptEnabled())) {
+    return;
+  }
+
+  const blacklist = await getBlacklist();
+  if (item.referrer && JD.isBlacklisted(item.referrer, blacklist)) {
+    return; // the site the download came from is on the "don't take over here" list (TASK-069's list)
+  }
+
+  try {
+    await api.downloads.cancel(item.id);
+    await api.downloads.erase({ id: item.id });
+  } catch {
+    // already finished, already removed, or cancel unsupported for this item — forward anyway
+  }
+
+  void sendDownload(item.url, null, item.referrer || null);
+}
+
 // Sniff the network for media requests (HLS/DASH/MP4/audio) so a page with a
 // playing video offers a download even when the URL never appears as a link.
 api.webRequest.onBeforeRequest.addListener(

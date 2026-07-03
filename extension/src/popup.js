@@ -56,6 +56,12 @@
     setToggle(toggle, !blocked);
   }
 
+  /** Initialise the global download-takeover toggle (TASK-183), default on. */
+  async function initInterceptToggle() {
+    const stored = await api.storage.sync.get("interceptDownloads");
+    setToggle(document.getElementById("intercept-toggle"), stored?.interceptDownloads !== false);
+  }
+
   function setToggle(toggle, on) {
     if (!toggle) {
       return;
@@ -89,6 +95,13 @@
       // ON = not blacklisted (remove); OFF = blacklisted (add).
       blacklist = on ? JD.removeFromBlacklist(blacklist, currentHost) : JD.addToBlacklist(blacklist, currentHost);
       await applyBlacklist(blacklist);
+    });
+
+    document.getElementById("intercept-toggle")?.addEventListener("click", async (e) => {
+      const el = e.currentTarget;
+      const on = !el.classList.contains("on");
+      setToggle(el, on);
+      await api.storage.sync.set({ interceptDownloads: on });
     });
 
     document.getElementById("open-settings")?.addEventListener("click", () => {
@@ -173,6 +186,7 @@
     wireInteractions();
     void refreshStatus();
     void initSiteToggle();
+    void initInterceptToggle();
     void renderMedia();
     void syncAppSettings();
   });

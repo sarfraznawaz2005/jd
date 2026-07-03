@@ -55,7 +55,7 @@ function makeSandbox({ tabMedia = [], settings = {} } = {}) {
   const elementsById = new Map();
   const ids = [
     "status", "status-dot", "status-text", "site-toggle", "media-empty", "media-list",
-    "send-link", "default-quality", "open-settings",
+    "send-link", "default-quality", "open-settings", "intercept-toggle",
   ];
   for (const id of ids) {
     elementsById.set(id, makeElement());

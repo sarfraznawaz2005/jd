@@ -10,11 +10,14 @@ const crypto = require("node:crypto");
 const SRC = path.join(__dirname, "..", "src");
 const readJson = (f) => JSON.parse(fs.readFileSync(path.join(SRC, f), "utf8"));
 
-test("base manifest drops unused permissions, keeps the needed ones (TASK-096)", () => {
+test("base manifest drops unused permissions, keeps the needed ones (TASK-096, TASK-183)", () => {
   const perms = readJson("manifest.base.json").permissions;
-  assert.ok(!perms.includes("downloads"), "the app downloads, not the extension");
+  // TASK-096 originally excluded "downloads" on the stance "the app downloads, not the extension" -- that
+  // stance is deliberately overturned by TASK-183: automatic download takeover needs chrome.downloads to
+  // cancel the browser's own download and hand the URL to the app instead (IDM/FDM-style), which right-click
+  // "Download with JustDownload" alone can't provide.
   assert.ok(!perms.includes("activeTab"), "redundant given <all_urls> host_permissions");
-  for (const needed of ["nativeMessaging", "cookies", "webRequest", "contextMenus", "storage"]) {
+  for (const needed of ["nativeMessaging", "cookies", "webRequest", "contextMenus", "storage", "downloads"]) {
     assert.ok(perms.includes(needed), `missing required permission: ${needed}`);
   }
 });
