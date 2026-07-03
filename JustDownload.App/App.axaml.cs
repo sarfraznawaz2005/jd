@@ -230,7 +230,7 @@ public partial class App : Application
         window.Activate();
     }
 
-    private static void WireForwardedArguments(Window window, MainWindowViewModel mainViewModel)
+    private void WireForwardedArguments(Window window, MainWindowViewModel mainViewModel)
     {
         if (InstanceCoordinator is not { } coordinator)
         {
@@ -239,6 +239,15 @@ public partial class App : Application
 
         coordinator.ArgumentsReceived += (_, args) => Dispatcher.UIThread.Post(() =>
         {
+            // AppLauncher (a native-host client) sends this instead of a URL when a browser hand-off
+            // arrives while this instance is already running (TASK-182) — re-drain the inbox now rather
+            // than only at the next full restart, which is all that happened before this fix.
+            if (args.Contains(JustDownload.Core.NativeMessaging.SingleInstancePipeName.DrainInboxSignal))
+            {
+                _ = DeliverPendingLinksAsync();
+                return;
+            }
+
             BringToFront(window);
             string? url = args.FirstOrDefault(a => Uri.TryCreate(a, UriKind.Absolute, out Uri? _));
             if (url is not null)

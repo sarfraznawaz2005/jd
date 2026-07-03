@@ -20,11 +20,41 @@ public sealed class ExtensionInboxLauncherTests : IDisposable
     {
         int launched = 0;
 
-        await new AppLauncher(() => false, () => launched++, NullLogger<AppLauncher>.Instance).EnsureRunningAsync();
+        await new AppLauncher(() => false, () => launched++, _ => Task.CompletedTask, NullLogger<AppLauncher>.Instance)
+            .EnsureRunningAsync();
         launched.Should().Be(1, "the app is launched when not running (AC0)");
 
-        await new AppLauncher(() => true, () => launched++, NullLogger<AppLauncher>.Instance).EnsureRunningAsync();
+        await new AppLauncher(() => true, () => launched++, _ => Task.CompletedTask, NullLogger<AppLauncher>.Instance)
+            .EnsureRunningAsync();
         launched.Should().Be(1, "an already-running app is not launched again");
+    }
+
+    [Fact]
+    public async Task Launcher_NotifiesInsteadOfLaunching_WhenAlreadyRunning()
+    {
+        // TASK-182: before this, "already running" meant EnsureRunningAsync did nothing at all -- the
+        // link sat in the inbox unseen until the app was next closed and reopened. It must now signal the
+        // running instance instead.
+        int notified = 0;
+        int launched = 0;
+
+        await new AppLauncher(() => true, () => launched++, _ => { notified++; return Task.CompletedTask; },
+            NullLogger<AppLauncher>.Instance).EnsureRunningAsync();
+
+        notified.Should().Be(1, "the running instance is notified to re-check the inbox");
+        launched.Should().Be(0, "an already-running app is never launched again");
+    }
+
+    [Fact]
+    public async Task Launcher_SwallowsANotifyFailure_TheLinkStaysQueuedForNextRestart()
+    {
+        // Best-effort: the link is already durably queued (Inbox_PersistsLinks_DeliveredOnNextStart), so a
+        // failed notify (e.g. the pipe listener isn't up yet) must not throw onto the native host process.
+        Func<Task> act = () => new AppLauncher(
+            () => true, () => { }, _ => throw new IOException("pipe unavailable"), NullLogger<AppLauncher>.Instance)
+            .EnsureRunningAsync();
+
+        await act.Should().NotThrowAsync();
     }
 
     [Fact]

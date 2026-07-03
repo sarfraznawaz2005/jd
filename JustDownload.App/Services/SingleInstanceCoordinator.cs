@@ -1,5 +1,4 @@
 using System.IO.Pipes;
-using System.Security.Cryptography;
 using System.Text;
 
 namespace JustDownload.App.Services;
@@ -87,8 +86,10 @@ public sealed class SingleInstanceCoordinator : ISingleInstanceCoordinator
     // "The path '.../CoreFxPipe_JustDownload.Test.<32-char-guid>.pipe' is of an invalid length for use
     // with domain sockets... The length must be between 1 and 104 characters". A short, fixed-length hash
     // keeps the pipe name's contribution constant regardless of how long/unique _name is (the mutex name
-    // has no such limit, so it keeps the human-readable form for diagnostics).
-    private string PipeName => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(_name)))[..16];
+    // has no such limit, so it keeps the human-readable form for diagnostics). Shared with
+    // JustDownload.Core's AppLauncher (TASK-182), which connects to this same pipe as a client from the
+    // native host process — hence the resolution itself lives in Core, not duplicated here.
+    private string PipeName => JustDownload.Core.NativeMessaging.SingleInstancePipeName.Resolve(_name);
 
     private async Task ListenLoopAsync(CancellationToken ct)
     {

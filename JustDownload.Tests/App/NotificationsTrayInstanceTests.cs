@@ -162,6 +162,38 @@ public sealed class NotificationsTrayInstanceTests
 
         received.Should().Equal("https://example.com/file.zip");
     }
+
+    [Fact]
+    public async Task NativeHostNotify_DeliversTheDrainInboxSignal_ToTheOwner()
+    {
+        // TASK-182: proves the actual contract AppLauncher.NotifyRunningInstanceAsync depends on -- that a
+        // client resolving the pipe name through SingleInstancePipeName.Resolve(name) and sending
+        // DrainInboxSignal is received, verbatim, by a SingleInstanceCoordinator owner listening on that
+        // same name. AppLauncher's own production method is private and hardcodes the real app name, so
+        // this replicates its exact client-side protocol against a test-scoped name instead of touching the
+        // real production mutex/pipe (which could collide with an actual running app instance).
+        string name = "JustDownload.Test." + Guid.NewGuid().ToString("N");
+        using var owner = new SingleInstanceCoordinator(name);
+        owner.IsOwnerShouldBeTrue();
+
+        IReadOnlyList<string>? received = null;
+        using var gate = new SemaphoreSlim(0, 1);
+        owner.ArgumentsReceived += (_, args) => { received = args; gate.Release(); };
+
+        await using (var client = new System.IO.Pipes.NamedPipeClientStream(
+            ".", JustDownload.Core.NativeMessaging.SingleInstancePipeName.Resolve(name),
+            System.IO.Pipes.PipeDirection.Out, System.IO.Pipes.PipeOptions.Asynchronous))
+        {
+            await client.ConnectAsync(5000);
+            byte[] payload = System.Text.Encoding.UTF8.GetBytes(
+                JustDownload.Core.NativeMessaging.SingleInstancePipeName.DrainInboxSignal);
+            await client.WriteAsync(payload);
+            await client.FlushAsync();
+        }
+
+        (await gate.WaitAsync(TimeSpan.FromSeconds(5))).Should().BeTrue("the owner receives the signal");
+        received.Should().Equal(JustDownload.Core.NativeMessaging.SingleInstancePipeName.DrainInboxSignal);
+    }
 }
 
 file static class CoordinatorTestExtensions
