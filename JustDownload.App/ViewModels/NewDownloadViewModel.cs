@@ -198,7 +198,10 @@ public sealed partial class NewDownloadViewModel : ViewModelBase
     /// <summary>Validation message for the file-name field, or <see langword="null"/> when valid.</summary>
     public string? FileNameError =>
         string.IsNullOrWhiteSpace(FileName) ? null
-        : FileName.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0 ? "The file name contains invalid characters."
+        // Cross-platform (TASK-173): validated against every supported OS's rules, not just this one, so a
+        // name accepted on Linux/macOS doesn't turn out to be invalid once synced to/opened on Windows.
+        : FileName.IndexOfAny(JustDownload.Core.CrossPlatformFileName.InvalidChars) >= 0
+            ? "The file name contains invalid characters."
         : null;
 
     /// <summary>Validation message for the folder field, or <see langword="null"/> when valid.</summary>

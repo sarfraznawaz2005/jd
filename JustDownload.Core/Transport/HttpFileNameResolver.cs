@@ -114,7 +114,7 @@ public static class HttpFileNameResolver
         var builder = new System.Text.StringBuilder(name.Length);
         foreach (char ch in name)
         {
-            builder.Append(Array.IndexOf(InvalidChars, ch) >= 0 ? '_' : ch);
+            builder.Append(Array.IndexOf(CrossPlatformFileName.InvalidChars, ch) >= 0 ? '_' : ch);
         }
 
         // Trailing dots and spaces are invalid on Windows; "." and ".." are not real names.
@@ -125,25 +125,5 @@ public static class HttpFileNameResolver
         }
 
         return cleaned;
-    }
-
-    private static readonly char[] InvalidChars = BuildInvalidChars();
-
-    private static char[] BuildInvalidChars()
-    {
-        // Union of the OS-invalid set with characters that are invalid on other platforms (so a name is
-        // safe cross-platform regardless of where it was derived) and control characters.
-        var chars = new HashSet<char>(Path.GetInvalidFileNameChars());
-        foreach (char ch in "<>:\"/\\|?*")
-        {
-            chars.Add(ch);
-        }
-
-        for (char ch = '\0'; ch < ' '; ch++)
-        {
-            chars.Add(ch);
-        }
-
-        return [.. chars];
     }
 }

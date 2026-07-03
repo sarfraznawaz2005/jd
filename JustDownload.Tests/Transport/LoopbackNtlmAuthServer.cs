@@ -107,6 +107,12 @@ internal sealed class LoopbackNtlmAuthServer : IAsyncDisposable
 
                     if (messageType == 1)
                     {
+                        // TEMP diagnostic (TASK-173): dump the client's real NEGOTIATE flags so a genuine
+                        // cross-platform mismatch can be diagnosed from actual CI evidence, not guessed.
+                        uint clientFlags = message.Length >= 16 ? BitConverter.ToUInt32(message, 12) : 0;
+                        Console.Error.WriteLine(
+                            $"[NTLM-DIAG] Type1 len={message.Length} flags=0x{clientFlags:X8} bytes={Convert.ToHexString(message)}");
+
                         serverChallenge = RandomNumberGenerator.GetBytes(8);
                         byte[] challenge = NtlmMessages.BuildChallenge(serverChallenge, TargetDomain, TargetComputer);
                         await WriteChallengeAsync(stream, Convert.ToBase64String(challenge), ct).ConfigureAwait(false);
@@ -115,9 +121,14 @@ internal sealed class LoopbackNtlmAuthServer : IAsyncDisposable
 
                     if (messageType == 3)
                     {
+                        // TEMP diagnostic (TASK-173).
+                        Console.Error.WriteLine(
+                            $"[NTLM-DIAG] Type3 len={message.Length} bytes={Convert.ToHexString(message)}");
+
                         (string domain, string username, byte[] ntResponse) = NtlmMessages.ParseAuthenticate(message);
                         bool cryptoOk = NtlmMessages.VerifyNtlmV2(domain, username, Password, serverChallenge, ntResponse);
                         authenticated = username.Equals(Username, StringComparison.OrdinalIgnoreCase) && cryptoOk;
+                        Console.Error.WriteLine($"[NTLM-DIAG] domain={domain} username={username} cryptoOk={cryptoOk}");
 
                         if (!authenticated)
                         {

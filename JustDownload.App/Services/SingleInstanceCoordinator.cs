@@ -127,11 +127,14 @@ public sealed class SingleInstanceCoordinator : ISingleInstanceCoordinator
         {
         }
 
-        if (IsOwner)
-        {
-            _mutex?.ReleaseMutex();
-        }
-
+        // Deliberately no ReleaseMutex() here (TASK-173): it requires the exact thread that acquired the
+        // mutex in TryClaimOwnership(), which async continuations elsewhere in this class's lifetime (or a
+        // caller awaiting before disposing) can't guarantee — release throws ApplicationException
+        // ("...called from an unsynchronized block of code") from any other thread. Disposing the handle is
+        // sufficient and thread-agnostic: it's this instance's only handle to the named mutex, so closing it
+        // destroys the underlying OS object (or, if somehow still referenced, abandons it) either way making
+        // it immediately available to the next TryClaimOwnership() caller, same end state as an explicit
+        // release.
         _mutex?.Dispose();
         _cts.Dispose();
     }

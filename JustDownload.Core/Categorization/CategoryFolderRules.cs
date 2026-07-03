@@ -50,8 +50,8 @@ public sealed class CategoryFolderRules
         var builder = new System.Text.StringBuilder(folderName.Length);
         foreach (char ch in folderName)
         {
-            // Strip path separators and any character invalid in a file/dir name.
-            bool invalid = ch is '/' or '\\' || Array.IndexOf(Path.GetInvalidFileNameChars(), ch) >= 0;
+            // Cross-platform (TASK-173), not just this OS's rules — see CrossPlatformFileName.
+            bool invalid = Array.IndexOf(CrossPlatformFileName.InvalidChars, ch) >= 0;
             builder.Append(invalid ? '_' : ch);
         }
 
