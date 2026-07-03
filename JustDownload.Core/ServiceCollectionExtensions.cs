@@ -414,7 +414,18 @@ public static class ServiceCollectionExtensions
         // root already adds it via AddJustDownloadLifecycle before this).
         services.TryAddSingleton<ISettingsService, SettingsService>();
 
-        services.TryAddSingleton(new FfmpegOptions());
+        // FfmpegOptions/YtDlpOptions' vendor-directory defaults (TASK-186, below) need this; ensure it's
+        // registered wherever media is, same reasoning as ISettingsService just above.
+        services.TryAddSingleton<IAppInfoProvider, AppInfoProvider>();
+
+        // VendorDirectory gets a real default here (TASK-186) rather than staying null until
+        // FfmpegProvisioner sets it as a side effect of a successful download: that mutation only lives in
+        // this process's memory, so a fresh restart forgot it ever ran and the locator's vendor-directory
+        // candidate was skipped entirely — a provisioned ffmpeg silently "disappeared" on every restart.
+        services.TryAddSingleton(sp => new FfmpegOptions
+        {
+            VendorDirectory = Path.Combine(AppDataPaths.Directory(sp.GetRequiredService<IAppInfoProvider>()), "ffmpeg"),
+        });
         services.TryAddSingleton<IFfmpegLocator, FfmpegLocator>();
         services.TryAddSingleton<IFfmpegRunner, FfmpegRunner>();
         services.TryAddSingleton<IMediaConverter, MediaConverter>();
@@ -428,7 +439,12 @@ public static class ServiceCollectionExtensions
         // nothing is ever fetched or invoked unless the user opts in via AppSettings.VideoCaptureEnabled,
         // explicitly downloads it, and every in-house extractor (below) has already declined. Never bundled
         // or statically linked — downloaded on demand and run as a separate process, exactly like ffmpeg (D7).
-        services.TryAddSingleton(new YtDlpOptions());
+        // Same fix, same reason as FfmpegOptions above (TASK-186): a real default instead of null-until-a-
+        // successful-provision, so the locator can find a previously-downloaded yt-dlp after a restart.
+        services.TryAddSingleton(sp => new YtDlpOptions
+        {
+            VendorDirectory = Path.Combine(AppDataPaths.Directory(sp.GetRequiredService<IAppInfoProvider>()), "yt-dlp"),
+        });
         services.TryAddSingleton<IYtDlpLocator, YtDlpLocator>();
         services.TryAddSingleton(YtDlpManifest.Default);
         services.TryAddSingleton<IYtDlpProvisioner, YtDlpProvisioner>();
@@ -503,6 +519,7 @@ public static class ServiceCollectionExtensions
         // Hand-off queue + app launcher (TASK-070, US-11 AC5): the host queues links the app drains on next
         // start, and launches the app when it is not already running.
         services.TryAddSingleton<IExtensionInbox, ExtensionInbox>();
+        services.TryAddSingleton<IAppRunningProbe, AppRunningProbe>();
         services.TryAddSingleton<IAppLauncher, AppLauncher>();
 
         // Real "has a browser's extension actually contacted us" tracking (TASK-175), independent of whether

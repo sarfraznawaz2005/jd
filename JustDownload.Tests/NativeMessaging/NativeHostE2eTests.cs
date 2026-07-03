@@ -29,6 +29,11 @@ public sealed class NativeHostE2eTests : IDisposable
     [Fact]
     public async Task AllowlistedExtension_PingPongs_AndQueuesDownloadLink_ToInbox()
     {
+        // Ping now answers "pong" only when the desktop app is actually running (TASK-185) — simulate that
+        // by holding the same mutex AppLauncher/AppRunningProbe check, so this test still exercises the
+        // real ping-pong success path rather than the (separately tested) "app not running" case.
+        using var appRunning = new Mutex(initiallyOwned: true, AppLauncher.RunningMutexName);
+
         using var cts = new CancellationTokenSource(Timeout);
         Process host = StartHost(NativeHostIdentity.FirefoxExtensionId);
         try
@@ -59,6 +64,26 @@ public sealed class NativeHostE2eTests : IDisposable
             delivered.Url.Should().Be(url);
             delivered.Referrer.Should().Be("https://example.com/watch");
             delivered.Cookies.Should().Be("session=xyz");
+        }
+        finally
+        {
+            Kill(host);
+        }
+    }
+
+    [Fact]
+    public async Task Ping_WhenNoAppIsRunning_AnswersAppNotRunning_NotPong()
+    {
+        // TASK-185: before this fix, ping always answered pong regardless of whether the desktop app was
+        // actually running, so the extension popup showed "App connected" even with the app fully closed.
+        using var cts = new CancellationTokenSource(Timeout);
+        Process host = StartHost(NativeHostIdentity.FirefoxExtensionId);
+        try
+        {
+            await NativeMessageCodec.WriteAsync(host.StandardInput.BaseStream, "{\"type\":\"ping\"}", cts.Token);
+            string? reply = await NativeMessageCodec.ReadAsync(host.StandardOutput.BaseStream, cancellationToken: cts.Token);
+
+            reply.Should().NotBeNull().And.NotContain("pong").And.Contain("app_not_running");
         }
         finally
         {

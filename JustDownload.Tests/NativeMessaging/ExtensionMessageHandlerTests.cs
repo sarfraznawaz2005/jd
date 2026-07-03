@@ -66,13 +66,19 @@ public sealed class ExtensionMessageHandlerTests
         }
     }
 
+    private sealed class FakeAppRunningProbe(bool running = true) : IAppRunningProbe
+    {
+        public bool IsRunning() => running;
+    }
+
     private static ExtensionMessageHandler Build(
         IBlacklistRepository repo,
         IExtensionInbox? inbox = null,
         IAppLauncher? launcher = null,
+        IAppRunningProbe? appRunning = null,
         ILogger<ExtensionMessageHandler>? logger = null) =>
-        new(repo, inbox ?? new FakeInbox(), launcher ?? new CountingLauncher(), new StubSettings(),
-            logger ?? NullLogger<ExtensionMessageHandler>.Instance);
+        new(repo, inbox ?? new FakeInbox(), launcher ?? new CountingLauncher(), appRunning ?? new FakeAppRunningProbe(),
+            new StubSettings(), logger ?? NullLogger<ExtensionMessageHandler>.Instance);
 
     private sealed class RecordingLogger<T> : ILogger<T>
     {
@@ -114,11 +120,25 @@ public sealed class ExtensionMessageHandlerTests
     }
 
     [Fact]
-    public async Task Ping_RepliesPong()
+    public async Task Ping_WhenAppIsRunning_RepliesPong()
     {
-        string? reply = await Build(new InMemoryBlacklist()).HandleAsync("{\"type\":\"ping\"}");
+        string? reply = await Build(new InMemoryBlacklist(), appRunning: new FakeAppRunningProbe(running: true))
+            .HandleAsync("{\"type\":\"ping\"}");
 
         reply.Should().Contain("pong");
+    }
+
+    [Fact]
+    public async Task Ping_WhenAppIsNotRunning_RepliesErrorNotPong()
+    {
+        // TASK-185: before this, ping/pong never checked whether the app itself was running -- only
+        // whether this native host process (which the browser can spawn on its own) could answer at all --
+        // so the extension popup showed "App connected" even with the app fully closed.
+        string? reply = await Build(new InMemoryBlacklist(), appRunning: new FakeAppRunningProbe(running: false))
+            .HandleAsync("{\"type\":\"ping\"}");
+
+        reply.Should().NotContain("pong");
+        reply.Should().Contain("error");
     }
 
     [Fact]
@@ -156,6 +176,17 @@ public sealed class ExtensionMessageHandlerTests
 
         reply.Should().Contain("settings");
         reply.Should().Contain("720", "the app's default quality is surfaced to the popup");
+    }
+
+    [Fact]
+    public async Task GetSettings_IncludesVideoCaptureEnabled()
+    {
+        // TASK-185: the extension's own detection (network sniffer, icon overlay, popup media list) must
+        // respect this app setting -- before this it wasn't even exposed to the extension at all, so
+        // turning it off in the app had zero effect on the extension.
+        string? reply = await Build(new InMemoryBlacklist()).HandleAsync("{\"type\":\"get_settings\"}");
+
+        reply.Should().Contain("\"videoCaptureEnabled\":false", "StubSettings defaults VideoCaptureEnabled to false");
     }
 
     [Fact]

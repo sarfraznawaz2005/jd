@@ -51,6 +51,7 @@
   /** media elements currently mid-resolution, so a concurrent scan can't double-attach (TASK-181). */
   const inFlight = new Set();
   let blacklisted = false;
+  let videoCaptureOff = false;
   let rescanTimer = null;
   let repositionTimer = null;
   let pendingRetryTimer = null;
@@ -178,7 +179,7 @@
   }
 
   function scanAndAttach() {
-    if (blacklisted) {
+    if (blacklisted || videoCaptureOff) {
       return;
     }
     for (const el of document.querySelectorAll("video")) {
@@ -246,9 +247,21 @@
     }
   }
 
+  /** Whether the app's AppSettings.VideoCaptureEnabled is off (TASK-185), read once at startup — turning
+   * it off in Settings must actually stop the icon overlay, not just the app's own yt-dlp fallback. */
+  async function isVideoCaptureOff() {
+    try {
+      const response = await api.runtime.sendMessage({ type: "GET_SETTINGS" });
+      return response?.settings?.videoCaptureEnabled === false;
+    } catch {
+      return false;
+    }
+  }
+
   async function init() {
     blacklisted = await isThisFrameBlacklisted();
-    if (blacklisted) {
+    videoCaptureOff = await isVideoCaptureOff();
+    if (blacklisted || videoCaptureOff) {
       return;
     }
 

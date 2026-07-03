@@ -32,4 +32,10 @@ internal sealed record ExtensionSettingsDto
 
     [JsonPropertyName("maxConcurrentDownloads")]
     public required int MaxConcurrentDownloads { get; init; }
+
+    /// <summary>Whether the app's video-capture setting is on (TASK-185) — the extension gates its own
+    /// media sniffing/icon overlay/popup media list on this, so turning it off in Settings actually stops
+    /// video detection everywhere, not just the app's own yt-dlp fallback.</summary>
+    [JsonPropertyName("videoCaptureEnabled")]
+    public required bool VideoCaptureEnabled { get; init; }
 }

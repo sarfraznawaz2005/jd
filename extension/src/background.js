@@ -2,9 +2,10 @@
 //
 // Forwards links and detected media to the desktop app over Native Messaging,
 // with the auth context (cookies, referrer, user-agent) for authenticated
-// downloads (TASK-067). The media sniffer feeding the badge and the per-video
-// download icons (TASK-068/164), the per-site blacklist (TASK-069), and
-// launch-if-not-running / queue (TASK-070) build on the seams here.
+// downloads (TASK-067). The media sniffer feeding the per-video download icons'
+// blob:-URL fallback (TASK-068/164/181), the per-site blacklist (TASK-069),
+// automatic download takeover (TASK-183), and launch-if-not-running / queue
+// (TASK-070) build on the seams here.
 "use strict";
 
 // Load the shared core. Chrome/Edge run this as a service worker, where
@@ -46,6 +47,30 @@ async function isInterceptEnabled() {
   }
 }
 
+// The app's own AppSettings.VideoCaptureEnabled (TASK-185), mirrored here so the extension's media
+// sniffer and icon overlay actually stop when the user turns it off in Settings — before this, the flag
+// was never even exposed to the extension (GET_SETTINGS didn't include it), so the two were completely
+// independent and the app setting had zero effect on the extension. There is no push notification when
+// the app's settings change, so this is refreshed opportunistically: on install/startup (alongside the
+// existing ping) and every time the popup asks for settings — good enough since a user who just flipped
+// the setting in the app naturally reopens the popup around the same time to check.
+let videoCaptureEnabled = true;
+
+async function refreshVideoCaptureCache() {
+  try {
+    const settings = await new Promise((resolve) => {
+      api.runtime.sendNativeMessage(NATIVE_HOST, { type: "get_settings" }, (response) => {
+        resolve(api.runtime.lastError ? null : response);
+      });
+    });
+    if (typeof settings?.videoCaptureEnabled === "boolean") {
+      videoCaptureEnabled = settings.videoCaptureEnabled;
+    }
+  } catch {
+    /* app/host unreachable — keep the last-known value */
+  }
+}
+
 // Automatic download takeover (TASK-183): every real download the browser starts is handed to the app
 // instead, IDM/FDM-style — this is the actual point of a download manager, not just a manual right-click
 // action. chrome.downloads.onCreated fires as soon as the browser begins a download; cancel it immediately
@@ -83,48 +108,28 @@ async function handleBrowserDownload(item) {
   void sendDownload(item.url, null, item.referrer || null);
 }
 
-// Sniff the network for media requests (HLS/DASH/MP4/audio) so a page with a
-// playing video offers a download even when the URL never appears as a link.
+// Sniff the network for media requests (HLS/DASH/MP4/audio) so a page with a playing video can still be
+// downloaded even when the URL never appears as a link. Feeds the per-video icon overlay's blob:-URL
+// fallback (TASK-181) via GET_TAB_MEDIA — there is no popup UI or toolbar badge surfacing this list
+// directly (TASK-187): it's plumbing for the icon overlay, not a user-facing feature of its own. Gated on
+// videoCaptureEnabled (TASK-185) so turning the app setting off genuinely stops detection.
 api.webRequest.onBeforeRequest.addListener(
   (details) => {
-    if (details.tabId < 0) {
-      return; // not tied to a tab (e.g. the worker itself)
+    if (details.tabId < 0 || !videoCaptureEnabled) {
+      return; // not tied to a tab (e.g. the worker itself), or video capture is off in Settings
     }
     const kind = JD.classifyMedia(details.url);
-    if (kind && mediaStore.add(details.tabId, { url: details.url, kind })) {
-      void onMediaDetected(details.tabId);
+    if (kind) {
+      mediaStore.add(details.tabId, { url: details.url, kind });
     }
   },
   { urls: ["<all_urls>"] },
 );
 
-/**
- * Updates the toolbar badge with the tab's detected-media count. The per-video download icons
- * (TASK-164) are rendered directly by each frame's content script, gated by its own blacklist check —
- * this only mirrors that same blacklist rule (TASK-069) into the badge so it stays consistent.
- */
-async function onMediaDetected(tabId) {
-  const count = mediaStore.count(tabId);
-  let pageUrl = "";
-  try {
-    pageUrl = (await api.tabs.get(tabId))?.url ?? "";
-  } catch {
-    pageUrl = "";
-  }
-
-  const show = JD.shouldShowFloatingButton(count, pageUrl, await getBlacklist());
-  try {
-    await api.action.setBadgeText({ tabId, text: show && count > 0 ? String(count) : "" });
-  } catch {
-    /* the action API may be unavailable on some pages */
-  }
-}
-
 // Forget a tab's media when it navigates away or closes.
 api.tabs.onUpdated.addListener((tabId, changeInfo) => {
   if (changeInfo.status === "loading" && changeInfo.url) {
     mediaStore.clear(tabId);
-    api.action.setBadgeText({ tabId, text: "" }).catch(() => {});
   }
 });
 api.tabs.onRemoved.addListener((tabId) => mediaStore.clear(tabId));
@@ -139,11 +144,15 @@ api.runtime.onInstalled.addListener(() => {
     });
   });
   pingHost(); // announce this install to the desktop app right away (TASK-175), not just on popup-open
+  void refreshVideoCaptureCache();
 });
 
 // Re-announce on every browser startup too, so the app's "last contacted" state stays fresh across
 // sessions rather than only reflecting a one-time install ping (TASK-175).
-api.runtime.onStartup.addListener(() => pingHost());
+api.runtime.onStartup.addListener(() => {
+  pingHost();
+  void refreshVideoCaptureCache();
+});
 
 /** Fire-and-forget native-messaging ping, purely to register real contact with the desktop app. */
 function pingHost() {
@@ -251,8 +260,8 @@ api.runtime.onMessage.addListener((message, sender, sendResponse) => {
       // A media element the content script found in the DOM (TASK-068 AC0).
       const tabId = sender?.tab?.id;
       const kind = JD.classifyMedia(message.url) ?? "video";
-      if (typeof tabId === "number" && message.url && mediaStore.add(tabId, { url: message.url, kind })) {
-        void onMediaDetected(tabId);
+      if (typeof tabId === "number" && message.url) {
+        mediaStore.add(tabId, { url: message.url, kind });
       }
       sendResponse({ ok: true });
       break;
@@ -266,9 +275,15 @@ api.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return true;
 
     case "GET_SETTINGS":
-      // The popup asks the desktop app for its current settings (TASK-071 AC2).
+      // The popup (or content.js, checking videoCaptureEnabled before scanning) asks the desktop app for
+      // its current settings (TASK-071 AC2). Also refreshes the sniffer's cached videoCaptureEnabled
+      // (TASK-185) from this same response, piggybacking on a round-trip that's happening anyway rather
+      // than making a second one.
       try {
         api.runtime.sendNativeMessage(NATIVE_HOST, { type: "get_settings" }, (response) => {
+          if (!api.runtime.lastError && typeof response?.videoCaptureEnabled === "boolean") {
+            videoCaptureEnabled = response.videoCaptureEnabled;
+          }
           sendResponse({ ok: !api.runtime.lastError, settings: response ?? null });
         });
       } catch {
@@ -277,25 +292,10 @@ api.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return true;
 
     case "GET_TAB_MEDIA": {
-      // The popup / floating button asks what was detected for a tab (TASK-068/071).
+      // content.js's icon-overlay fallback asks what the sniffer detected for its tab (TASK-181) — the
+      // only remaining consumer since the popup's own media list was removed (TASK-187).
       const tabId = message.tabId ?? sender?.tab?.id;
       sendResponse({ ok: true, media: typeof tabId === "number" ? mediaStore.get(tabId) : [] });
-      break;
-    }
-
-    case "DOWNLOAD_DETECTED_MEDIA": {
-      // The floating button / popup asks to download the media detected for a tab (TASK-068 AC2).
-      const tabId = message.tabId ?? sender?.tab?.id;
-      const tab = sender?.tab;
-      const items = typeof tabId === "number" ? mediaStore.get(tabId) : [];
-      const target = message.url ? items.find((m) => m.url === message.url) ?? items[0] : items[0];
-      if (target) {
-        void sendDownload(target.url, tab, tab?.url || null, target.kind).then((forwarded) =>
-          sendResponse({ ok: true, forwarded }),
-        );
-        return true;
-      }
-      sendResponse({ ok: false, error: "no_media" });
       break;
     }
 

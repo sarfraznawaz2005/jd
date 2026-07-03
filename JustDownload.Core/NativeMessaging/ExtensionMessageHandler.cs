@@ -22,6 +22,7 @@ internal sealed partial class ExtensionMessageHandler : INativeMessageHandler
     private readonly IBlacklistRepository _blacklist;
     private readonly IExtensionInbox _inbox;
     private readonly IAppLauncher _launcher;
+    private readonly IAppRunningProbe _appRunning;
     private readonly ISettingsService _settings;
     private readonly ILogger<ExtensionMessageHandler> _logger;
 
@@ -29,17 +30,20 @@ internal sealed partial class ExtensionMessageHandler : INativeMessageHandler
         IBlacklistRepository blacklist,
         IExtensionInbox inbox,
         IAppLauncher launcher,
+        IAppRunningProbe appRunning,
         ISettingsService settings,
         ILogger<ExtensionMessageHandler> logger)
     {
         ArgumentNullException.ThrowIfNull(blacklist);
         ArgumentNullException.ThrowIfNull(inbox);
         ArgumentNullException.ThrowIfNull(launcher);
+        ArgumentNullException.ThrowIfNull(appRunning);
         ArgumentNullException.ThrowIfNull(settings);
         ArgumentNullException.ThrowIfNull(logger);
         _blacklist = blacklist;
         _inbox = inbox;
         _launcher = launcher;
+        _appRunning = appRunning;
         _settings = settings;
         _logger = logger;
     }
@@ -64,7 +68,13 @@ internal sealed partial class ExtensionMessageHandler : INativeMessageHandler
             switch (type)
             {
                 case "ping":
-                    return "{\"type\":\"pong\"}";
+                    // "pong" must mean the desktop app itself is running, not just that this native host
+                    // process (a separate, short-lived process the browser can spawn on its own) answered
+                    // (TASK-185) — before this, the extension popup showed "App connected" even with the
+                    // app fully closed.
+                    return _appRunning.IsRunning()
+                        ? "{\"type\":\"pong\"}"
+                        : "{\"type\":\"error\",\"error\":\"app_not_running\"}";
 
                 case "blacklist_sync":
                     await SyncBlacklistAsync(document.RootElement, cancellationToken).ConfigureAwait(false);
@@ -155,6 +165,7 @@ internal sealed partial class ExtensionMessageHandler : INativeMessageHandler
             DefaultVideoQuality = (int)s.DefaultVideoQuality,
             DefaultContainer = s.DefaultContainer.ToString().ToLowerInvariant(),
             MaxConcurrentDownloads = s.MaxConcurrentDownloads,
+            VideoCaptureEnabled = s.VideoCaptureEnabled,
         };
         return JsonSerializer.Serialize(payload, NativeMessagingJsonContext.Default.ExtensionSettingsDto);
     }

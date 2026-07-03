@@ -57,7 +57,7 @@ public sealed partial class AppLauncher : IAppLauncher
 
     /// <summary>Creates the production launcher (mutex probe + process start + named-pipe notify). The DI default.</summary>
     public AppLauncher(ILogger<AppLauncher> logger)
-        : this(IsAppRunning, LaunchApp, NotifyRunningInstanceAsync, logger)
+        : this(new AppRunningProbe().IsRunning, LaunchApp, NotifyRunningInstanceAsync, logger)
     {
     }
 
@@ -88,23 +88,6 @@ public sealed partial class AppLauncher : IAppLauncher
         catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException or IOException)
         {
             LogLaunchFailed(_logger, ex);
-        }
-    }
-
-    private static bool IsAppRunning()
-    {
-        try
-        {
-            using Mutex mutex = Mutex.OpenExisting(RunningMutexName);
-            return true;
-        }
-        catch (WaitHandleCannotBeOpenedException)
-        {
-            return false;
-        }
-        catch (UnauthorizedAccessException)
-        {
-            return true; // it exists but is owned by another session
         }
     }
 
