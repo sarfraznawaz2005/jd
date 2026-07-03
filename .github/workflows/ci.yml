@@ -34,6 +34,14 @@ jobs:
         with:
           dotnet-version: 8.0.x
 
+      - name: Install gss-ntlmssp (Linux NTLM auth, TASK-174)
+        # SocketsHttpHandler's NTLM client auth on Unix goes through GSSAPI (MIT Kerberos), which has no
+        # native NTLM support -- without this plugin the client never even attempts a Type1 message after
+        # a 401 challenge (confirmed via https://github.com/dotnet/runtime/issues/25827). Windows/macOS
+        # don't need it (Windows uses SSPI; the macOS runner's Heimdal-based Kerberos already has NTLM).
+        if: matrix.os == 'ubuntu-latest'
+        run: sudo apt-get update && sudo apt-get install -y gss-ntlmssp
+
       - name: Restore
         run: dotnet restore JustDownload.sln
 
