@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Hardened-runtime entitlements for codesigning JustDownload.app (TASK-077).
+  The .NET 8 CLR still JITs on macOS even with ReadyToRun (docs/publishing.md — framework-dependent, not
+  NativeAOT), so the hardened runtime needs the standard .NET entitlements below or a signed/notarized
+  build fails to launch under Gatekeeper. No other entitlements are requested (no sandboxing, no special
+  hardware/network access beyond what a normal Mac app already has).
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>com.apple.security.cs.allow-jit</key>
+    <true/>
+    <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+    <true/>
+    <key>com.apple.security.cs.disable-library-validation</key>
+    <true/>
+</dict>
+</plist>

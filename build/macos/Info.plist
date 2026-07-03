@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  JustDownload macOS bundle Info.plist (TASK-077).
+  {{VERSION}} is substituted by build/build-macos-packages.ps1 from Directory.Build.props (the single
+  version source, same pattern as the Windows installer's ProductVersion — see build-installer.ps1).
+  CFBundleIdentifier follows the reverse-DNS id MacOsAutostartService already uses for the per-user
+  LaunchAgent label (com.justdownload.app, TASK-155) so every macOS-facing identifier in the app agrees.
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleName</key>
+    <string>JustDownload</string>
+    <key>CFBundleDisplayName</key>
+    <string>JustDownload</string>
+    <key>CFBundleIdentifier</key>
+    <string>com.justdownload.app</string>
+    <key>CFBundleVersion</key>
+    <string>{{VERSION}}</string>
+    <key>CFBundleShortVersionString</key>
+    <string>{{VERSION}}</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleExecutable</key>
+    <string>JustDownload.App</string>
+    <key>CFBundleInfoDictionaryVersion</key>
+    <string>6.0</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>12.0</string>
+    <key>LSApplicationCategoryType</key>
+    <string>public.app-category.utilities</string>
+    <key>NSHighResolutionCapable</key>
+    <true/>
+    <key>NSHumanReadableCopyright</key>
+    <string>Copyright (c) 2026 JustDownload contributors. MIT License.</string>
+</dict>
+</plist>

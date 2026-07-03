@@ -138,6 +138,67 @@ self-contained (not framework-dependent) publish for that one target specificall
 — bigger (self-contained .NET on Linux typically extracts to 70–100 MB) but
 dependency-free. Left as a follow-up rather than decided unilaterally here.
 
+## macOS packaging: .app bundle, .dmg, notarization (TASK-077)
+
+`build/build-macos-packages.ps1` publishes `osx-x64`/`osx-arm64`, assembles a
+`JustDownload.app` bundle, code-signs it if a Developer ID is supplied, wraps it in
+a drag-to-Applications `.dmg`, and notarizes+staples that dmg if a notarytool
+keychain profile is supplied. Like the Linux script, it only runs on the OS it
+targets — it shells out to `codesign`/`hdiutil`/`xcrun`, none of which exist on
+Windows:
+
+```bash
+./build/build-macos-packages.ps1
+./build/build-macos-packages.ps1 -Rids osx-arm64
+./build/build-macos-packages.ps1 -SigningIdentity "Developer ID Application: Name (TEAMID)" -NotarizeProfile jd-notary
+```
+
+Supporting assets live in `build/macos/`: `Info.plist` (`{{VERSION}}` substituted
+from `Directory.Build.props`, same single-source-of-truth pattern as the Windows
+installer's `ProductVersion`) and `Entitlements.plist` for the hardened-runtime
+flags .NET needs to launch signed (the CLR still JITs even with ReadyToRun — see
+the comment in that file). `CFBundleIdentifier` is `com.justdownload.app`, matching
+the id `MacOsAutostartService` already uses for the per-user LaunchAgent label
+(TASK-155), so every macOS-facing identifier in the app agrees.
+
+Signing and notarization are both-or-neither in practice: Apple's notary service
+rejects unsigned bundles, so omitting `-SigningIdentity` skips notarization too
+regardless of `-NotarizeProfile` — this repo carries no Apple Developer ID
+certificate, so the default run signs and notarizes nothing (same honest-by-default
+posture as the Windows installer script's certificate handling).
+
+**Host manifest registration (AC2)** is the same free ride as Linux: `Install()`
+runs at first launch and resolves the correct
+`~/Library/Application Support/<browser>/NativeMessagingHosts` path
+(`NativeHostManifestLocations`), independently unit-tested. Unlike the
+`.deb`/`.rpm`/MSI, there is **no scripted uninstall hook** for the dmg-drag-install
+model — a `.app` has no package manager to hang a `prerm`/`%preun`/custom-action
+off. Dragging `JustDownload.app` to the Trash leaves the (tiny, harmless) manifest
+files behind; the browser just fails to connect to a host that's no longer there.
+Worth a decision if it matters enough to build a real uninstaller (e.g. a small
+`.pkg` with a postinstall/preremove script) — not built here since the task
+description scoped this to bundle + dmg + notarization, not a full installer.
+
+**What is and isn't verified.** Built and reviewed on a Windows dev machine with no
+macOS install available, so:
+
+- The `osx-x64`/`osx-arm64` publish step and the RID-aware NativeHost fix (shared
+  with TASK-078) were run and verified directly: both bundle a real Mach-O
+  `JustDownload.NativeHost` (magic `CF FA ED FE`), not the Windows apphost. The
+  `Info.plist`/`Entitlements.plist` substitution and XML well-formedness were also
+  verified directly (PowerShell's `[xml]` parser, both files parse cleanly with
+  version placeholders fully substituted).
+- The bundle/codesign/dmg/notarize logic itself was written and reasoned through
+  carefully but **has not been executed** — no macOS, `codesign`, `hdiutil`, or
+  `xcrun` available here. All 3 acceptance criteria (notarized dmg opens on a clean
+  Mac, drag-drop from the mounted volume, host manifests registered end-to-end
+  through this packaging) are **not verified** and need a real Mac (or macOS CI
+  runner, ideally with an actual Developer ID + notarytool profile) before sign-off.
+- No `AppIcon.icns` is set (`CFBundleIconFile` omitted) — the bundle will show a
+  generic icon. Every platform currently ships with no app icon at all (only the
+  browser extension has committed brand-mark PNGs); building one was left out here
+  as out-of-scope for a packaging task, not silently forgotten.
+
 ## NativeAOT evaluation (decision: not now — R2R instead)
 
 NativeAOT was evaluated against the App and rejected for this release:
