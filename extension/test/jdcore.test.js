@@ -5,12 +5,12 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const JD = require("../src/jdcore.js");
 
-test("classifyMedia detects HLS/DASH/MP4/audio (TASK-068 AC0)", () => {
+test("classifyMedia detects HLS/DASH/MP4, never audio (TASK-068 AC0, TASK-181)", () => {
   assert.equal(JD.classifyMedia("https://x/playlist.m3u8"), "hls");
   assert.equal(JD.classifyMedia("https://x/manifest.mpd"), "dash");
   assert.equal(JD.classifyMedia("https://x/video.mp4?t=1"), "video");
   assert.equal(JD.classifyMedia("https://x/seg.ts"), "video");
-  assert.equal(JD.classifyMedia("https://x/song.mp3"), "audio");
+  assert.equal(JD.classifyMedia("https://x/song.mp3"), null, "the app has no audio-download feature");
   assert.equal(JD.classifyMedia("https://x/page.html"), null);
   assert.equal(JD.classifyMedia("not a url"), null);
 });

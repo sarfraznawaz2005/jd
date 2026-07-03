@@ -12,12 +12,14 @@
 (function (root) {
   "use strict";
 
-  // Media file extensions worth offering a download for (TASK-068 AC0).
+  // Media file extensions worth offering a download for (TASK-068 AC0). Video/streaming only (TASK-181)
+  // — the app has no audio-download feature, and on real sites (YouTube in particular) treating every
+  // .mp3 as "media" surfaced UI sound effects (e.g. "success.mp3") rather than anything a user would
+  // actually want to download.
   const MEDIA_KINDS = [
     { kind: "hls", ext: [".m3u8", ".m3u"] },
     { kind: "dash", ext: [".mpd"] },
     { kind: "video", ext: [".mp4", ".m4v", ".webm", ".mov", ".mkv", ".ts", ".flv", ".avi"] },
-    { kind: "audio", ext: [".mp3", ".m4a", ".aac", ".ogg", ".opus", ".flac", ".wav"] },
   ];
 
   /** The lower-cased hostname of a URL, or null if it cannot be parsed. */

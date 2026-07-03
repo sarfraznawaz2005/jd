@@ -122,16 +122,41 @@
     }
     list.hidden = false;
     for (const item of media) {
-      const row = document.createElement("button");
-      row.type = "button";
-      row.className = "media-item";
-      row.textContent = JD.mediaLabel(item);
-      row.title = item.url;
-      row.addEventListener("click", () => {
-        api.runtime.sendMessage({ type: "DOWNLOAD_DETECTED_MEDIA", tabId: tab?.id, url: item.url }).catch(() => {});
-      });
-      list.appendChild(row);
+      list.appendChild(buildMediaRow(item, tab?.id));
     }
+  }
+
+  /** Builds one detected-media row matching the styled `.media` markup (mockups/extension.html), not the
+   * unstyled plain button this used to render. */
+  function buildMediaRow(item, tabId) {
+    const row = document.createElement("div");
+    row.className = "media";
+    row.title = item.url;
+
+    const icon = document.createElement("span");
+    icon.className = "ft";
+    icon.innerHTML =
+      '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16v12H4z" opacity=".25"/><path d="m10 9 5 3-5 3z"/></svg>';
+
+    const name = document.createElement("div");
+    name.className = "nm";
+    const title = document.createElement("div");
+    title.className = "t";
+    title.textContent = JD.mediaLabel(item);
+    name.appendChild(title);
+
+    const download = document.createElement("div");
+    download.className = "dl";
+    download.setAttribute("role", "button");
+    download.setAttribute("aria-label", "Download");
+    download.innerHTML =
+      '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0-4-4m4 4 4-4M5 21h14"/></svg>';
+    download.addEventListener("click", () => {
+      api.runtime.sendMessage({ type: "DOWNLOAD_DETECTED_MEDIA", tabId, url: item.url }).catch(() => {});
+    });
+
+    row.append(icon, name, download);
+    return row;
   }
 
   /** Shows the desktop app's default quality so popup settings stay in sync (TASK-071 AC2). */
