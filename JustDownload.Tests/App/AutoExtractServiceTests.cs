@@ -55,8 +55,8 @@ public sealed class AutoExtractServiceTests : IDisposable
         manager.Raise(1, DownloadStatus.Completed);
 
         string destination = Path.Combine(_dir, "bundle");
-        await WaitUntilAsync(() => File.Exists(Path.Combine(destination, "readme.txt")));
-        File.ReadAllText(Path.Combine(destination, "readme.txt")).Should().Be("hello");
+        string? content = await WaitForContentAsync(Path.Combine(destination, "readme.txt"));
+        content.Should().Be("hello");
     }
 
     [Fact]
@@ -115,14 +115,34 @@ public sealed class AutoExtractServiceTests : IDisposable
         return settings;
     }
 
-    private static async Task WaitUntilAsync(Func<bool> condition)
+    /// <summary>
+    /// Polls for <paramref name="path"/> to become both present and readable, returning its content (or
+    /// null on timeout). A bare <c>File.Exists</c> poll isn't enough to synchronize with the background
+    /// extraction: <c>ZipFile.ExtractToDirectory</c> can make an entry's file exist a moment before its
+    /// writer has finished and closed it, so an existence check followed by a separate read can race the
+    /// extractor's own still-open handle — observed as a real IOException on macOS CI. Retrying the read
+    /// itself (not just the existence check) is what actually synchronizes with "this file is done".
+    /// </summary>
+    private static async Task<string?> WaitForContentAsync(string path)
     {
-        for (int i = 0; i < 60 && !condition(); i++)
+        for (int i = 0; i < 60; i++)
         {
+            try
+            {
+                if (File.Exists(path))
+                {
+                    return await File.ReadAllTextAsync(path);
+                }
+            }
+            catch (IOException)
+            {
+                // Still being written/closed by the extractor — retry.
+            }
+
             await Task.Delay(50);
         }
 
-        condition().Should().BeTrue("the background extraction should complete within the timeout");
+        return null;
     }
 
     public void Dispose()
