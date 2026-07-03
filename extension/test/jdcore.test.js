@@ -60,16 +60,6 @@ test("buildDownloadMessage carries auth context (TASK-067 AC1)", () => {
   assert.deepEqual(msg.headers, { Authorization: "Bearer x" });
 });
 
-test("shouldShowFloatingButton needs media and a non-blacklisted site (TASK-068 AC1 / 069 AC0)", () => {
-  assert.equal(JD.shouldShowFloatingButton(2, "https://ok.com/v", []), true);
-  assert.equal(JD.shouldShowFloatingButton(0, "https://ok.com/v", []), false, "no media → no button");
-  assert.equal(
-    JD.shouldShowFloatingButton(2, "https://blocked.com/v", ["blocked.com"]),
-    false,
-    "blacklisted site → no button",
-  );
-});
-
 test("createMediaStore dedupes and is per-tab (TASK-068)", () => {
   const store = JD.createMediaStore();
   assert.equal(store.add(1, { url: "https://a/x.m3u8", kind: "hls" }), true);

@@ -130,14 +130,6 @@
   }
 
   /**
-   * Whether the in-page floating download button should be shown (TASK-068 AC1):
-   * only when media was detected on the page and the site is not blacklisted (TASK-069 AC0).
-   */
-  function shouldShowFloatingButton(mediaCount, url, blacklist) {
-    return mediaCount > 0 && !isBlacklisted(url, blacklist);
-  }
-
-  /**
    * An in-memory store of media detected per browser tab (TASK-068). Deduplicates by URL and bounds the
    * list so a long-lived tab cannot grow without limit. Pure data structure — no browser APIs.
    */
@@ -270,7 +262,6 @@
     pickContextUrl,
     buildDownloadMessage,
     formatCookieHeader,
-    shouldShowFloatingButton,
     createMediaStore,
     buildBlacklistSyncMessage,
     mediaLabel,

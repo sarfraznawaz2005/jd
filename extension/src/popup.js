@@ -1,10 +1,12 @@
 // JustDownload — popup logic (MV3)
 //
-// Wires the popup to the background worker: app-connection status, sending the
-// current page link, and the per-site "show download button" toggle whose state
-// is the inverse of the blacklist — toggling it off blacklists the site so the
-// floating button never shows (TASK-069), persisting to sync storage and pushing
-// the blacklist to the desktop app. The detected-media list is filled in TASK-071.
+// Wires the popup to the background worker: app-connection status, sending the current page link, the
+// per-site "detect videos on this site" toggle whose state is the inverse of the blacklist — toggling it
+// off blacklists the site so the icon overlay never shows (TASK-069), persisting to sync storage and
+// pushing the blacklist to the desktop app — and the global "take over browser downloads" toggle
+// (TASK-183). No detected-media list here (TASK-187): the per-video icon overlay (content.js) and
+// automatic download takeover (TASK-183) cover detection/download end to end now, so a redundant list of
+// raw sniffed URLs in the popup was just noise, not a real workflow.
 (() => {
   "use strict";
 
@@ -109,85 +111,10 @@
     });
   }
 
-  /** Lists the media detected on the active tab, each with a download action (TASK-071 AC0). */
-  async function renderMedia() {
-    const empty = document.getElementById("media-empty");
-    const list = document.getElementById("media-list");
-    if (!list) {
-      return;
-    }
-
-    const tab = await activeTab();
-    const res = await api.runtime.sendMessage({ type: "GET_TAB_MEDIA", tabId: tab?.id }).catch(() => null);
-    const media = Array.isArray(res?.media) ? res.media : [];
-
-    list.replaceChildren();
-    if (media.length === 0) {
-      if (empty) {
-        empty.hidden = false;
-      }
-      list.hidden = true;
-      return;
-    }
-
-    if (empty) {
-      empty.hidden = true;
-    }
-    list.hidden = false;
-    for (const item of media) {
-      list.appendChild(buildMediaRow(item, tab?.id));
-    }
-  }
-
-  /** Builds one detected-media row matching the styled `.media` markup (mockups/extension.html), not the
-   * unstyled plain button this used to render. */
-  function buildMediaRow(item, tabId) {
-    const row = document.createElement("div");
-    row.className = "media";
-    row.title = item.url;
-
-    const icon = document.createElement("span");
-    icon.className = "ft";
-    icon.innerHTML =
-      '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16v12H4z" opacity=".25"/><path d="m10 9 5 3-5 3z"/></svg>';
-
-    const name = document.createElement("div");
-    name.className = "nm";
-    const title = document.createElement("div");
-    title.className = "t";
-    title.textContent = JD.mediaLabel(item);
-    name.appendChild(title);
-
-    const download = document.createElement("div");
-    download.className = "dl";
-    download.setAttribute("role", "button");
-    download.setAttribute("aria-label", "Download");
-    download.innerHTML =
-      '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0-4-4m4 4 4-4M5 21h14"/></svg>';
-    download.addEventListener("click", () => {
-      api.runtime.sendMessage({ type: "DOWNLOAD_DETECTED_MEDIA", tabId, url: item.url }).catch(() => {});
-    });
-
-    row.append(icon, name, download);
-    return row;
-  }
-
-  /** Shows the desktop app's default quality so popup settings stay in sync (TASK-071 AC2). */
-  async function syncAppSettings() {
-    const res = await api.runtime.sendMessage({ type: "GET_SETTINGS" }).catch(() => null);
-    const quality = res?.settings?.defaultVideoQuality;
-    const el = document.getElementById("default-quality");
-    if (el && typeof quality === "number") {
-      el.textContent = `${quality}p`;
-    }
-  }
-
   document.addEventListener("DOMContentLoaded", () => {
     wireInteractions();
     void refreshStatus();
     void initSiteToggle();
     void initInterceptToggle();
-    void renderMedia();
-    void syncAppSettings();
   });
 })();

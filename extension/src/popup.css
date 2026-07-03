@@ -61,26 +61,6 @@ svg { width: 16px; height: 16px; flex: none; stroke: currentColor; fill: none; s
 
 /* body */
 .pubody { padding: 14px 16px; }
-.section-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.6px; color: var(--text-faint); margin-bottom: 9px; font-weight: 600; }
-
-/* [hidden] must win over the flex display below it, or setting the `hidden` attribute from popup.js has
-   no visual effect — the exact bug that left "No media detected yet." showing above a populated list. */
-.empty[hidden] { display: none; }
-.empty { display: flex; align-items: center; gap: 9px; padding: 14px 11px; border: 1px dashed var(--border); border-radius: var(--radius-s); color: var(--text-faint); font-size: 12.5px; margin-bottom: 9px; }
-.empty svg { width: 20px; height: 20px; stroke: var(--text-faint); fill: var(--text-faint); stroke-width: 1.4; }
-
-/* Same bug would apply to #media-list once it also carries an unconditional display rule — guard it too. */
-#media-list[hidden] { display: none; }
-#media-list { display: block; }
-#media-list .media:last-child { margin-bottom: 12px; }
-
-.media { display: flex; align-items: center; gap: 11px; padding: 11px; border: 1px solid var(--border); border-radius: 10px; margin-bottom: 9px; background: var(--bg); }
-.media .ft { width: 34px; height: 34px; border-radius: 8px; display: grid; place-items: center; flex: none; background: var(--track); }
-.media .nm { flex: 1; min-width: 0; }
-.media .nm .t { font-weight: 550; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 12.5px; }
-.media .nm .s { font-size: 11px; color: var(--text-faint); }
-.media .dl { width: 32px; height: 32px; border-radius: 8px; background: var(--accent); display: grid; place-items: center; flex: none; cursor: pointer; }
-.media .dl svg { width: 16px; height: 16px; stroke: #fff; }
 
 .pubtn { width: 100%; height: 40px; border-radius: 10px; background: var(--accent); color: #fff; border: none; font-weight: 600; font-size: 12.5px; display: flex; align-items: center; justify-content: center; gap: 8px; margin: 4px 0 12px; cursor: pointer; }
 .pubtn:hover { background: var(--accent-h); }

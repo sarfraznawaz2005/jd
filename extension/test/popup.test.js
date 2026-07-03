@@ -1,10 +1,9 @@
-// Popup detected-media rendering tests (TASK-181), run with `node --test`.
+// Popup logic tests (TASK-187), run with `node --test`.
 //
-// Real-world testing (screenshots) found the detected-media list rendered as plain unstyled buttons
-// (class="media-item", with zero matching CSS rules) instead of the already-designed `.media` row
-// (icon + title + download button) the mockup and popup.css define. This exercises renderMedia()'s
-// actual DOM output against a minimal document stub, following the same vm-sandbox pattern as
-// content.test.js/background.test.js.
+// The detected-media list this file used to test was removed (TASK-187): the icon overlay and automatic
+// download takeover cover detection/download end to end, so a redundant raw-URL list in the popup was
+// just noise. This now covers what's actually left: connection status, the per-site and global toggles,
+// and "send this page link".
 "use strict";
 
 const test = require("node:test");
@@ -28,12 +27,14 @@ function makeElement(tag = "div") {
     innerHTML: "",
     style: {},
     classList: {
-      add() {},
-      remove() {},
-      toggle() {},
-      contains: () => false,
+      classes: new Set(),
+      add(c) { this.classes.add(c); },
+      remove(c) { this.classes.delete(c); },
+      toggle(c, on) { on ? this.classes.add(c) : this.classes.delete(c); },
+      contains(c) { return this.classes.has(c); },
     },
-    setAttribute() {},
+    attributes: {},
+    setAttribute(name, value) { el.attributes[name] = value; },
     addEventListener(type, handler) {
       el.listeners[type] = handler;
     },
@@ -41,22 +42,17 @@ function makeElement(tag = "div") {
       el.children.push(child);
       return child;
     },
-    append(...kids) {
-      el.children.push(...kids);
-    },
-    replaceChildren() {
-      el.children = [];
-    },
   };
   return el;
 }
 
-function makeSandbox({ tabMedia = [], settings = {} } = {}) {
+/**
+ * @param {{ activeTabUrl?: string, pingOk?: boolean, blacklist?: string[], interceptDownloads?: boolean }} [options]
+ */
+function makeSandbox(options = {}) {
+  const { activeTabUrl = "https://example.com/page", pingOk = true, blacklist = [], interceptDownloads } = options;
   const elementsById = new Map();
-  const ids = [
-    "status", "status-dot", "status-text", "site-toggle", "media-empty", "media-list",
-    "send-link", "default-quality", "open-settings", "intercept-toggle",
-  ];
+  const ids = ["status", "status-dot", "status-text", "site-toggle", "intercept-toggle", "send-link", "open-settings"];
   for (const id of ids) {
     elementsById.set(id, makeElement());
   }
@@ -71,87 +67,106 @@ function makeSandbox({ tabMedia = [], settings = {} } = {}) {
     },
   };
 
+  const storage = { blacklist, ...(interceptDownloads === undefined ? {} : { interceptDownloads }) };
   const sentMessages = [];
   const api = {
-    tabs: { query: async () => [{ id: 1, url: "https://example.com/page" }] },
-    storage: { sync: { get: async () => ({}) } },
+    tabs: { query: async () => [{ id: 1, url: activeTabUrl }] },
+    storage: {
+      sync: {
+        get: async () => ({ ...storage }),
+        set: async (values) => Object.assign(storage, values),
+      },
+    },
     runtime: {
       sendMessage: (msg) => {
         sentMessages.push(msg);
         if (msg.type === "PING") {
-          return Promise.resolve({ ok: true });
-        }
-        if (msg.type === "GET_TAB_MEDIA") {
-          return Promise.resolve({ ok: true, media: tabMedia });
-        }
-        if (msg.type === "GET_SETTINGS") {
-          return Promise.resolve({ ok: true, settings });
+          return Promise.resolve({ ok: pingOk });
         }
         return Promise.resolve({ ok: true });
       },
-      openOptionsPage: () => {},
+      openOptionsPage: () => {
+        sentMessages.push({ type: "__OPEN_OPTIONS__" });
+      },
     },
   };
 
   const sandbox = { console, URL, document: documentStub, browser: api };
   sandbox.globalThis = sandbox;
-  return { sandbox, elementsById, sentMessages };
+  return { sandbox, elementsById, sentMessages, storage };
 }
 
 /** Loads jdcore.js then popup.js, fires DOMContentLoaded, and flushes pending async work. */
 async function runPopup(options) {
-  const { sandbox, elementsById, sentMessages } = makeSandbox(options);
+  const { sandbox, elementsById, sentMessages, storage } = makeSandbox(options);
   const context = vm.createContext(sandbox);
   vm.runInContext(read("jdcore.js"), context, { filename: "jdcore.js" });
   vm.runInContext(read("popup.js"), context, { filename: "popup.js" });
   await sandbox.document.__ready();
   await new Promise((resolve) => setTimeout(resolve, 0));
-  return { elementsById, sentMessages };
+  return { elementsById, sentMessages, storage };
 }
 
-test("with detected media, the empty state is hidden and the list is populated with styled rows", async () => {
-  const { elementsById } = await runPopup({
-    tabMedia: [{ url: "https://cdn.example.com/clip.mp4", kind: "video" }],
-  });
+test("app connected: the status pill shows connected", async () => {
+  const { elementsById } = await runPopup({ pingOk: true });
 
-  const empty = elementsById.get("media-empty");
-  const list = elementsById.get("media-list");
-  assert.equal(empty.hidden, true, "the 'No media detected yet' placeholder is hidden once media exists");
-  assert.equal(list.hidden, false);
-  assert.equal(list.children.length, 1);
-
-  const row = list.children[0];
-  assert.equal(row.className, "media", "uses the already-styled .media row, not an unstyled plain button");
-  const [icon, name, download] = row.children;
-  assert.equal(icon.className, "ft");
-  assert.equal(name.className, "nm");
-  assert.equal(name.children[0].className, "t");
-  assert.equal(name.children[0].textContent, "video · clip.mp4");
-  assert.equal(download.className, "dl");
+  assert.equal(elementsById.get("status").classList.contains("connected"), true);
+  assert.equal(elementsById.get("status-text").textContent, "App connected");
 });
 
-test("with no detected media, the empty state stays visible and the list stays empty", async () => {
-  const { elementsById } = await runPopup({ tabMedia: [] });
+test("app not running: the status pill shows not running", async () => {
+  const { elementsById } = await runPopup({ pingOk: false });
 
-  const empty = elementsById.get("media-empty");
-  const list = elementsById.get("media-list");
-  assert.equal(empty.hidden, false);
-  assert.equal(list.hidden, true);
-  assert.equal(list.children.length, 0);
+  assert.equal(elementsById.get("status").classList.contains("connected"), false);
+  assert.equal(elementsById.get("status-text").textContent, "App not running");
 });
 
-test("clicking a row's download control sends DOWNLOAD_DETECTED_MEDIA for that item's URL", async () => {
-  const { elementsById, sentMessages } = await runPopup({
-    tabMedia: [{ url: "https://cdn.example.com/clip.mp4", kind: "video" }],
-  });
+test("site-toggle starts on when the current site is not blacklisted", async () => {
+  const { elementsById } = await runPopup({ activeTabUrl: "https://example.com/", blacklist: [] });
 
-  const row = elementsById.get("media-list").children[0];
-  const download = row.children[2];
-  download.listeners.click();
+  assert.equal(elementsById.get("site-toggle").classList.contains("on"), true);
+});
+
+test("site-toggle starts off when the current site is blacklisted", async () => {
+  const { elementsById } = await runPopup({ activeTabUrl: "https://example.com/", blacklist: ["example.com"] });
+
+  assert.equal(elementsById.get("site-toggle").classList.contains("on"), false);
+});
+
+test("clicking site-toggle off blacklists the current site and syncs it to the app", async () => {
+  const { elementsById, sentMessages, storage } = await runPopup({ activeTabUrl: "https://example.com/page" });
+
+  elementsById.get("site-toggle").listeners.click({ currentTarget: elementsById.get("site-toggle") });
   await new Promise((resolve) => setTimeout(resolve, 0));
 
-  assert.equal(
-    sentMessages.some((m) => m.type === "DOWNLOAD_DETECTED_MEDIA" && m.url === "https://cdn.example.com/clip.mp4"),
-    true,
-  );
+  assert.deepEqual(storage.blacklist, ["example.com"]);
+  assert.ok(sentMessages.some((m) => m.type === "SYNC_BLACKLIST"), "pushed to the desktop app (TASK-069 AC1)");
+});
+
+test("intercept-toggle defaults on and persists a toggle-off", async () => {
+  const { elementsById, storage } = await runPopup({});
+
+  assert.equal(elementsById.get("intercept-toggle").classList.contains("on"), true, "default on (TASK-183)");
+
+  elementsById.get("intercept-toggle").listeners.click({ currentTarget: elementsById.get("intercept-toggle") });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  assert.equal(storage.interceptDownloads, false);
+});
+
+test("send-link forwards the active tab's own URL", async () => {
+  const { elementsById, sentMessages } = await runPopup({ activeTabUrl: "https://example.com/file.zip" });
+
+  elementsById.get("send-link").listeners.click();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  assert.ok(sentMessages.some((m) => m.type === "DOWNLOAD_LINK" && m.url === "https://example.com/file.zip"));
+});
+
+test("open-settings opens the options page", async () => {
+  const { elementsById, sentMessages } = await runPopup({});
+
+  elementsById.get("open-settings").listeners.click();
+
+  assert.ok(sentMessages.some((m) => m.type === "__OPEN_OPTIONS__"));
 });
