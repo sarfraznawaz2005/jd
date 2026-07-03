@@ -1,0 +1,46 @@
+name: Verify autostart (real launchd)
+
+# Runs the real launchd round-trip test (TASK-169 AC0, follow-up to TASK-155) on a macOS runner: loads the
+# actual generated LaunchAgent plist via `launchctl load` and observes RunAtLoad really executing the
+# registered program -- the exact mechanism a real login triggers, and the CI-practical alternative TASK-169's
+# own acceptance criterion names explicitly ("launchctl-loading the agent") in place of a full logout/reboot
+# cycle, which GitHub-hosted runners can't do (no interactive desktop login session). There is no equivalent
+# CI-practical check for the Linux side (AC1) -- XDG autostart is only processed by a desktop environment's
+# session startup, and GitHub's ubuntu-latest runners have no graphical login session to trigger it, unlike
+# launchd which runs the same RunAtLoad logic whether triggered by login or by `launchctl load`.
+#
+# Not run on every push/PR (touches the real launchd session, same reasoning as verify-secret-stores.yml
+# keeping RealSecretStore off the everyday gate) -- scheduled weekly plus on-demand via workflow_dispatch.
+on:
+  schedule:
+    # 04:15 UTC every Monday (just after verify-secret-stores.yml).
+    - cron: "15 4 * * 1"
+  workflow_dispatch: {} # allow manual runs
+
+permissions:
+  contents: read
+
+jobs:
+  macos-launchd:
+    name: macOS launchd round-trip
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Restore
+        run: dotnet restore JustDownload.sln
+
+      - name: Build (Release)
+        run: dotnet build JustDownload.sln -c Release --no-restore
+
+      - name: Run real launchd round-trip (TASK-169 AC0)
+        run: >-
+          dotnet test JustDownload.sln -c Release --no-build
+          --filter "Category=RealAutostart"
+          --logger "console;verbosity=normal"
