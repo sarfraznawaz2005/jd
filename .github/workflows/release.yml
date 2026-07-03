@@ -1,9 +1,10 @@
 name: Release
 
 # Builds the Windows installer, computes SHA-256 checksums for the release assets, signs the checksums
-# manifest with the ECDSA P-256 production signing key (TASK-080, docs/release-signing.md), and publishes a
-# GitHub Release with the installer + the signed manifest as assets. Triggered by pushing a version tag
-# (e.g. v1.2.3) — push the tag only once ci.yml is green on the commit it points at; this workflow does not
+# manifest with the ECDSA P-256 production signing key (TASK-080, docs/release-signing.md), generates
+# categorized release notes from the commits since the previous tag (TASK-176), and publishes a GitHub
+# Release with the installer + the signed manifest as assets. Triggered by pushing a version tag (e.g.
+# v1.2.3) — push the tag only once ci.yml is green on the commit it points at; this workflow does not
 # re-run the full test suite itself (kept basic per TASK-080 scope).
 #
 # Requires the UPDATE_SIGNING_PRIVATE_KEY repository secret (base64 PKCS8 ECDSA P-256 private key) — see
@@ -24,6 +25,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history + tags — generate-release-notes.ps1 diffs against the previous tag
 
       - name: Set up .NET 8
         uses: actions/setup-dotnet@v4
@@ -71,9 +74,17 @@ jobs:
 
           Write-Host "Signed checksums.txt for $($assets.Count) asset(s)."
 
+      - name: Generate release notes
+        shell: pwsh
+        run: >-
+          ./build/generate-release-notes.ps1 -Tag ${{ github.ref_name }}
+          -Repository ${{ github.repository }}
+          -OutFile build/installer/out/release-notes.md
+
       - name: Publish the GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          body_path: build/installer/out/release-notes.md
           files: |
             build/installer/out/*.msi
             build/installer/out/*.exe
