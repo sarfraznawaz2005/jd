@@ -75,6 +75,17 @@ public partial class NewDownloadWindow : Window
             vm.CloseRequested += OnCloseRequested;
             vm.PropertyChanged -= OnViewModelPropertyChanged;
             vm.PropertyChanged += OnViewModelPropertyChanged;
+
+            // A prefilled URL (browser-extension hand-off, dropped/forwarded link) is set on the view-model
+            // before it becomes this window's DataContext, so no Url PropertyChanged ever reaches
+            // OnViewModelPropertyChanged for it — the debounce timer would never start, and detection would
+            // only ever run on blur/Enter (user-reported: clicking a download link on a website opened the
+            // dialog prefilled but never auto-detected, unlike typing the URL in by hand). The value is
+            // already complete, so detect immediately rather than debouncing it.
+            if (vm.CanDetect)
+            {
+                TriggerDetect();
+            }
         }
     }
 

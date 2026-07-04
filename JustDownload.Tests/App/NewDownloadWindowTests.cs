@@ -85,4 +85,33 @@ public sealed class NewDownloadWindowTests
         await probe.Received(1).ProbeAsync(
             Arg.Any<Uri>(), Arg.Any<IReadOnlyList<KeyValuePair<string, string>>?>(), Arg.Any<CancellationToken>());
     }
+
+    [AvaloniaFact]
+    public async Task PrefilledUrl_TriggersDetection_Immediately_WithoutTypingOrBlur()
+    {
+        // Regression — the actual root cause behind the repeatedly-reported "auto-detect broken": clicking a
+        // download link on a website (browser-extension hand-off) or a dropped/forwarded link sets Url on
+        // the view-model BEFORE it becomes this window's DataContext, so no Url PropertyChanged ever reaches
+        // the debounce wiring — only manual typing (which changes Url AFTER the subscription exists) worked.
+        var probe = Substitute.For<IResourceProbe>();
+        probe.ProbeAsync(Arg.Any<Uri>(), Arg.Any<IReadOnlyList<KeyValuePair<string, string>>?>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(new ResourceProbeResult
+            {
+                FinalUri = new Uri("https://example.com/file.zip"),
+                StatusCode = 200,
+                SupportsRanges = true,
+                TotalLength = 1000,
+                SuggestedFileName = "file.zip",
+            }));
+        NewDownloadViewModel vm = BuildViewModel(probe);
+        vm.Url = "https://example.com/file.zip"; // set before the window/DataContext exist, like a real hand-off
+
+        var window = new NewDownloadWindow { DataContext = vm };
+        window.Show();
+        await Task.Delay(50);
+        Dispatcher.UIThread.RunJobs();
+
+        await probe.Received(1).ProbeAsync(
+            Arg.Any<Uri>(), Arg.Any<IReadOnlyList<KeyValuePair<string, string>>?>(), Arg.Any<CancellationToken>());
+    }
 }
