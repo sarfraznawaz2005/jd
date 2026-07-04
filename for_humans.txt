@@ -1,8 +1,12 @@
 AI Agents must ignore contents of this file:
 
+- show new download window progress in same new download window (check mockup of it in mockups folder) and do not auto show detalis pane if user has collasped it during new download start
+- once a download completes, we should show download completed dialog with option to open file as well as folder (like other download apps), this window should be indepddent and show should without showing main app window and should flash taskbar icon once completed.
+- i downloaded already download file, it did not rename and overwrote previous one, should have rename with (1) and so on suffix (cross os naming)
+- there should be download icon on youtube website for at least individual video pages.
+- just download setup icon in logo as well as titlebar
 - verify mockups
 - status first and then download speed, etc.
-- sidebar should be collasped by def
 - sidebar tabs too big and detail window has extra view in window button in window itself
 - auto-adjust speed units, if it is downloading in gbs per second, show that, if mbs show that and so on if not already done.
 - extensino window issues (on refresh page app works not on normal navigation on youtube checked)
@@ -16,7 +20,6 @@ AI Agents must ignore contents of this file:
 - downloader website using surge.sh
 - dev name (extensions, etc.), app branding, etc.
 - check app readiness (including browser extensions) for real distribution to users and tell me if it will work for them as is or we need to fix anything before that.
-
 
 
 ==================================================================

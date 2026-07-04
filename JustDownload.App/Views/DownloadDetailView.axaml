@@ -116,10 +116,10 @@
                 <ItemsControl.ItemTemplate>
                   <DataTemplate x:DataType="vm:StreamStripViewModel">
                     <StackPanel Spacing="6" Margin="0,0,0,14">
-                      <Grid ColumnDefinitions="*,Auto">
-                        <TextBlock Grid.Column="0" Text="{Binding Label, StringFormat='{}{0} stream'}" Classes="StatKey" />
-                        <TextBlock Grid.Column="1" Text="{Binding SegmentCount, StringFormat='Segments: {0}'}" Classes="StatKey" />
-                      </Grid>
+                      <StackPanel Orientation="Horizontal" Spacing="10">
+                        <TextBlock Text="{Binding Label, StringFormat='{}{0} stream'}" Classes="StatKey" />
+                        <TextBlock Text="{Binding SegmentCount, StringFormat='Segments: {0}'}" Classes="StatKey" />
+                      </StackPanel>
                       <ItemsControl ItemsSource="{Binding Cells}">
                         <ItemsControl.ItemsPanel>
                           <ItemsPanelTemplate>
