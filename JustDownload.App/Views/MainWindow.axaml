@@ -144,12 +144,15 @@
           <TextBlock Text="{Binding Status.ActiveCount, StringFormat='{}{0} active'}" FontSize="11.5"
                      FontWeight="Bold" Foreground="{DynamicResource TextDimBrush}" />
         </StackPanel>
+        <!-- Right after "active" rather than after "Total speed" (user-reported ordering preference). -->
+        <TextBlock DockPanel.Dock="Left" Text="{Binding Status.Connections, StringFormat='{}{0} connections'}"
+                   Margin="18,0,0,0" FontSize="11.5" FontWeight="Bold" VerticalAlignment="Center" Foreground="{DynamicResource TextDimBrush}" />
         <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" Spacing="8" Margin="18,0,0,0" VerticalAlignment="Center">
           <TextBlock Text="{Binding Status.TotalSpeedDisplay, StringFormat='Total speed {0}'}"
                      FontSize="11.5" FontWeight="Bold" VerticalAlignment="Center" Foreground="{DynamicResource TextDimBrush}" />
-          <!-- Aggregate speed sparkline (TASK-137). Fixed to its max width (60 bars * 2px) so the sibling
-               "connections" text doesn't visibly drift right as bars accumulate over the sparkline's first
-               60 seconds (user-reported) — an ItemsControl otherwise sizes to its current bar count. -->
+          <!-- Aggregate speed sparkline (TASK-137). Fixed to its max width (60 bars * 2px) so it doesn't
+               visibly drift its siblings right as bars accumulate over the sparkline's first 60 seconds
+               (user-reported) — an ItemsControl otherwise sizes to its current bar count. -->
           <ItemsControl ItemsSource="{Binding Status.SpeedHistory.Bars}" Width="120" Height="24" VerticalAlignment="Center"
                         ToolTip.Tip="Recent combined speed">
             <ItemsControl.ItemsPanel>
@@ -165,8 +168,6 @@
             </ItemsControl.ItemTemplate>
           </ItemsControl>
         </StackPanel>
-        <TextBlock DockPanel.Dock="Left" Text="{Binding Status.Connections, StringFormat='{}{0} connections'}"
-                   Margin="18,0,0,0" FontSize="11.5" FontWeight="Bold" VerticalAlignment="Center" Foreground="{DynamicResource TextDimBrush}" />
         <TextBlock DockPanel.Dock="Right" Text="Speed limit: Unlimited" FontSize="11.5" FontWeight="Bold"
                    VerticalAlignment="Center" Foreground="{DynamicResource TextDimBrush}" />
       </DockPanel>
