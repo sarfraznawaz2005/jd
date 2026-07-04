@@ -12,9 +12,41 @@ namespace JustDownload.App.Views;
 /// <summary>The application's primary window (TASK-047 shell, TASK-051 downloads list).</summary>
 public partial class MainWindow : Window
 {
+    private double _savedDetailColumnWidth = 360;
+
     public MainWindow()
     {
         InitializeComponent();
+
+        // The detail pane's Border.IsVisible is bound to DetailVisible, but a Grid column keeps its own
+        // width reserved regardless of its content's visibility (only an Auto column collapses that way) —
+        // so hiding the pane left 360px of dead space that the downloads list (and its centered empty state)
+        // could never actually reclaim (user-reported: "No downloads yet" sat off-center whenever the detail
+        // pane was hidden, and the list didn't expand into the freed space). Collapse the column itself.
+        DetailPane.PropertyChanged += (_, e) =>
+        {
+            if (e.Property != IsVisibleProperty)
+            {
+                return;
+            }
+
+            ColumnDefinition column = BodyGrid.ColumnDefinitions[3];
+            if (DetailPane.IsVisible)
+            {
+                column.MinWidth = 280;
+                column.Width = new GridLength(_savedDetailColumnWidth);
+            }
+            else
+            {
+                if (column.Width.IsAbsolute)
+                {
+                    _savedDetailColumnWidth = column.Width.Value;
+                }
+
+                column.MinWidth = 0;
+                column.Width = new GridLength(0);
+            }
+        };
 
         // Right-clicking a row should select it first, so the shared context menu acts on the row under the
         // cursor rather than the previously-selected one. Tunnel so this runs before the menu opens.
