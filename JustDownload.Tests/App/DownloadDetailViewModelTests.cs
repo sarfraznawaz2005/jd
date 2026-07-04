@@ -140,6 +140,30 @@ public sealed class DownloadDetailViewModelTests
     }
 
     [AvaloniaFact]
+    public void ProgressTick_RenotifiesCanExecute_ForResumePauseCancel()
+    {
+        // Regression: a brand-new download can auto-select before its own Queued→Active StatusChanged event
+        // reaches this view-model (DownloadsListViewModel.AddNewlyEnqueuedAsync creates/selects the row
+        // asynchronously), leaving Resume/Pause/Cancel stuck disabled until the user reselected the row
+        // (user-reported). Progress ticks must re-check CanExecute too, so it self-heals within ~1s.
+        var manager = Substitute.For<IDownloadManager>();
+        manager.GetConnections(Arg.Any<long>()).Returns([]);
+        var vm = new DownloadDetailViewModel(manager, Substitute.For<IDownloadActions>());
+        vm.Select(Row(status: DownloadStatusCodes.Active));
+
+        bool pauseRaised = false;
+        vm.PauseCommand.CanExecuteChanged += (_, _) => pauseRaised = true;
+
+        manager.ProgressChanged += Raise.Event<EventHandler<DownloadProgressChangedEventArgs>>(
+            manager,
+            new DownloadProgressChangedEventArgs(
+                1, DownloadProgress.Create(DownloadStatus.Active, 50, 100, 442_000, resumable: true, connections: 3)));
+        Dispatcher.UIThread.RunJobs();
+
+        pauseRaised.Should().BeTrue("a progress tick must re-check CanExecute, not just a status change");
+    }
+
+    [AvaloniaFact]
     public void Connections_UpdateInPlace_AndDropWhenGone()
     {
         var manager = Substitute.For<IDownloadManager>();

@@ -168,6 +168,15 @@ public sealed partial class DownloadDetailViewModel : ViewModelBase, IDisposable
         {
             RefreshStats();
             RefreshConnections();
+
+            // A brand-new download can auto-select before its own Queued→Active StatusChanged event reaches
+            // this view-model (the row is created asynchronously — see DownloadsListViewModel.
+            // AddNewlyEnqueuedAsync), so OnStatusChanged's re-notify can be missed once. Progress ticks arrive
+            // reliably every second while active, so re-checking here self-heals within ~1s instead of
+            // leaving Resume/Pause/Cancel stuck until the user reselects the row (user-reported).
+            ResumeCommand.NotifyCanExecuteChanged();
+            PauseCommand.NotifyCanExecuteChanged();
+            CancelCommand.NotifyCanExecuteChanged();
         });
     }
 
