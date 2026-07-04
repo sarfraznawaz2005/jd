@@ -14,7 +14,7 @@ namespace JustDownload.Tests.App;
 /// <summary>
 /// Headless tests for the per-download detail view-model (TASK-054): it tracks the selection, folds live
 /// stats and per-connection rows from the manager, exposes the Options fields, and routes the per-item
-/// Pause/Resume/Cancel and Detach actions.
+/// Pause/Resume/Cancel actions.
 /// </summary>
 public sealed class DownloadDetailViewModelTests
 {
@@ -159,24 +159,6 @@ public sealed class DownloadDetailViewModelTests
     }
 
     [AvaloniaFact]
-    public void Detach_RaisesDetachRequestedForSelection()
-    {
-        var manager = Substitute.For<IDownloadManager>();
-        manager.GetConnections(Arg.Any<long>()).Returns([]);
-        var vm = new DownloadDetailViewModel(manager, Substitute.For<IDownloadActions>());
-        DownloadRowViewModel row = Row();
-        vm.Select(row);
-
-        DownloadRowViewModel? detached = null;
-        vm.DetachRequested += (_, r) => detached = r;
-
-        vm.DetachCommand.CanExecute(null).Should().BeTrue();
-        vm.DetachCommand.Execute(null);
-
-        detached.Should().BeSameAs(row);
-    }
-
-    [AvaloniaFact]
     public void SegmentVisualization_RunsWhileActive_AndShowsTheStream()
     {
         var manager = Substitute.For<IDownloadManager>();
@@ -209,6 +191,24 @@ public sealed class DownloadDetailViewModelTests
 
         vm.Segments.IsRunning.Should().BeFalse("a paused download has no live segment repaint");
         vm.Segments.HasStreams.Should().BeFalse();
+    }
+
+    [AvaloniaFact]
+    public void ShowWaitingForConnections_TrueOnlyWhileActiveWithNoStreamsYet()
+    {
+        var manager = Substitute.For<IDownloadManager>();
+        manager.GetConnections(Arg.Any<long>()).Returns([]);
+        var vm = new DownloadDetailViewModel(manager, Substitute.For<IDownloadActions>());
+
+        vm.Select(Row(status: DownloadStatusCodes.Active));
+        vm.ShowWaitingForConnections.Should().BeTrue(
+            "the transfer is active but hasn't reported any streams yet");
+
+        // A completed download's connection tracker is cleared (DownloadManager.TransitionToTerminalAsync),
+        // so it also reports no streams — that must not be mistaken for "still waiting" (user-reported: a
+        // completed download's Download tab said "Waiting for connections…").
+        vm.Select(Row(status: DownloadStatusCodes.Completed));
+        vm.ShowWaitingForConnections.Should().BeFalse("the download is complete, not waiting on anything");
     }
 
     private static void RaiseProgress(IDownloadManager manager, long id) =>

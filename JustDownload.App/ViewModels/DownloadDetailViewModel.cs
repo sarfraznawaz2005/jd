@@ -33,8 +33,8 @@ public sealed partial class DownloadDetailViewModel : ViewModelBase, IDisposable
     [NotifyCanExecuteChangedFor(nameof(ResumeCommand))]
     [NotifyCanExecuteChangedFor(nameof(PauseCommand))]
     [NotifyCanExecuteChangedFor(nameof(CancelCommand))]
-    [NotifyCanExecuteChangedFor(nameof(DetachCommand))]
     [NotifyCanExecuteChangedFor(nameof(VerifyChecksumCommand))]
+    [NotifyPropertyChangedFor(nameof(ShowWaitingForConnections))]
     private DownloadRowViewModel? _selected;
 
     /// <summary>The user-entered MD5/SHA-256 hash to verify the completed file against (Options tab, TASK-132).</summary>
@@ -67,6 +67,7 @@ public sealed partial class DownloadDetailViewModel : ViewModelBase, IDisposable
         _actions = actions;
         _checksums = checksums ?? new ChecksumVerifier();
         Segments = new SegmentVisualizationViewModel(BuildStreamSnapshots);
+        Connections.CollectionChanged += (_, _) => OnPropertyChanged(nameof(ShowWaitingForConnections));
         _manager.ProgressChanged += OnProgressChanged;
         _manager.StatusChanged += OnStatusChanged;
     }
@@ -105,6 +106,14 @@ public sealed partial class DownloadDetailViewModel : ViewModelBase, IDisposable
     /// <summary>Whether a download is currently selected (drives the empty-state placeholder).</summary>
     public bool HasSelection => Selected is not null;
 
+    /// <summary>
+    /// Whether the "Waiting for connections…" hint should show. Only while actively downloading with no
+    /// connections reported yet — a terminal state (completed/failed/paused) also has zero connections (its
+    /// tracker is cleared on completion) and must not be mistaken for "still waiting" (user-reported: a
+    /// completed download's Download tab said "Waiting for connections…").
+    /// </summary>
+    public bool ShowWaitingForConnections => Selected?.IsDownloading == true && Connections.Count == 0;
+
     /// <summary>The destination folder (Options tab).</summary>
     public string SaveToDisplay =>
         Selected?.FilePath is { } path ? Path.GetDirectoryName(path) ?? path : "—";
@@ -114,9 +123,6 @@ public sealed partial class DownloadDetailViewModel : ViewModelBase, IDisposable
 
     /// <summary>The resolved category (Options tab).</summary>
     public string CategoryDisplay => Selected?.Category.ToString() ?? "—";
-
-    /// <summary>Raised when the user detaches the detail into its own window.</summary>
-    public event EventHandler<DownloadRowViewModel>? DetachRequested;
 
     /// <summary>Points the detail at a download (or clears it), refreshing all tabs.</summary>
     public void Select(DownloadRowViewModel? row)
@@ -180,6 +186,7 @@ public sealed partial class DownloadDetailViewModel : ViewModelBase, IDisposable
             VerifyChecksumCommand.NotifyCanExecuteChanged();
             RefreshConnections();
             UpdateSegmentVisualization();
+            OnPropertyChanged(nameof(ShowWaitingForConnections)); // Selected.IsDownloading just flipped
         });
     }
 
@@ -257,9 +264,6 @@ public sealed partial class DownloadDetailViewModel : ViewModelBase, IDisposable
     /// </summary>
     [RelayCommand(CanExecute = nameof(CanPause))]
     private void Cancel() => _actions.Pause(Selected!.Id);
-
-    [RelayCommand(CanExecute = nameof(HasSelection))]
-    private void Detach() => DetachRequested?.Invoke(this, Selected!);
 
     /// <summary>
     /// Verifies the completed file against <see cref="ExpectedChecksum"/> (TASK-132) and shows the outcome.

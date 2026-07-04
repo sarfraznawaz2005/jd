@@ -7,8 +7,14 @@
 
   <UserControl.Resources>
     <StreamGeometry x:Key="IconFolderSm">M2,3.5 H6.5 L8,5 H14 V12.5 H2 Z</StreamGeometry>
-    <StreamGeometry x:Key="DetachIcon">M6,3 H4 A1,1 0 0 0 3,4 V12 A1,1 0 0 0 4,13 H12 A1,1 0 0 0 13,12 V10 M9,3 H13 V7 M13,3 L7.5,8.5</StreamGeometry>
   </UserControl.Resources>
+
+  <UserControl.Styles>
+    <!-- The Fluent theme's default TabItem header size reads oversized in this narrow detail pane. -->
+    <Style Selector="TabItem">
+      <Setter Property="FontSize" Value="12.5" />
+    </Style>
+  </UserControl.Styles>
 
   <Panel>
     <!-- Empty state when nothing is selected -->
@@ -24,7 +30,7 @@
     <DockPanel IsVisible="{Binding HasSelection}" Margin="16">
 
       <!-- Header -->
-      <Grid DockPanel.Dock="Top" ColumnDefinitions="Auto,*,Auto" Margin="0,0,0,14">
+      <Grid DockPanel.Dock="Top" ColumnDefinitions="Auto,*" Margin="0,0,0,14">
         <Border Grid.Column="0" Width="40" Height="40" CornerRadius="{StaticResource RadiusSm}" Margin="0,0,12,0"
                 Background="{Binding Selected.Category, Converter={x:Static conv:CategoryResourceConverter.Instance}, ConverterParameter=background}">
           <PathIcon Width="21" Height="21"
@@ -32,14 +38,10 @@
                     Foreground="{Binding Selected.Category, Converter={x:Static conv:CategoryResourceConverter.Instance}, ConverterParameter=foreground}" />
         </Border>
         <StackPanel Grid.Column="1" VerticalAlignment="Center">
-          <TextBlock Text="{Binding Selected.FileName}" FontSize="15" FontWeight="SemiBold"
+          <TextBlock Text="{Binding Selected.FileName}" FontSize="13" FontWeight="SemiBold"
                      TextTrimming="CharacterEllipsis" Foreground="{DynamicResource TextBrush}" />
           <TextBlock Text="{Binding Selected.SubLine}" FontSize="11.5" Foreground="{DynamicResource TextFaintBrush}" />
         </StackPanel>
-        <Button Grid.Column="2" Classes="App Ghost IconOnly" VerticalAlignment="Top"
-                Command="{Binding DetachCommand}" ToolTip.Tip="Open in a separate window">
-          <PathIcon Data="{StaticResource DetachIcon}" Width="14" Height="14" />
-        </Button>
       </Grid>
 
       <!-- Per-item actions -->
@@ -128,7 +130,7 @@
                 </ItemsControl.ItemTemplate>
               </ItemsControl>
 
-              <TextBlock Text="Waiting for connections…" IsVisible="{Binding !Segments.HasStreams}"
+              <TextBlock Text="Waiting for connections…" IsVisible="{Binding ShowWaitingForConnections}"
                          FontSize="11.5" Foreground="{DynamicResource TextFaintBrush}" />
             </StackPanel>
           </ScrollViewer>
