@@ -178,6 +178,63 @@ public sealed class NewDownloadViewModelTests
     }
 
     [Fact]
+    public async Task DetectAsync_DuplicateOnDisk_AutoRenamesToNextFreeName()
+    {
+        // Regression: re-downloading a file the user already had didn't offer a renamed copy — it just
+        // warned and left the user to figure out a new name themselves (user-reported).
+        var h = new Harness();
+        h.SetProbe("file.bin", 1234, ranges: true);
+        h.DuplicateCheck.CheckAsync(Arg.Any<string>(), "file.bin", Arg.Any<long?>(), Arg.Any<CancellationToken>())
+            .Returns(new DuplicateCheckResult(DuplicateKind.FileExistsOnDisk, 1234, SizeMatches: true));
+        h.DuplicateCheck.CheckAsync(Arg.Any<string>(), "file (2).bin", Arg.Any<long?>(), Arg.Any<CancellationToken>())
+            .Returns(DuplicateCheckResult.None);
+        var vm = h.Build();
+        vm.Url = "https://host.example/file.bin";
+
+        await vm.DetectAsync();
+
+        vm.FileName.Should().Be("file (2).bin");
+        vm.DuplicateWarning.Should().Contain("file (2).bin");
+    }
+
+    [Fact]
+    public async Task DetectAsync_DuplicateOnDisk_SkipsThroughTakenSuffixes_ToTheFirstFreeOne()
+    {
+        var h = new Harness();
+        h.SetProbe("file.bin", 1234, ranges: true);
+        h.DuplicateCheck.CheckAsync(Arg.Any<string>(), "file.bin", Arg.Any<long?>(), Arg.Any<CancellationToken>())
+            .Returns(new DuplicateCheckResult(DuplicateKind.FileExistsOnDisk, 1234, SizeMatches: true));
+        h.DuplicateCheck.CheckAsync(Arg.Any<string>(), "file (2).bin", Arg.Any<long?>(), Arg.Any<CancellationToken>())
+            .Returns(new DuplicateCheckResult(DuplicateKind.FileExistsOnDisk, 1234, SizeMatches: true));
+        h.DuplicateCheck.CheckAsync(Arg.Any<string>(), "file (3).bin", Arg.Any<long?>(), Arg.Any<CancellationToken>())
+            .Returns(DuplicateCheckResult.None);
+        var vm = h.Build();
+        vm.Url = "https://host.example/file.bin";
+
+        await vm.DetectAsync();
+
+        vm.FileName.Should().Be("file (3).bin");
+    }
+
+    [Fact]
+    public async Task DetectAsync_DuplicateOnDisk_DoesNotAutoRename_WhenFileNameWasManuallyEdited()
+    {
+        var h = new Harness();
+        h.SetProbe("file.bin", 1234, ranges: true);
+        h.DuplicateCheck.CheckAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<long?>(), Arg.Any<CancellationToken>())
+            .Returns(new DuplicateCheckResult(DuplicateKind.FileExistsOnDisk, 1234, SizeMatches: true));
+        var vm = h.Build();
+        vm.Url = "https://host.example/file.bin";
+        await vm.DetectAsync();
+        vm.FileName = "my-custom-name.bin"; // the user's own choice pins it
+
+        await vm.DetectAsync(); // e.g. re-checking after editing the URL/save folder
+
+        vm.FileName.Should().Be("my-custom-name.bin", "a manually chosen name must not be silently replaced");
+        vm.DuplicateWarning.Should().NotContain("renamed to");
+    }
+
+    [Fact]
     public async Task DuplicateWarning_ClearsWhenTheFileNameChanges()
     {
         var h = new Harness();

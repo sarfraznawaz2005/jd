@@ -23,6 +23,10 @@ namespace JustDownload.App.ViewModels;
 /// </summary>
 public sealed partial class NewDownloadViewModel : ViewModelBase
 {
+    /// <summary>Upper bound on "name (n).ext" auto-rename attempts (TASK-139 follow-up), so a pathological
+    /// run of collisions can't loop unbounded.</summary>
+    private const int MaxRenameAttempts = 50;
+
     private readonly IResourceProbe _probe;
     private readonly IFileCategorizer _categorizer;
     private readonly IDownloadFolderProvider _folders;
@@ -457,6 +461,21 @@ public sealed partial class NewDownloadViewModel : ViewModelBase
                 .CheckAsync(SaveToFolder.Trim(), FileName.Trim(), _detectedSize, cancellationToken)
                 .ConfigureAwait(true);
 
+            // Auto-suggest the next free "name (n).ext" instead of just warning, mirroring how browsers/
+            // Explorer avoid quietly overwriting or blocking on a name the user never deliberately chose
+            // (user-reported: re-downloading a file didn't offer a renamed copy). Only when the name still
+            // came from detection — the user typing/editing it themselves is left for them to resolve.
+            if (result.IsDuplicate && !_fileNameTouched)
+            {
+                string? renamed = await FindAvailableNameAsync(FileName.Trim(), cancellationToken).ConfigureAwait(true);
+                if (renamed is not null)
+                {
+                    SetFileNameQuietly(renamed);
+                    DuplicateWarning = $"A file with this name already existed here — renamed to \"{renamed}\".";
+                    return;
+                }
+            }
+
             DuplicateWarning = result.Kind switch
             {
                 DuplicateKind.FileExistsOnDisk when result.SizeMatches =>
@@ -474,6 +493,31 @@ public sealed partial class NewDownloadViewModel : ViewModelBase
         {
             // Superseded by a newer detection — ignore.
         }
+    }
+
+    /// <summary>
+    /// Finds the next available "name (n).ext" that collides neither on disk nor in the library, checking
+    /// sequentially starting at 2 (the common "file (2).ext" convention). Returns <see langword="null"/> if
+    /// none of the first <see cref="MaxRenameAttempts"/> candidates are free (extremely unlikely in practice).
+    /// </summary>
+    private async Task<string?> FindAvailableNameAsync(string originalFileName, CancellationToken cancellationToken)
+    {
+        string extension = Path.GetExtension(originalFileName);
+        string stem = Path.GetFileNameWithoutExtension(originalFileName);
+
+        for (int n = 2; n <= MaxRenameAttempts; n++)
+        {
+            string candidate = $"{stem} ({n}){extension}";
+            DuplicateCheckResult result = await _duplicateCheck
+                .CheckAsync(SaveToFolder.Trim(), candidate, _detectedSize, cancellationToken)
+                .ConfigureAwait(true);
+            if (!result.IsDuplicate)
+            {
+                return candidate;
+            }
+        }
+
+        return null;
     }
 
     /// <summary>Maps a probe failure status to a clear, human-readable warning (TASK-142).</summary>
