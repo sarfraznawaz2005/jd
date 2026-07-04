@@ -288,6 +288,28 @@ public sealed class DownloadQueueServiceTests : IDisposable
         (await _repo.GetAsync(id))!.Priority.Should().Be(42);
     }
 
+    [Fact]
+    public async Task PumpAsync_AfterDispose_DoesNotThrowObjectDisposedException()
+    {
+        // Regression: app shutdown disposes the queue (and its pump semaphore) while OnStatusChanged/RunAsync
+        // can still have a trailing fire-and-forget PumpAsync in flight or queued. Dispose() must stop those
+        // before they reach the disposed semaphore (previously surfaced as a flood of CRIT
+        // TaskScheduler.UnobservedTaskException/ObjectDisposedException entries in errors.log).
+        var manager = new GatedManager(_repo);
+        DownloadQueueService queue = BuildQueue(manager, max: 1);
+        long id = await EnqueueAsync(priority: 0);
+        await queue.StartAsync();
+        await WaitUntilAsync(() => queue.RunningIds.Count == 1, TimeSpan.FromSeconds(2));
+
+        queue.Dispose();
+
+        // Every public entry point routes through the same PumpAsync that used to touch the disposed semaphore.
+        Func<Task> act = async () => await queue.SetPriorityAsync(id, 5);
+        await act.Should().NotThrowAsync();
+
+        manager.Release(id); // let the gated run unwind cleanly
+    }
+
     private static async Task WaitUntilAsync(Func<bool> condition, TimeSpan timeout)
     {
         var sw = System.Diagnostics.Stopwatch.StartNew();

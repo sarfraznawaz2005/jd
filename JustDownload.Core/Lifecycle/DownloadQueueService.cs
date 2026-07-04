@@ -120,7 +120,18 @@ internal sealed partial class DownloadQueueService : IDownloadQueueService, IDis
             return;
         }
 
-        await _pumpLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await _pumpLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (ObjectDisposedException)
+        {
+            // Dispose() can race a fire-and-forget trailing pump (OnStatusChanged, or RunAsync's finally)
+            // during app shutdown: _enabled was still true when this call started, but _pumpLock was torn
+            // down before WaitAsync ran. Nothing to pump once we're disposed.
+            return;
+        }
+
         try
         {
             int slots = AvailableSlots();
@@ -243,6 +254,7 @@ internal sealed partial class DownloadQueueService : IDownloadQueueService, IDis
         }
 
         _disposed = true;
+        _enabled = false; // stops any in-flight/queued PumpAsync before it reaches the disposed semaphore
         _manager.StatusChanged -= OnStatusChanged;
 
         lock (_gate)
