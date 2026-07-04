@@ -13,8 +13,18 @@ namespace JustDownload.Tests;
 public sealed class PortableModeTests : IDisposable
 {
     private readonly string _baseDir = Path.Combine(Path.GetTempPath(), "jd-portable-" + Guid.NewGuid().ToString("N"));
+    private readonly string? _savedOverride;
 
-    public PortableModeTests() => Directory.CreateDirectory(_baseDir);
+    public PortableModeTests()
+    {
+        Directory.CreateDirectory(_baseDir);
+
+        // This class deliberately exercises AppDataPaths.Directory's no-override precedence chain (portable
+        // vs. per-OS app-data), so the process-wide test isolation override (TestEnvironment) must be cleared
+        // for its scope, and restored afterward so other tests stay isolated from the real user's app data.
+        _savedOverride = Environment.GetEnvironmentVariable(AppDataPaths.OverrideEnvironmentVariable);
+        Environment.SetEnvironmentVariable(AppDataPaths.OverrideEnvironmentVariable, null);
+    }
 
     [Fact]
     public void IsPortable_TrueOnlyWhenTheMarkerFileExists()
@@ -53,6 +63,8 @@ public sealed class PortableModeTests : IDisposable
 
     public void Dispose()
     {
+        Environment.SetEnvironmentVariable(AppDataPaths.OverrideEnvironmentVariable, _savedOverride);
+
         try
         {
             if (Directory.Exists(_baseDir))

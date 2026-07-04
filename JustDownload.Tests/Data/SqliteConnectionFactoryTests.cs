@@ -104,20 +104,32 @@ public sealed class SqliteConnectionFactoryTests : IDisposable
     [Fact]
     public void DatabasePathProvider_ResolvesUnderPerOsAppDataDir()
     {
-        // The real path provider (no substitution) uses the per-OS application-data directory.
-        using ServiceProvider provider = new ServiceCollection()
-            .AddJustDownloadCore()
-            .BuildServiceProvider();
+        // This test deliberately exercises the no-override fallback, so the process-wide test isolation
+        // override (TestEnvironment) must be cleared for its scope, and restored afterward so other tests
+        // stay isolated from the real user's app data.
+        string? savedOverride = Environment.GetEnvironmentVariable(AppDataPaths.OverrideEnvironmentVariable);
+        Environment.SetEnvironmentVariable(AppDataPaths.OverrideEnvironmentVariable, null);
+        try
+        {
+            // The real path provider (no substitution) uses the per-OS application-data directory.
+            using ServiceProvider provider = new ServiceCollection()
+                .AddJustDownloadCore()
+                .BuildServiceProvider();
 
-        var pathProvider = provider.GetRequiredService<IDatabasePathProvider>();
+            var pathProvider = provider.GetRequiredService<IDatabasePathProvider>();
 
-        string appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-        string expectedDir = Path.Combine(appData, "JustDownload");
+            string appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+            string expectedDir = Path.Combine(appData, "JustDownload");
 
-        pathProvider.DatabaseDirectory.Should().Be(expectedDir);
-        pathProvider.DatabasePath.Should().Be(Path.Combine(expectedDir, "justdownload.db"));
-        // The resolved path lives beneath the OS application-data root, not a hard-coded folder.
-        pathProvider.DatabasePath.Should().StartWith(appData);
+            pathProvider.DatabaseDirectory.Should().Be(expectedDir);
+            pathProvider.DatabasePath.Should().Be(Path.Combine(expectedDir, "justdownload.db"));
+            // The resolved path lives beneath the OS application-data root, not a hard-coded folder.
+            pathProvider.DatabasePath.Should().StartWith(appData);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(AppDataPaths.OverrideEnvironmentVariable, savedOverride);
+        }
     }
 
     [Fact]
