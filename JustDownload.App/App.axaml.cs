@@ -149,7 +149,7 @@ public partial class App : Application
             Services.GetRequiredService<DownloadOrganizerService>().Start();
             Services.GetRequiredService<PostDownloadCommandService>().Start();
             InstallTrayIcon(desktop, window, mainViewModel);
-            WireForwardedArguments(window, mainViewModel);
+            WireForwardedArguments(mainViewModel);
 
             // Register the native-messaging host so browsers can find/launch it (TASK-089). Off-thread file/
             // registry writes; a no-op when the host executable isn't deployed alongside the app (dev).
@@ -241,7 +241,7 @@ public partial class App : Application
         window.Topmost = false;
     }
 
-    private void WireForwardedArguments(Window window, MainWindowViewModel mainViewModel)
+    private void WireForwardedArguments(MainWindowViewModel mainViewModel)
     {
         if (InstanceCoordinator is not { } coordinator)
         {
@@ -259,7 +259,9 @@ public partial class App : Application
                 return;
             }
 
-            BringToFront(window);
+            // Deliberately no BringToFront here: RequestDownloadForUrl opens the New Download dialog, which
+            // ShowWithoutForcingOwnerVisibleAsync shows on its own when the main window is hidden/minimized to
+            // tray, rather than forcing the whole window to the foreground for it.
             string? url = args.FirstOrDefault(a => Uri.TryCreate(a, UriKind.Absolute, out Uri? _));
             if (url is not null)
             {
@@ -277,7 +279,7 @@ public partial class App : Application
         }
 
         var dialog = new NewDownloadWindow { DataContext = viewModel };
-        await dialog.ShowDialog(owner);
+        await ShowWithoutForcingOwnerVisibleAsync(owner, dialog);
     }
 
     private async Task ShowNewDownloadDialogAsync(Window owner, BrowserLinkHandoff handoff)
@@ -287,7 +289,27 @@ public partial class App : Application
         viewModel.SetAuthContext(handoff.Referrer, handoff.Cookies);
 
         var dialog = new NewDownloadWindow { DataContext = viewModel };
-        await dialog.ShowDialog(owner);
+        await ShowWithoutForcingOwnerVisibleAsync(owner, dialog);
+    }
+
+    /// <summary>
+    /// Shows the New Download dialog modally when <paramref name="owner"/> is already visible; otherwise (the
+    /// main window is hidden/minimized to tray) opens it as an independent top-level window instead. A
+    /// download arriving via the browser extension or a second launch while the user has tray'd the app must
+    /// surface only this small confirmation dialog — forcing the whole main window visible just to satisfy
+    /// <see cref="Window.ShowDialog"/>'s "visible owner" requirement was user-reported as unwanted: the main
+    /// window should stay out of the way the user deliberately put it in.
+    /// </summary>
+    private static async Task ShowWithoutForcingOwnerVisibleAsync(Window owner, Window dialog)
+    {
+        if (owner.IsVisible)
+        {
+            await dialog.ShowDialog(owner);
+        }
+        else
+        {
+            dialog.Show();
+        }
     }
 
     private static readonly FilePickerFileType DownloadListFileType =
@@ -435,11 +457,9 @@ public partial class App : Application
             return;
         }
 
-        if (Current?.ApplicationLifetime is IClassicDesktopStyleApplicationLifetime { MainWindow: { } window })
-        {
-            BringToFront(window);
-        }
-
+        // The New Download dialog opens for each hand-off below regardless of whether the main window is
+        // hidden/minimized to tray (ShowWithoutForcingOwnerVisibleAsync handles that) — the window itself is
+        // deliberately left alone.
         MainWindowViewModel mainViewModel = Services.GetRequiredService<MainWindowViewModel>();
         foreach (JustDownload.Core.NativeMessaging.PendingLink link in pending)
         {
