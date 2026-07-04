@@ -37,6 +37,19 @@ public sealed class DownloadFolderProvider : IDownloadFolderProvider
     }
 
     /// <inheritdoc />
-    public string GetFolderForCategory(FileCategory category) =>
-        Path.Combine(GetBaseFolder(), _folderRules.GetFolderName(category));
+    public string GetFolderForCategory(FileCategory category)
+    {
+        AppSettings settings = _settings.Current;
+        if (!settings.OrganizeByCategory)
+        {
+            // Mirrors DownloadOrganizer (§2.4): the toggle off means files stay in the base folder, so the
+            // dialog must not suggest a category subfolder it will never actually organize into.
+            return GetBaseFolder();
+        }
+
+        string root = string.IsNullOrWhiteSpace(settings.OrganizedRootDirectory)
+            ? GetBaseFolder()
+            : settings.OrganizedRootDirectory.Trim();
+        return Path.Combine(root, _folderRules.GetFolderName(category));
+    }
 }

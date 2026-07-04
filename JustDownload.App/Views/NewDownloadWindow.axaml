@@ -77,17 +77,20 @@
       </Border>
     </StackPanel>
 
-    <!-- Segmentation toggle (the size/resumability status that used to sit here now lives in the footer,
-         in the same spot "Detecting…" occupies while in progress) -->
-    <CheckBox IsChecked="{Binding UseSegmentation, Mode=TwoWay}"
-              Content="{Binding ConnectionsHint}" Foreground="{DynamicResource TextDimBrush}" FontSize="12" />
+    <!-- Segmentation / proxy-override / alternate-URLs checkboxes: tightly spaced as one group (AC: no
+         large gap between them), the outer dialog's Spacing="14" still separates the group from its
+         neighbors above/below. -->
+    <StackPanel Spacing="4">
+      <!-- Segmentation toggle (the size/resumability status that used to sit here now lives in the footer,
+           in the same spot "Detecting…" occupies while in progress) -->
+      <CheckBox IsChecked="{Binding UseSegmentation, Mode=TwoWay}"
+                Content="{Binding ConnectionsHint}" Foreground="{DynamicResource TextDimBrush}" FontSize="12" />
 
-    <!-- Per-download proxy override (TASK-153) -->
-    <StackPanel Spacing="8">
+      <!-- Per-download proxy override (TASK-153) -->
       <CheckBox IsChecked="{Binding UseProxyOverride, Mode=TwoWay}"
                 Content="Use a different proxy for this download"
                 Foreground="{DynamicResource TextDimBrush}" FontSize="12" />
-      <StackPanel Spacing="8" IsVisible="{Binding UseProxyOverride}" Margin="22,0,0,0">
+      <StackPanel Spacing="8" IsVisible="{Binding UseProxyOverride}" Margin="22,4,0,0">
         <Grid ColumnDefinitions="120,*,90">
           <ComboBox Grid.Column="0" ItemsSource="{Binding ProxyKinds}"
                     SelectedItem="{Binding OverrideProxyKind, Mode=TwoWay}" HorizontalAlignment="Stretch"
@@ -109,14 +112,12 @@
                    IsVisible="{Binding ProxyOverrideError, Converter={x:Static ObjectConverters.IsNotNull}}"
                    Foreground="{DynamicResource RedBrush}" />
       </StackPanel>
-    </StackPanel>
 
-    <!-- Alternate mirror URLs (TASK-144) -->
-    <StackPanel Spacing="8">
+      <!-- Alternate mirror URLs (TASK-144) -->
       <CheckBox IsChecked="{Binding UseAlternateUrls, Mode=TwoWay}"
                 Content="Add alternate mirror URLs"
                 Foreground="{DynamicResource TextDimBrush}" FontSize="12" />
-      <StackPanel Spacing="5" IsVisible="{Binding UseAlternateUrls}" Margin="22,0,0,0">
+      <StackPanel Spacing="5" IsVisible="{Binding UseAlternateUrls}" Margin="22,4,0,0">
         <TextBlock Text="One URL per line. Tried in order if the main URL fails." FontSize="11"
                    Foreground="{DynamicResource TextFaintBrush}" />
         <TextBox Text="{Binding AlternateUrlsText, Mode=TwoWay}" AcceptsReturn="True" Height="70"

@@ -13,10 +13,16 @@ namespace JustDownload.Tests.App;
 /// </summary>
 public sealed class DownloadFolderProviderTests
 {
-    private static DownloadFolderProvider Build(string? configured)
+    private static DownloadFolderProvider Build(
+        string? configured, bool organizeByCategory = false, string? organizedRoot = null)
     {
         var settings = Substitute.For<ISettingsService>();
-        settings.Current.Returns(new AppSettings { DefaultDownloadDirectory = configured });
+        settings.Current.Returns(new AppSettings
+        {
+            DefaultDownloadDirectory = configured,
+            OrganizeByCategory = organizeByCategory,
+            OrganizedRootDirectory = organizedRoot,
+        });
         return new DownloadFolderProvider(CategoryFolderRules.CreateDefault(), settings);
     }
 
@@ -48,11 +54,31 @@ public sealed class DownloadFolderProviderTests
     }
 
     [Fact]
-    public void GetFolderForCategory_ComposesUnderTheConfiguredBase()
+    public void GetFolderForCategory_ComposesUnderTheConfiguredBase_WhenOrganizeByCategoryIsOn()
     {
-        DownloadFolderProvider provider = Build(@"X:\MyDownloads");
+        DownloadFolderProvider provider = Build(@"X:\MyDownloads", organizeByCategory: true);
 
         string expected = System.IO.Path.Combine(@"X:\MyDownloads", CategoryFolderRules.CreateDefault().GetFolderName(FileCategory.Program));
         provider.GetFolderForCategory(FileCategory.Program).Should().Be(expected);
+    }
+
+    [Fact]
+    public void GetFolderForCategory_ComposesUnderTheOrganizedRoot_WhenSet()
+    {
+        DownloadFolderProvider provider = Build(@"X:\MyDownloads", organizeByCategory: true, organizedRoot: @"Y:\Sorted");
+
+        string expected = System.IO.Path.Combine(@"Y:\Sorted", CategoryFolderRules.CreateDefault().GetFolderName(FileCategory.Program));
+        provider.GetFolderForCategory(FileCategory.Program).Should().Be(expected);
+    }
+
+    [Fact]
+    public void GetFolderForCategory_ReturnsBaseFolder_WhenOrganizeByCategoryIsOff()
+    {
+        // The New Download dialog must not suggest a category subfolder the file will never actually be
+        // organized into (user-reported: it showed a "Programs" folder that didn't exist, and never would,
+        // with the toggle off).
+        DownloadFolderProvider provider = Build(@"X:\MyDownloads", organizeByCategory: false);
+
+        provider.GetFolderForCategory(FileCategory.Program).Should().Be(@"X:\MyDownloads");
     }
 }
