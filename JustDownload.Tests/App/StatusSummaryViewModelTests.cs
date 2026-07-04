@@ -77,4 +77,29 @@ public sealed class StatusSummaryViewModelTests
         vm.Connections.Should().Be(0);
         vm.TotalSpeedDisplay.Should().Be("—");
     }
+
+    [AvaloniaFact]
+    public void SpeedHistory_ClearsImmediately_OnceNoDownloadsAreActive()
+    {
+        // Regression: the 60-sample ring buffer used to take up to ~60s to visually decay to zero after the
+        // last active download finished (user-reported: the sparkline "still shows" after completion).
+        var manager = Substitute.For<IDownloadManager>();
+        var vm = new StatusSummaryViewModel(manager);
+
+        manager.StatusChanged += Raise.Event<EventHandler<DownloadStatusChangedEventArgs>>(
+            manager, new DownloadStatusChangedEventArgs(1, null, DownloadStatus.Active));
+        manager.ProgressChanged += Raise.Event<EventHandler<DownloadProgressChangedEventArgs>>(
+            manager,
+            new DownloadProgressChangedEventArgs(
+                1, DownloadProgress.Create(DownloadStatus.Active, 50, 100, 1000, resumable: true, connections: 4)));
+        Dispatcher.UIThread.RunJobs();
+        vm.SampleNow();
+        vm.SpeedHistory.Count.Should().Be(1);
+
+        manager.StatusChanged += Raise.Event<EventHandler<DownloadStatusChangedEventArgs>>(
+            manager, new DownloadStatusChangedEventArgs(1, DownloadStatus.Active, DownloadStatus.Completed));
+        Dispatcher.UIThread.RunJobs();
+
+        vm.SpeedHistory.Count.Should().Be(0, "no downloads are active, so the sparkline clears immediately");
+    }
 }

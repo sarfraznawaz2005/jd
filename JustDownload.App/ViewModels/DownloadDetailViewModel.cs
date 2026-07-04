@@ -178,6 +178,14 @@ public sealed partial class DownloadDetailViewModel : ViewModelBase, IDisposable
             return;
         }
 
+        if (e.Current != DownloadStatus.Active)
+        {
+            // ProgressChanged stops firing once a download leaves Active, so nothing else would reset the
+            // last observed speed — without this the sparkline keeps sampling a stale non-zero value forever
+            // after Complete/Failed/Paused (user-reported: the graph "still shows" after a download finishes).
+            Interlocked.Exchange(ref _latestSpeed, 0);
+        }
+
         Dispatcher.UIThread.Post(() =>
         {
             ResumeCommand.NotifyCanExecuteChanged();

@@ -116,6 +116,30 @@ public sealed class DownloadDetailViewModelTests
     }
 
     [AvaloniaFact]
+    public void SampleNow_RecordsZero_OnceTheDownloadLeavesActive()
+    {
+        // Regression: ProgressChanged stops firing once a download finishes, so the last non-zero speed used
+        // to linger forever — the sparkline kept showing it as if still transferring (user-reported).
+        var manager = Substitute.For<IDownloadManager>();
+        manager.GetConnections(Arg.Any<long>()).Returns([]);
+        var vm = new DownloadDetailViewModel(manager, Substitute.For<IDownloadActions>());
+        vm.Select(Row());
+
+        manager.ProgressChanged += Raise.Event<EventHandler<DownloadProgressChangedEventArgs>>(
+            manager,
+            new DownloadProgressChangedEventArgs(
+                1, DownloadProgress.Create(DownloadStatus.Active, 50, 100, 442_000, resumable: true, connections: 3)));
+        Dispatcher.UIThread.RunJobs();
+
+        manager.StatusChanged += Raise.Event<EventHandler<DownloadStatusChangedEventArgs>>(
+            manager, new DownloadStatusChangedEventArgs(1, DownloadStatus.Active, DownloadStatus.Completed));
+        Dispatcher.UIThread.RunJobs();
+
+        vm.SampleNow();
+        vm.SpeedHistory.Peak.Should().Be(0, "the download finished, so the sparkline must not keep sampling the old speed");
+    }
+
+    [AvaloniaFact]
     public void Connections_UpdateInPlace_AndDropWhenGone()
     {
         var manager = Substitute.For<IDownloadManager>();

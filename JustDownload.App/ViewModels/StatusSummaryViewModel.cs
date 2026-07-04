@@ -112,6 +112,13 @@ public sealed partial class StatusSummaryViewModel : ViewModelBase, IDisposable
             ActiveCount = active;
             Connections = connections;
             TotalSpeedDisplay = ByteFormatter.FormatSpeed(speed);
+
+            // Otherwise old non-zero samples linger in the 60-sample ring buffer and visibly decay to zero
+            // over the next ~60 seconds after the last active download finishes (user-reported).
+            if (active == 0)
+            {
+                SpeedHistory.Clear();
+            }
         });
     }
 
