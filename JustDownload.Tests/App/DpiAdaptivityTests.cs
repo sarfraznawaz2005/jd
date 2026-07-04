@@ -76,11 +76,15 @@ public sealed class DpiAdaptivityTests
     }
 
     [AvaloniaFact]
-    public void Layout_IsValid_At800x600()
+    public async Task Layout_IsValid_At800x600()
     {
-        var vm = BuildViewModel();
+        // The detail pane only shows once something is selected (it no longer reserves its column with
+        // nothing to show), so select the one row to exercise its width alongside the list's.
+        var vm = BuildViewModel(rowCount: 1);
         var window = new MainWindow { DataContext = vm, Width = 800, Height = 600 };
         window.Show();
+        await vm.Downloads.LoadAsync();
+        vm.Detail.Select(vm.Downloads.Downloads[0]);
         vm.UpdateForWidth(800);
         window.UpdateLayout();
 

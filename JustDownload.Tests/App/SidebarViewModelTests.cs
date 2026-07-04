@@ -73,7 +73,7 @@ public sealed class SidebarViewModelTests
 
         sidebar.All.Label.Should().Be("All Downloads");
         sidebar.Nodes.Select(n => n.Label).Should()
-            .Equal("All Downloads", "Video", "Audio", "Documents", "Compressed", "Programs", "Images");
+            .Equal("All Downloads", "Video", "Audio", "Documents", "Compressed", "Programs", "Images", "Other");
         sidebar.StatusNodes.Select(n => n.Label).Should().Equal("Incomplete", "Completed");
         sidebar.All.IsSelected.Should().BeTrue("All Downloads is selected by default");
     }

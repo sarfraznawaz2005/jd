@@ -111,7 +111,7 @@
     <Setter Property="FontSize" Value="{StaticResource FontMd}" />
     <Setter Property="FontWeight" Value="Medium" />
     <Setter Property="HorizontalAlignment" Value="Stretch" />
-    <Setter Property="HorizontalContentAlignment" Value="Left" />
+    <Setter Property="HorizontalContentAlignment" Value="Stretch" />
     <Setter Property="Cursor" Value="Hand" />
     <Setter Property="Template">
       <ControlTemplate>
@@ -119,10 +119,14 @@
                 BorderBrush="{TemplateBinding BorderBrush}"
                 BorderThickness="{TemplateBinding BorderThickness}"
                 CornerRadius="{TemplateBinding CornerRadius}">
+          <!-- Stretched (not hardcoded Left) so the row's Grid fills the full width and its "*" label column
+               pushes the count pill to the far right, matching mockups/main.html's nav-item layout — before
+               this, the ContentPresenter hugged its content width, so the pill sat right next to the label
+               with all the row's slack space stranded after it (user-reported). -->
           <ContentPresenter Content="{TemplateBinding Content}"
                             Padding="{TemplateBinding Padding}"
                             Foreground="{TemplateBinding Foreground}"
-                            HorizontalAlignment="Left"
+                            HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
                             VerticalAlignment="Center" />
         </Border>
       </ControlTemplate>

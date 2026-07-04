@@ -108,14 +108,8 @@ public partial class App : Application
             // The toolbar/command-palette "New URL" intent opens the dialog over the main window (TASK-052/053).
             mainViewModel.NewDownloadRequested += (_, _) => _ = ShowNewDownloadDialogAsync(window);
 
-            // Detaching the per-download detail pops it into its own window (TASK-054 AC0).
-            mainViewModel.Detail.DetachRequested += (_, _) => ShowDetachedDetail(window, mainViewModel.Detail);
-
             // The toolbar "Settings" intent opens the settings window (TASK-057).
             mainViewModel.SettingsRequested += (_, _) => _ = ShowSettingsDialogAsync(window);
-
-            // The toolbar "Browsers" intent opens the browser-integration panel (TASK-093).
-            mainViewModel.BrowsersRequested += (_, _) => _ = ShowBrowsersDialogAsync(window);
 
             // The add-media intent opens the quality picker, which enqueues the chosen variant (TASK-100).
             mainViewModel.NewMediaRequested += (_, _) => _ = ShowMediaPickerDialogAsync(window, mainViewModel);
@@ -135,6 +129,17 @@ public partial class App : Application
             // Opt-in clipboard watcher (TASK-133): a copied supported URL opens the dialog prefilled.
             ClipboardMonitor clipboardMonitor = Services.GetRequiredService<ClipboardMonitor>();
             clipboardMonitor.UrlDetected += (_, url) => mainViewModel.RequestDownloadForUrl(url);
+
+            // Remember the sidebar's expanded/collapsed state across restarts (the initial value is applied
+            // in ApplyPersistedPreferences, alongside the theme, before the window paints).
+            mainViewModel.PropertyChanged += (_, e) =>
+            {
+                if (e.PropertyName == nameof(MainWindowViewModel.SidebarCollapsed))
+                {
+                    _ = Services.GetRequiredService<ISettingsService>()
+                        .UpdateAsync(s => s with { SidebarCollapsed = mainViewModel.SidebarCollapsed });
+                }
+            };
 
             WireCloseToTray(desktop, window);
 
@@ -227,7 +232,13 @@ public partial class App : Application
             window.WindowState = WindowState.Normal;
         }
 
+        // Windows (and some Linux WMs) refuse a background process's plain Activate() call outright
+        // (foreground-lock prevention) — the window merely flashes in the taskbar instead of coming
+        // forward (user-reported: waking from the tray didn't reliably bring the window to focus).
+        // Toggling Topmost is the standard, low-risk way to force it to the front regardless.
+        window.Topmost = true;
         window.Activate();
+        window.Topmost = false;
     }
 
     private void WireForwardedArguments(Window window, MainWindowViewModel mainViewModel)
@@ -330,12 +341,6 @@ public partial class App : Application
         }
     }
 
-    private async Task ShowBrowsersDialogAsync(Window owner)
-    {
-        var dialog = new BrowsersWindow { DataContext = Services.GetRequiredService<BrowsersViewModel>() };
-        await dialog.ShowDialog(owner);
-    }
-
     private async Task ShowSettingsDialogAsync(Window owner)
     {
         var dialog = new SettingsWindow
@@ -344,14 +349,6 @@ public partial class App : Application
         };
 
         await dialog.ShowDialog(owner);
-    }
-
-    private static void ShowDetachedDetail(Window owner, DownloadDetailViewModel detail)
-    {
-        // The detached window shares the same detail view-model as the inline pane, so both stay live and in
-        // sync (AC0). Non-modal so the user can keep working in the main window.
-        var window = new DownloadDetailWindow { DataContext = detail };
-        window.Show(owner);
     }
 
     private async Task InitializeAndLoadAsync(IClassicDesktopStyleApplicationLifetime desktop, MainWindow window)
@@ -395,6 +392,7 @@ public partial class App : Application
         AppSettings current = Services.GetRequiredService<ISettingsService>().Current;
         Services.GetRequiredService<IThemeService>()
             .SetMode(current.Theme == AppTheme.Dark ? ThemeMode.Dark : ThemeMode.Light);
+        Services.GetRequiredService<MainWindowViewModel>().SidebarCollapsed = current.SidebarCollapsed;
         GlobalSpeedLimitController speedLimit = Services.GetRequiredService<GlobalSpeedLimitController>();
         speedLimit.ApplyCurrent();
         speedLimit.Start(); // re-evaluate the time-of-day schedule automatically (TASK-145)

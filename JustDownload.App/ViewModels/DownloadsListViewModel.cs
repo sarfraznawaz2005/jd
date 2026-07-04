@@ -338,6 +338,11 @@ public sealed partial class DownloadsListViewModel : ViewModelBase, IDisposable
             {
                 Downloads.Insert(0, row);
                 _visibleIds.Add(id);
+
+                // Auto-select every freshly enqueued download so the detail pane immediately shows its
+                // progress — the point of a download manager is watching the thing you just started, not
+                // hunting for it in the list (user-reported: a new download "only showed up in the list").
+                SelectedDownload = row;
             }
 
             RaiseListStateChanged();

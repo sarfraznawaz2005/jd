@@ -21,6 +21,10 @@ public sealed partial class SidebarViewModel : ViewModelBase, IDisposable
         (FileCategory.Compressed, "Compressed"),
         (FileCategory.Program, "Programs"),
         (FileCategory.Image, "Images"),
+        // Uncategorized files are real and selectable in the New Download dialog (CategoryOption "Other") —
+        // without this node they were only reachable via "All Downloads", with no dedicated filter/count
+        // (user-reported: "what about others?").
+        (FileCategory.Other, "Other"),
     ];
 
     private readonly DownloadsListViewModel _list;

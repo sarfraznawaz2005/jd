@@ -87,7 +87,7 @@ public sealed class AccessibilityTests
         window.Show();
 
         // Sample the icon-only toolbar buttons: each must expose a non-empty automation name.
-        var named = new[] { "Toggle sidebar", "Resume", "Pause", "Stop all", "Remove", "Settings", "Browsers", "Toggle theme" };
+        var named = new[] { "Toggle sidebar", "Resume", "Pause", "Stop all", "Remove", "Settings", "Toggle details", "Toggle theme" };
         var actualNames = window.GetVisualDescendants().OfType<Button>()
             .Select(b => Avalonia.Automation.AutomationProperties.GetName(b))
             .Where(n => !string.IsNullOrEmpty(n))

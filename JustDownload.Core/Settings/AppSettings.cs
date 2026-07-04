@@ -166,4 +166,10 @@ public sealed record AppSettings
     /// button, while this is off. Opt-in — default <see langword="false"/>.
     /// </summary>
     public bool AutoUpdateEnabled { get; init; }
+
+    /// <summary>
+    /// Whether the main window's left category/status sidebar is collapsed, remembered across restarts.
+    /// Default <see langword="true"/> — the sidebar starts out of the way; the toolbar toggle expands it.
+    /// </summary>
+    public bool SidebarCollapsed { get; init; } = true;
 }

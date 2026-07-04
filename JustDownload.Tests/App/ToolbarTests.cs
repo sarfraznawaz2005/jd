@@ -63,27 +63,23 @@ public sealed class ToolbarTests
     };
 
     [AvaloniaFact]
-    public void NewDownload_Settings_Browsers_RaiseTheirIntents_AndAreAlwaysEnabled()
+    public void NewDownload_Settings_RaiseTheirIntents_AndAreAlwaysEnabled()
     {
         var h = new Harness();
         var vm = h.BuildMain(h.BuildList());
 
-        bool newUrl = false, settings = false, browsers = false;
+        bool newUrl = false, settings = false;
         vm.NewDownloadRequested += (_, _) => newUrl = true;
         vm.SettingsRequested += (_, _) => settings = true;
-        vm.BrowsersRequested += (_, _) => browsers = true;
 
         vm.NewDownloadCommand.CanExecute(null).Should().BeTrue();
         vm.OpenSettingsCommand.CanExecute(null).Should().BeTrue();
-        vm.ShowBrowsersCommand.CanExecute(null).Should().BeTrue();
 
         vm.NewDownloadCommand.Execute(null);
         vm.OpenSettingsCommand.Execute(null);
-        vm.ShowBrowsersCommand.Execute(null);
 
         newUrl.Should().BeTrue();
         settings.Should().BeTrue();
-        browsers.Should().BeTrue();
     }
 
     [AvaloniaFact]
@@ -128,7 +124,7 @@ public sealed class ToolbarTests
             .ToList();
         tooltips.Should().Contain(t => t!.StartsWith("New download", StringComparison.Ordinal));
         tooltips.Should().Contain("Resume").And.Contain("Pause").And.Contain("Stop all").And.Contain("Remove");
-        tooltips.Should().Contain("Settings").And.Contain("Browsers");
+        tooltips.Should().Contain("Settings").And.Contain("Toggle details");
         tooltips.Should().Contain("About JustDownload");
     }
 

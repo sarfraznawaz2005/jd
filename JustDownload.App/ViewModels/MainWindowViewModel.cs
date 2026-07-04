@@ -26,6 +26,15 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     [NotifyPropertyChangedFor(nameof(SidebarVisible))]
     private bool _isNarrow;
 
+    /// <summary>
+    /// Whether the user has manually hidden the detail pane even though something is selected. Defaults to
+    /// <see langword="false"/> so selecting a row reveals the pane on its own (<see cref="DetailVisible"/>);
+    /// this only tracks an explicit override from the toggle button.
+    /// </summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(DetailVisible))]
+    private bool _detailCollapsed;
+
     public MainWindowViewModel(
         IThemeService theme,
         IDensityService density,
@@ -49,6 +58,16 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
         // Keep the detail pane pointed at the list's current selection (TASK-054).
         Downloads.PropertyChanged += OnDownloadsPropertyChanged;
+
+        // The detail pane's own visibility follows whether anything is selected (user-reported: it used to
+        // always reserve its column, showing an empty placeholder with nothing selected).
+        Detail.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(DownloadDetailViewModel.HasSelection))
+            {
+                OnPropertyChanged(nameof(DetailVisible));
+            }
+        };
 
         // Re-apply the compact style class whenever density changes (here or via the settings screen).
         _density.Changed += (_, _) => OnPropertyChanged(nameof(IsCompact));
@@ -76,6 +95,13 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
     /// <summary>The sidebar is shown when the user hasn't collapsed it and the window is wide enough (TASK-048).</summary>
     public bool SidebarVisible => !SidebarCollapsed && !IsNarrow;
+
+    /// <summary>
+    /// The detail pane is shown only once a download is selected, and only while the user hasn't hidden it
+    /// with the toggle button — it starts out of the way rather than always reserving its column with
+    /// nothing to show.
+    /// </summary>
+    public bool DetailVisible => Detail.HasSelection && !DetailCollapsed;
 
     /// <summary>
     /// Updates the responsive layout from the current window width (TASK-048): below
@@ -148,9 +174,6 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <summary>Raised when the user opens Settings — the shell shows the settings screens (TASK-057).</summary>
     public event EventHandler? SettingsRequested;
 
-    /// <summary>Raised when the user opens the Browsers panel (extension/browser integration).</summary>
-    public event EventHandler? BrowsersRequested;
-
     /// <summary>Raised to open the add-media (quality picker) dialog (TASK-100).</summary>
     public event EventHandler? NewMediaRequested;
 
@@ -172,6 +195,10 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     [RelayCommand]
     private void ToggleSidebar() => SidebarCollapsed = !SidebarCollapsed;
 
+    /// <summary>Collapses or restores the detail pane (only relevant while a download is selected).</summary>
+    [RelayCommand]
+    private void ToggleDetail() => DetailCollapsed = !DetailCollapsed;
+
     /// <summary>Starts a new download: signals the shell to open the New URL dialog (TASK-053).</summary>
     [RelayCommand]
     private void NewDownload() => NewDownloadRequested?.Invoke(this, EventArgs.Empty);
@@ -179,10 +206,6 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <summary>Opens the application settings (TASK-057).</summary>
     [RelayCommand]
     private void OpenSettings() => SettingsRequested?.Invoke(this, EventArgs.Empty);
-
-    /// <summary>Opens the connected-browsers panel.</summary>
-    [RelayCommand]
-    private void ShowBrowsers() => BrowsersRequested?.Invoke(this, EventArgs.Empty);
 
     /// <summary>Opens the add-media dialog to pick a quality/variant and download it (TASK-100).</summary>
     [RelayCommand]
