@@ -65,15 +65,23 @@ internal sealed class DuplicateDownloadCheck : IDuplicateDownloadCheck
             return new DuplicateCheckResult(DuplicateKind.FileExistsOnDisk, size, sizeMatches);
         }
 
+        // Only an active (still-claiming-the-destination) record counts as a collision here — a completed
+        // record whose file the user has since deleted has nothing left to conflict with (user-reported: a
+        // deleted file still warned "already downloaded"). FileExistsOnDisk above already covers the case
+        // where the file is genuinely still present.
         IReadOnlyList<Download> existing = await _repository.GetAllAsync(cancellationToken).ConfigureAwait(false);
         bool inLibrary = existing.Any(d =>
-            string.Equals(d.Directory, directory, PathComparison)
+            IsActiveStatus(d.Status)
+            && string.Equals(d.Directory, directory, PathComparison)
             && string.Equals(d.Filename, fileName, PathComparison));
 
         return inLibrary
             ? new DuplicateCheckResult(DuplicateKind.AlreadyInLibrary)
             : DuplicateCheckResult.None;
     }
+
+    private static bool IsActiveStatus(string status) =>
+        status is DownloadStatusCodes.Queued or DownloadStatusCodes.Active or DownloadStatusCodes.Paused;
 
     private static long? TryGetLength(string path)
     {

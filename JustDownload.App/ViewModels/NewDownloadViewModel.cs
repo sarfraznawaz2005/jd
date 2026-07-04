@@ -465,7 +465,8 @@ public sealed partial class NewDownloadViewModel : ViewModelBase
                 DuplicateKind.FileExistsOnDisk =>
                     "A file with this name already exists in this folder and may be overwritten. Rename it, or cancel to skip.",
                 DuplicateKind.AlreadyInLibrary =>
-                    "You've already downloaded this file to this folder. Rename it, or cancel to skip.",
+                    "A download to this file is already queued, downloading, or paused in this folder. "
+                    + "Rename it, or cancel to skip.",
                 _ => null,
             };
         }

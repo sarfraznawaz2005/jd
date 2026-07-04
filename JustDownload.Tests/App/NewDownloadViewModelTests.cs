@@ -174,7 +174,7 @@ public sealed class NewDownloadViewModelTests
         await vm.DetectAsync();
 
         vm.DuplicateWarning.Should().NotBeNull();
-        vm.DuplicateWarning.Should().Contain("already downloaded");
+        vm.DuplicateWarning.Should().Contain("already queued");
     }
 
     [Fact]

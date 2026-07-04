@@ -50,16 +50,35 @@ public sealed class DuplicateDownloadCheckTests : IDisposable
     }
 
     [Fact]
-    public async Task NotOnDisk_ButInLibrary_ReportsAlreadyInLibrary()
+    public async Task NotOnDisk_ButQueuedToTheSameDestination_ReportsAlreadyInLibrary()
     {
         _repository.GetAllAsync(Arg.Any<CancellationToken>()).Returns(new[]
         {
-            new Download { Url = "u", Status = "complete", Directory = _dir, Filename = "gone.bin" },
+            new Download { Url = "u", Status = DownloadStatusCodes.Queued, Directory = _dir, Filename = "gone.bin" },
         });
 
         DuplicateCheckResult result = await Check().CheckAsync(_dir, "gone.bin", expectedSize: null);
 
         result.Kind.Should().Be(DuplicateKind.AlreadyInLibrary);
+    }
+
+    [Theory]
+    [InlineData(DownloadStatusCodes.Completed)]
+    [InlineData(DownloadStatusCodes.Failed)]
+    [InlineData(DownloadStatusCodes.Expired)]
+    public async Task NotOnDisk_RecordIsTerminal_ReportsNone(string status)
+    {
+        // Regression: the user deleted a completed download's file, then re-added the same URL/destination —
+        // it must not warn "already downloaded" once the file is genuinely gone (only an active record still
+        // claiming the destination is a real collision).
+        _repository.GetAllAsync(Arg.Any<CancellationToken>()).Returns(new[]
+        {
+            new Download { Url = "u", Status = status, Directory = _dir, Filename = "gone.bin" },
+        });
+
+        DuplicateCheckResult result = await Check().CheckAsync(_dir, "gone.bin", expectedSize: null);
+
+        result.IsDuplicate.Should().BeFalse();
     }
 
     [Fact]
