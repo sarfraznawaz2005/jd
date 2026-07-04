@@ -1,5 +1,6 @@
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
+using Avalonia.Threading;
 using FluentAssertions;
 using JustDownload.App.Services;
 using JustDownload.App.ViewModels;
@@ -17,7 +18,7 @@ namespace JustDownload.Tests.App;
 /// <summary>Headless smoke test that the New URL dialog window mounts and binds its view-model (TASK-053).</summary>
 public sealed class NewDownloadWindowTests
 {
-    private static NewDownloadViewModel BuildViewModel()
+    private static NewDownloadViewModel BuildViewModel(IResourceProbe? probe = null)
     {
         var settings = Substitute.For<ISettingsService>();
         settings.Current.Returns(new AppSettings());
@@ -25,7 +26,7 @@ public sealed class NewDownloadWindowTests
         folders.GetBaseFolder().Returns(@"C:\Downloads");
         folders.GetFolderForCategory(Arg.Any<FileCategory>()).Returns(@"C:\Downloads\Programs");
         return new NewDownloadViewModel(
-            Substitute.For<IResourceProbe>(),
+            probe ?? Substitute.For<IResourceProbe>(),
             Substitute.For<IFileCategorizer>(),
             folders,
             settings,
@@ -43,5 +44,45 @@ public sealed class NewDownloadWindowTests
 
         window.FindControl<TextBox>("UrlBox").Should().NotBeNull("the URL field is the primary input");
         window.FindControl<Button>("BrowseButton").Should().NotBeNull("the folder picker is reachable");
+    }
+
+    [AvaloniaFact]
+    public async Task TypingIntoUrlBox_TriggersDetection_WithoutLosingFocus()
+    {
+        // Regression/investigation (user-reported, repeatedly, as still broken): detection must fire ~500ms
+        // after the user stops typing, without ever needing LostFocus/Enter.
+        var probe = Substitute.For<IResourceProbe>();
+        probe.ProbeAsync(Arg.Any<Uri>(), Arg.Any<IReadOnlyList<KeyValuePair<string, string>>?>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(new ResourceProbeResult
+            {
+                FinalUri = new Uri("https://example.com/file.zip"),
+                StatusCode = 200,
+                SupportsRanges = true,
+                TotalLength = 1000,
+                SuggestedFileName = "file.zip",
+            }));
+        var window = new NewDownloadWindow { DataContext = BuildViewModel(probe) };
+        window.Show();
+        TextBox urlBox = window.FindControl<TextBox>("UrlBox")!;
+        urlBox.Focus();
+
+        // Simulate typing character-by-character, as UpdateSourceTrigger=PropertyChanged would see it.
+        foreach (char c in "https://example.com/file.zip")
+        {
+            urlBox.Text += c;
+            Dispatcher.UIThread.RunJobs();
+        }
+
+        urlBox.IsFocused.Should().BeTrue("focus must still be in the URL field — no blur happened");
+        await probe.DidNotReceive().ProbeAsync(
+            Arg.Any<Uri>(), Arg.Any<IReadOnlyList<KeyValuePair<string, string>>?>(), Arg.Any<CancellationToken>());
+
+        // Let the 500ms debounce elapse without any focus change.
+        await Task.Delay(700);
+        Dispatcher.UIThread.RunJobs();
+
+        urlBox.IsFocused.Should().BeTrue("still no blur");
+        await probe.Received(1).ProbeAsync(
+            Arg.Any<Uri>(), Arg.Any<IReadOnlyList<KeyValuePair<string, string>>?>(), Arg.Any<CancellationToken>());
     }
 }
