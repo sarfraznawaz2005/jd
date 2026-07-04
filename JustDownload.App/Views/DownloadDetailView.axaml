@@ -91,7 +91,10 @@
               <!-- Recent speed sparkline (TASK-137) -->
               <StackPanel Spacing="6">
                 <TextBlock Text="Speed (recent)" Classes="StatKey" />
-                <Border Background="{DynamicResource CardBrush}" CornerRadius="4" Padding="6" Height="36">
+                <!-- Fixed to its max width (60 bars * 3px + 59 * 1px spacing) so the card doesn't keep
+                     growing wider for the sparkline's first 60 seconds — an ItemsControl otherwise sizes to
+                     its current bar count. -->
+                <Border Background="{DynamicResource CardBrush}" CornerRadius="4" Padding="6" Height="36" Width="251">
                   <ItemsControl ItemsSource="{Binding SpeedHistory.Bars}" VerticalAlignment="Bottom">
                     <ItemsControl.ItemsPanel>
                       <ItemsPanelTemplate>
