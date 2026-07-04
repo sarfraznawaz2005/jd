@@ -48,7 +48,7 @@ public sealed class SettingsViewModelTests
     [Fact]
     public void AllNineSections_ArePresent_InOrder()
     {
-        var vm = new SettingsViewModel(Settings(), Substitute.For<IThemeService>(), CategoryFolderRules.CreateDefault(), Substitute.For<JustDownload.Core.NativeMessaging.INativeHostInstaller>(), Substitute.For<JustDownload.Core.NativeMessaging.IExtensionContactTracker>(), Substitute.For<JustDownload.Core.Security.ISecretStore>(), Substitute.For<ISettingsTransfer>(), Substitute.For<IProxyTester>(), Substitute.For<JustDownload.Core.IPortableEnvironment>(), Substitute.For<JustDownload.Core.Security.ISavedCredentialsService>(), Substitute.For<JustDownload.Core.Media.IYtDlpLocator>(), Substitute.For<JustDownload.Core.Media.IYtDlpProvisioner>(), Autostart(), Substitute.For<JustDownload.Core.Updates.IUpdateChecker>(), Substitute.For<JustDownload.Core.Abstractions.IAppVersionProvider>());
+        var vm = Build(Settings(), Substitute.For<ISettingsTransfer>());
 
         vm.Sections.Select(s => s.Label).Should()
             .Equal("General", "Video", "Connections", "Proxy", "Authentication", "Categories", "Browsers", "Advanced", "Updates");
@@ -59,7 +59,7 @@ public sealed class SettingsViewModelTests
     [Fact]
     public void Select_SwitchesActiveSection()
     {
-        var vm = new SettingsViewModel(Settings(), Substitute.For<IThemeService>(), CategoryFolderRules.CreateDefault(), Substitute.For<JustDownload.Core.NativeMessaging.INativeHostInstaller>(), Substitute.For<JustDownload.Core.NativeMessaging.IExtensionContactTracker>(), Substitute.For<JustDownload.Core.Security.ISecretStore>(), Substitute.For<ISettingsTransfer>(), Substitute.For<IProxyTester>(), Substitute.For<JustDownload.Core.IPortableEnvironment>(), Substitute.For<JustDownload.Core.Security.ISavedCredentialsService>(), Substitute.For<JustDownload.Core.Media.IYtDlpLocator>(), Substitute.For<JustDownload.Core.Media.IYtDlpProvisioner>(), Autostart(), Substitute.For<JustDownload.Core.Updates.IUpdateChecker>(), Substitute.For<JustDownload.Core.Abstractions.IAppVersionProvider>());
+        var vm = Build(Settings(), Substitute.For<ISettingsTransfer>());
         SettingsSectionViewModel connections = vm.Sections.Single(s => s.Label == "Connections");
 
         vm.SelectCommand.Execute(connections);
@@ -76,7 +76,8 @@ public sealed class SettingsViewModelTests
             Substitute.For<ISecretStore>(), transfer, Substitute.For<IProxyTester>(),
             Substitute.For<JustDownload.Core.IPortableEnvironment>(), Substitute.For<JustDownload.Core.Security.ISavedCredentialsService>(),
             Substitute.For<JustDownload.Core.Media.IYtDlpLocator>(), Substitute.For<JustDownload.Core.Media.IYtDlpProvisioner>(), Autostart(),
-            Substitute.For<JustDownload.Core.Updates.IUpdateChecker>(), Substitute.For<JustDownload.Core.Abstractions.IAppVersionProvider>());
+            Substitute.For<JustDownload.Core.Updates.IUpdateChecker>(), Substitute.For<JustDownload.Core.Abstractions.IAppVersionProvider>(),
+            Substitute.For<JustDownload.Core.Logging.IErrorLogPathProvider>(), Substitute.For<IFileRevealer>());
 
     [Fact]
     public async Task ExportToAsync_ExportsCurrentSettings_AndReportsSuccess()
@@ -498,11 +499,14 @@ public sealed class SettingsViewModelTests
         Persisted(settings, new AppSettings()).OrganizedRootDirectory.Should().Be(@"D:\Sorted");
     }
 
+    private static AdvancedSettingsViewModel BuildAdvanced(ISettingsService settings) =>
+        new(settings, Substitute.For<JustDownload.Core.Logging.IErrorLogPathProvider>(), Substitute.For<IFileRevealer>());
+
     [Fact]
     public void Advanced_LogLevel_PersistsAndHydrates()
     {
         ISettingsService settings = Settings();
-        var vm = new AdvancedSettingsViewModel(settings);
+        var vm = BuildAdvanced(settings);
 
         vm.LogLevel.Should().Be(Microsoft.Extensions.Logging.LogLevel.Information, "default");
         vm.LogLevels.Should().Contain(Microsoft.Extensions.Logging.LogLevel.Debug);
@@ -511,7 +515,7 @@ public sealed class SettingsViewModelTests
         Persisted(settings, new AppSettings()).MinimumLogLevel
             .Should().Be(Microsoft.Extensions.Logging.LogLevel.Warning);
 
-        var hydrated = new AdvancedSettingsViewModel(
+        var hydrated = BuildAdvanced(
             Settings(new AppSettings { MinimumLogLevel = Microsoft.Extensions.Logging.LogLevel.Error }));
         hydrated.LogLevel.Should().Be(Microsoft.Extensions.Logging.LogLevel.Error);
     }
@@ -520,7 +524,7 @@ public sealed class SettingsViewModelTests
     public void Advanced_OnCompletionCommand_PersistsAndHydrates_AndBlankClearsToNull()
     {
         ISettingsService settings = Settings();
-        var vm = new AdvancedSettingsViewModel(settings);
+        var vm = BuildAdvanced(settings);
 
         vm.OnCompletionCommand.Should().BeEmpty("none by default");
         vm.OnCompletionCommand = @"C:\Tools\scan.exe";
@@ -530,9 +534,35 @@ public sealed class SettingsViewModelTests
         Persisted(settings, new AppSettings { OnCompletionCommand = "x" }).OnCompletionCommand
             .Should().BeNull("blank disables the hook");
 
-        var hydrated = new AdvancedSettingsViewModel(
+        var hydrated = BuildAdvanced(
             Settings(new AppSettings { OnCompletionCommand = @"C:\Tools\scan.exe" }));
         hydrated.OnCompletionCommand.Should().Be(@"C:\Tools\scan.exe");
+    }
+
+    [Fact]
+    public void Advanced_ViewErrorLogs_OpensTheFileWhenItExists_OtherwiseRevealsTheFolder()
+    {
+        var errorLogPath = Substitute.For<JustDownload.Core.Logging.IErrorLogPathProvider>();
+        errorLogPath.FilePath.Returns(Path.Combine(Path.GetTempPath(), $"jd-errorlog-test-{Guid.NewGuid():N}.log"));
+        var fileRevealer = Substitute.For<IFileRevealer>();
+        var vm = new AdvancedSettingsViewModel(Settings(), errorLogPath, fileRevealer);
+
+        // The file doesn't exist (nothing has been logged yet) — reveal where it will appear instead of a
+        // silent no-op (OpenFile would do nothing for a missing path).
+        vm.ViewErrorLogsCommand.Execute(null);
+        fileRevealer.Received(1).RevealInFolder(errorLogPath.FilePath);
+        fileRevealer.DidNotReceive().OpenFile(Arg.Any<string>());
+
+        try
+        {
+            File.WriteAllText(errorLogPath.FilePath, "boom");
+            vm.ViewErrorLogsCommand.Execute(null);
+            fileRevealer.Received(1).OpenFile(errorLogPath.FilePath);
+        }
+        finally
+        {
+            File.Delete(errorLogPath.FilePath);
+        }
     }
 
     [Fact]

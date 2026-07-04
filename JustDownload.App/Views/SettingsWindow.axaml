@@ -368,6 +368,13 @@
           <TextBlock Text="There is no telemetry and no phone-home; the only network traffic is your downloads and an opt-in update check."
                      Classes="SettingsHint" TextWrapping="Wrap" />
         </StackPanel>
+        <StackPanel Spacing="4">
+          <TextBlock Text="Error log" Classes="StatKey" />
+          <TextBlock Text="Unhandled errors are recorded here (nothing else is logged to it) — useful when reporting a problem."
+                     Classes="SettingsHint" TextWrapping="Wrap" />
+          <Button Classes="App" Content="View error logs" Command="{Binding ViewErrorLogsCommand}"
+                  HorizontalAlignment="Left" />
+        </StackPanel>
       </StackPanel>
     </DataTemplate>
 

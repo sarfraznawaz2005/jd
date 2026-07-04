@@ -4,6 +4,17 @@ using Microsoft.Extensions.Logging;
 
 namespace JustDownload.Core.Logging;
 
+/// <summary>The shared <c>errors.log</c> path construction, so <see cref="ErrorLogFileProvider"/> (which
+/// writes it) and <see cref="IErrorLogPathProvider"/> (which a host UI reads it from) never drift apart.</summary>
+internal static class ErrorLogPath
+{
+    public static string Resolve(IAppInfoProvider appInfo)
+    {
+        ArgumentNullException.ThrowIfNull(appInfo);
+        return Path.Combine(AppDataPaths.Directory(appInfo), "errors.log");
+    }
+}
+
 /// <summary>
 /// Appends Error/Critical-level log lines to a single <c>errors.log</c> file under the app-data directory
 /// (TASK-179) — an internal diagnostic trail, not a user-facing feature: no Settings UI, no per-level
@@ -29,11 +40,7 @@ internal sealed class ErrorLogFileProvider : ILoggerProvider
         _path = filePath;
     }
 
-    public ErrorLogFileProvider(IAppInfoProvider appInfo)
-    {
-        ArgumentNullException.ThrowIfNull(appInfo);
-        _path = Path.Combine(AppDataPaths.Directory(appInfo), "errors.log");
-    }
+    public ErrorLogFileProvider(IAppInfoProvider appInfo) => _path = ErrorLogPath.Resolve(appInfo);
 
     public ILogger CreateLogger(string categoryName) => new ErrorLogFileLogger(categoryName, this);
 

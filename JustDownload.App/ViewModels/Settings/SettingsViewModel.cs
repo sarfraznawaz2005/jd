@@ -4,6 +4,7 @@ using CommunityToolkit.Mvvm.Input;
 using JustDownload.App.Services;
 using JustDownload.Core.Abstractions;
 using JustDownload.Core.Categorization;
+using JustDownload.Core.Logging;
 using JustDownload.Core.Security;
 using JustDownload.Core.Settings;
 using JustDownload.Core.Updates;
@@ -34,6 +35,8 @@ public sealed partial class SettingsViewModel : ViewModelBase
     private readonly IAutostartService _autostart;
     private readonly IUpdateChecker _updateChecker;
     private readonly IAppVersionProvider _appVersion;
+    private readonly IErrorLogPathProvider _errorLogPath;
+    private readonly IFileRevealer _fileRevealer;
 
     [ObservableProperty]
     private SettingsSectionViewModel _selectedSection;
@@ -57,7 +60,9 @@ public sealed partial class SettingsViewModel : ViewModelBase
         JustDownload.Core.Media.IYtDlpProvisioner ytDlpProvisioner,
         IAutostartService autostart,
         IUpdateChecker updateChecker,
-        IAppVersionProvider appVersion)
+        IAppVersionProvider appVersion,
+        IErrorLogPathProvider errorLogPath,
+        IFileRevealer fileRevealer)
     {
         ArgumentNullException.ThrowIfNull(settings);
         ArgumentNullException.ThrowIfNull(theme);
@@ -74,6 +79,8 @@ public sealed partial class SettingsViewModel : ViewModelBase
         ArgumentNullException.ThrowIfNull(autostart);
         ArgumentNullException.ThrowIfNull(updateChecker);
         ArgumentNullException.ThrowIfNull(appVersion);
+        ArgumentNullException.ThrowIfNull(errorLogPath);
+        ArgumentNullException.ThrowIfNull(fileRevealer);
         _settings = settings;
         _theme = theme;
         _folderRules = folderRules;
@@ -89,6 +96,8 @@ public sealed partial class SettingsViewModel : ViewModelBase
         _autostart = autostart;
         _updateChecker = updateChecker;
         _appVersion = appVersion;
+        _errorLogPath = errorLogPath;
+        _fileRevealer = fileRevealer;
 
         PopulateSections();
         _selectedSection = Sections[0];
@@ -112,7 +121,8 @@ public sealed partial class SettingsViewModel : ViewModelBase
         Sections.Add(new SettingsSectionViewModel(
             "Browsers", "IconSetBrowsers", new BrowsersViewModel(_nativeHostInstaller, _extensionContactTracker, _portable)));
         Sections.Add(new SettingsSectionViewModel(
-            "Advanced", "IconSetAdvanced", new AdvancedSettingsViewModel(_settings)));
+            "Advanced", "IconSetAdvanced",
+            new AdvancedSettingsViewModel(_settings, _errorLogPath, _fileRevealer)));
         Sections.Add(new SettingsSectionViewModel(
             "Updates", "IconSetUpdates", new UpdateSettingsViewModel(_settings, _updateChecker, _appVersion)));
     }
