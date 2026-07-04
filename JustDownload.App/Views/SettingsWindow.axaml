@@ -9,6 +9,7 @@
         Title="Settings"
         Width="760" Height="560"
         MinWidth="640" MinHeight="460"
+        CanMaximize="False"
         WindowStartupLocation="CenterOwner"
         Background="{DynamicResource BgBrush}">
 

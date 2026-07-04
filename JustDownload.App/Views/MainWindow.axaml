@@ -324,7 +324,7 @@
               </DataGridTemplateColumn>
 
               <!-- ETA -->
-              <DataGridTemplateColumn Header="ETA" Width="70" CanUserSort="True" SortMemberPath="EtaDisplay">
+              <DataGridTemplateColumn Header="ETA" Width="84" CanUserSort="True" SortMemberPath="EtaDisplay">
                 <DataGridTemplateColumn.CellTemplate>
                   <DataTemplate x:DataType="vm:DownloadRowViewModel">
                     <TextBlock Classes="Dimmed" Text="{Binding EtaDisplay}" />
