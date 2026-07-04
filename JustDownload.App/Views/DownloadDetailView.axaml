@@ -10,9 +10,14 @@
   </UserControl.Resources>
 
   <UserControl.Styles>
-    <!-- The Fluent theme's default TabItem header size reads oversized in this narrow detail pane. -->
+    <!-- The Fluent theme's default TabItem header size reads oversized in this narrow detail pane; bold
+         headers plus a tighter selection-underline gap read more deliberate (user-reported). -->
     <Style Selector="TabItem">
       <Setter Property="FontSize" Value="12.5" />
+      <Setter Property="FontWeight" Value="Bold" />
+    </Style>
+    <Style Selector="TabItem /template/ Border#PART_SelectedPipe">
+      <Setter Property="Margin" Value="0" />
     </Style>
   </UserControl.Styles>
 

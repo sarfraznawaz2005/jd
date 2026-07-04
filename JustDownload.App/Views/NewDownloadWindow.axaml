@@ -79,8 +79,18 @@
 
     <!-- Segmentation / proxy-override / alternate-URLs checkboxes: tightly spaced as one group (AC: no
          large gap between them), the outer dialog's Spacing="14" still separates the group from its
-         neighbors above/below. -->
-    <StackPanel Spacing="4">
+         neighbors above/below. The Fluent theme's default CheckBox padding/min-height reads much taller
+         than the group's own Spacing suggests, so both are trimmed here to actually close the gap
+         (user-reported), with VerticalContentAlignment ensuring the label text centers on the glyph. -->
+    <StackPanel Spacing="0">
+      <StackPanel.Styles>
+        <Style Selector="CheckBox">
+          <Setter Property="Padding" Value="8,3,0,3" />
+          <Setter Property="MinHeight" Value="0" />
+          <Setter Property="VerticalContentAlignment" Value="Center" />
+        </Style>
+      </StackPanel.Styles>
+
       <!-- Segmentation toggle (the size/resumability status that used to sit here now lives in the footer,
            in the same spot "Detecting…" occupies while in progress) -->
       <CheckBox IsChecked="{Binding UseSegmentation, Mode=TwoWay}"
