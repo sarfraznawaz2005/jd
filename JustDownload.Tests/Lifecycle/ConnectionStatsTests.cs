@@ -66,6 +66,9 @@ public sealed class ConnectionStatsTests : IDisposable
     {
         // A 2 MiB body over 64 KiB copy buffers means each of the four ~512 KiB segments spans many writes,
         // so connections report repeatedly and overlap — making the live multi-connection view deterministic.
+        // A speed limit gives the transfer a guaranteed multi-second floor (TASK-030's token bucket) so the
+        // 2ms poll loop below can never race a fast loopback + fast CI runner to completion before observing
+        // more than one connection (previously unthrottled, this flaked on a fast windows-latest runner).
         byte[] body = Bytes(2 * 1024 * 1024);
         await using var server = new LoopbackHttpServer
         {
@@ -80,6 +83,7 @@ public sealed class ConnectionStatsTests : IDisposable
             DestinationDirectory = _tempDir,
             FileName = "conn.bin",
             MaxConnections = 4,
+            SpeedLimit = 512 * 1024,
         });
 
         var idsSeen = new ConcurrentDictionary<int, byte>();
