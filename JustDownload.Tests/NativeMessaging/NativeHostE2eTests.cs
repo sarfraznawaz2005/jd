@@ -79,25 +79,38 @@ public sealed class NativeHostE2eTests : IDisposable
         //
         // The sibling AllowlistedExtension_PingPongs_AndQueuesDownloadLink_ToInbox test simulates a running
         // app by holding AppLauncher.RunningMutexName for the lifetime of its method; xUnit runs facts in
-        // this class sequentially so that mutex is disposed well before this one starts, but observed once
-        // on a loaded ubuntu runner as still visible to AppRunningProbe immediately afterward. Wait for the
-        // mutex to genuinely disappear before asserting on it, so a benign OS-level release delay can't be
-        // mistaken for the real regression this test guards against.
-        await WaitForNoRunningAppMutexAsync();
-
-        using var cts = new CancellationTokenSource(Timeout);
-        Process host = StartHost(NativeHostIdentity.FirefoxExtensionId);
-        try
+        // this class sequentially so that mutex is disposed well before this one starts. Observed on
+        // macOS/ubuntu CI (not reproducible locally on Windows): a *freshly spawned* host process can still
+        // see that just-disposed named mutex as present for a moment — a cross-process visibility lag
+        // distinct from same-process disposal timing, since polling AppRunningProbe in this (parent) process
+        // before spawning the host didn't help (the parent's own view had already cleared; the lag is in the
+        // new child process's view). Retry with a fresh host process rather than trusting the first answer,
+        // so a transient cross-process lag can't be mistaken for the real regression this test guards
+        // against.
+        string? reply = null;
+        for (int attempt = 0; attempt < 10; attempt++)
         {
-            await NativeMessageCodec.WriteAsync(host.StandardInput.BaseStream, "{\"type\":\"ping\"}", cts.Token);
-            string? reply = await NativeMessageCodec.ReadAsync(host.StandardOutput.BaseStream, cancellationToken: cts.Token);
+            using var cts = new CancellationTokenSource(Timeout);
+            Process host = StartHost(NativeHostIdentity.FirefoxExtensionId);
+            try
+            {
+                await NativeMessageCodec.WriteAsync(host.StandardInput.BaseStream, "{\"type\":\"ping\"}", cts.Token);
+                reply = await NativeMessageCodec.ReadAsync(host.StandardOutput.BaseStream, cancellationToken: cts.Token);
+            }
+            finally
+            {
+                Kill(host);
+            }
 
-            reply.Should().NotBeNull().And.NotContain("pong").And.Contain("app_not_running");
+            if (reply is null || !reply.Contains("pong", StringComparison.Ordinal))
+            {
+                break;
+            }
+
+            await Task.Delay(200);
         }
-        finally
-        {
-            Kill(host);
-        }
+
+        reply.Should().NotBeNull().And.NotContain("pong").And.Contain("app_not_running");
     }
 
     [Fact]
@@ -164,15 +177,6 @@ public sealed class NativeHostE2eTests : IDisposable
             : "Debug";
         string name = OperatingSystem.IsWindows() ? "JustDownload.NativeHost.exe" : "JustDownload.NativeHost";
         return Path.Combine(repoRoot, "JustDownload.NativeHost", "bin", config, "net8.0", name);
-    }
-
-    private static async Task WaitForNoRunningAppMutexAsync()
-    {
-        var probe = new AppRunningProbe();
-        for (int attempt = 0; attempt < 20 && probe.IsRunning(); attempt++)
-        {
-            await Task.Delay(100);
-        }
     }
 
     private static async Task<bool> WaitForExitAsync(Process process, CancellationToken cancellationToken)
