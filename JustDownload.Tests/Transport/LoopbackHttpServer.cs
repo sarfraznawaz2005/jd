@@ -150,6 +150,13 @@ internal sealed class LoopbackHttpServer : IAsyncDisposable
             {
                 break;
             }
+            catch (SocketException) when (ct.IsCancellationRequested)
+            {
+                // On Linux, cancelling a pending AcceptTcpClientAsync sometimes surfaces as a raw
+                // SocketException ("Operation canceled") instead of OperationCanceledException — the same
+                // shutdown signal as the other two catches, just spelled differently on this platform.
+                break;
+            }
 
             _ = HandleConnectionAsync(client, ct);
         }
