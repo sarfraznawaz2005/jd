@@ -41,6 +41,8 @@ internal static partial class SettingsSerializer
     internal const string ProxyUsernameKey = "proxy.username";
     internal const string ProxyDomainKey = "proxy.domain";
     internal const string ProxyPasswordSecretRefKey = "proxy.password_secret_ref";
+    internal const string SidebarCollapsedKey = "ui.sidebar_collapsed";
+    internal const string DetailCollapsedKey = "ui.detail_collapsed";
 
     /// <summary>
     /// Serializes every setting to its storage representation. The result always contains all keys so
@@ -89,6 +91,8 @@ internal static partial class SettingsSerializer
             [ProxyUsernameKey] = settings.ProxyUsername ?? string.Empty,
             [ProxyDomainKey] = settings.ProxyDomain ?? string.Empty,
             [ProxyPasswordSecretRefKey] = settings.ProxyPasswordSecretRef ?? string.Empty,
+            [SidebarCollapsedKey] = settings.SidebarCollapsed.ToString(CultureInfo.InvariantCulture),
+            [DetailCollapsedKey] = settings.DetailCollapsed.ToString(CultureInfo.InvariantCulture),
         };
     }
 
@@ -151,6 +155,8 @@ internal static partial class SettingsSerializer
             ProxyDomain = ParseOptionalString(stored, ProxyDomainKey, defaults.ProxyDomain),
             ProxyPasswordSecretRef =
                 ParseOptionalString(stored, ProxyPasswordSecretRefKey, defaults.ProxyPasswordSecretRef),
+            SidebarCollapsed = ParseBool(stored, SidebarCollapsedKey, defaults.SidebarCollapsed, logger),
+            DetailCollapsed = ParseBool(stored, DetailCollapsedKey, defaults.DetailCollapsed, logger),
         };
     }
 

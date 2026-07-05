@@ -89,15 +89,15 @@ public sealed class ToolbarTests
         h.Repository.GetAllAsync(Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<IReadOnlyList<Download>>(new[] { Record(1, DownloadStatusCodes.Paused) }));
         var list = h.BuildList();
-        await list.LoadAsync();
         _ = h.BuildMain(list);
 
-        // No selection: nothing operable.
+        // No downloads loaded yet: nothing operable.
         list.ResumeCommand.CanExecute(null).Should().BeFalse();
         list.PauseCommand.CanExecute(null).Should().BeFalse();
         list.RemoveCommand.CanExecute(null).Should().BeFalse();
 
-        list.SelectedDownload = list.Downloads[0];
+        // Loading auto-selects the first row, so its paused state is immediately operable.
+        await list.LoadAsync();
         list.ResumeCommand.CanExecute(null).Should().BeTrue("a paused download resumes");
         list.PauseCommand.CanExecute(null).Should().BeFalse("a paused download cannot be paused");
 

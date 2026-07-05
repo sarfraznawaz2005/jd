@@ -242,6 +242,11 @@ public sealed partial class DownloadsListViewModel : ViewModelBase, IDisposable
             RecomputeCounts();
             RebuildVisible();
             RaiseCounts();
+
+            // Auto-select the most recent download so the detail pane has something to show on startup —
+            // otherwise "Toggle details" looked broken (it only affects the pane once something is
+            // selected, and a first-time user had nothing selected to notice the difference).
+            SelectedDownload ??= Downloads.Count > 0 ? Downloads[0] : null;
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {

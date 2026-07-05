@@ -73,6 +73,33 @@ public sealed class DownloadsListViewModelTests
     }
 
     [AvaloniaFact]
+    public async Task LoadAsync_AutoSelectsTheFirstRow_SoTheDetailPaneHasSomethingToShow()
+    {
+        // Otherwise "Toggle details" looked broken on a fresh app: it only affects the detail pane once
+        // something is selected, and a first-time user had nothing selected to notice the difference
+        // (user-reported).
+        var h = new Harness();
+        h.Repository.GetAllAsync(Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<Download>>(new[] { Record(1), Record(2) }));
+
+        var vm = h.Build();
+        await vm.LoadAsync();
+
+        vm.SelectedDownload.Should().BeSameAs(vm.Downloads[0]);
+    }
+
+    [AvaloniaFact]
+    public async Task LoadAsync_WithNoDownloads_LeavesSelectionNull()
+    {
+        var h = new Harness();
+        var vm = h.Build();
+
+        await vm.LoadAsync();
+
+        vm.SelectedDownload.Should().BeNull();
+    }
+
+    [AvaloniaFact]
     public async Task EnqueueEvent_InsertsRowAtTop()
     {
         var h = new Harness();
@@ -132,14 +159,17 @@ public sealed class DownloadsListViewModelTests
     {
         var h = new Harness();
         h.Repository.GetAllAsync(Arg.Any<CancellationToken>())
-            .Returns(Task.FromResult<IReadOnlyList<Download>>(new[] { Record(1, DownloadStatusCodes.Paused) }));
+            .Returns(Task.FromResult<IReadOnlyList<Download>>(Array.Empty<Download>()));
         var vm = h.Build();
         await vm.LoadAsync();
 
         vm.ResumeCommand.CanExecute(null).Should().BeFalse("nothing is selected yet");
 
-        vm.SelectedDownload = vm.Downloads[0];
-        vm.ResumeCommand.CanExecute(null).Should().BeTrue("a paused download can resume");
+        h.Repository.GetAllAsync(Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<Download>>(new[] { Record(1, DownloadStatusCodes.Paused) }));
+        await vm.LoadAsync();
+
+        vm.ResumeCommand.CanExecute(null).Should().BeTrue("the first row is auto-selected on load, and it can resume");
         vm.PauseCommand.CanExecute(null).Should().BeFalse("a paused download cannot be paused");
         vm.RemoveCommand.CanExecute(null).Should().BeTrue();
     }

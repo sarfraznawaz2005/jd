@@ -172,4 +172,11 @@ public sealed record AppSettings
     /// Default <see langword="true"/> — the sidebar starts out of the way; the toolbar toggle expands it.
     /// </summary>
     public bool SidebarCollapsed { get; init; } = true;
+
+    /// <summary>
+    /// Whether the user has hidden the main window's per-download detail pane via the toolbar toggle,
+    /// remembered across restarts. Default <see langword="false"/> — the pane shows once a download is
+    /// selected; the toggle lets the user hide it and keeps that choice on the next launch.
+    /// </summary>
+    public bool DetailCollapsed { get; init; }
 }

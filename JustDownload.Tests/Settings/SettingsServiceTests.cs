@@ -242,6 +242,55 @@ public sealed class SettingsServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task SidebarCollapsed_PersistsAcrossRestarts()
+    {
+        // Previously silently dropped: SidebarCollapsed was never wired into SettingsSerializer's
+        // ToStorage/FromStorage, so a toggle was written via UpdateAsync but reset to the default (true)
+        // on every restart despite looking persisted (bound, saved, reloaded via ApplyPersistedPreferences).
+        ServiceProvider first = NewProvider();
+        var writer = first.GetRequiredService<ISettingsService>();
+        await writer.LoadAsync();
+
+        writer.Current.SidebarCollapsed.Should().BeTrue("collapsed by default");
+        await writer.UpdateAsync(s => s with { SidebarCollapsed = false });
+
+        first.Dispose();
+        _providers.Remove(first);
+        SqliteConnection.ClearAllPools();
+
+        var reopened = NewProvider().GetRequiredService<ISettingsService>();
+        await reopened.LoadAsync();
+        reopened.Current.SidebarCollapsed.Should().BeFalse();
+
+        await reopened.UpdateAsync(s => s with { SidebarCollapsed = true });
+        reopened.Current.SidebarCollapsed.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task DetailCollapsed_PersistsAcrossRestarts()
+    {
+        // User-reported: after the detail pane started auto-selecting the first download on startup, a
+        // user who had explicitly hidden the pane wanted that choice to survive a restart too.
+        ServiceProvider first = NewProvider();
+        var writer = first.GetRequiredService<ISettingsService>();
+        await writer.LoadAsync();
+
+        writer.Current.DetailCollapsed.Should().BeFalse("shown by default once something is selected");
+        await writer.UpdateAsync(s => s with { DetailCollapsed = true });
+
+        first.Dispose();
+        _providers.Remove(first);
+        SqliteConnection.ClearAllPools();
+
+        var reopened = NewProvider().GetRequiredService<ISettingsService>();
+        await reopened.LoadAsync();
+        reopened.Current.DetailCollapsed.Should().BeTrue();
+
+        await reopened.UpdateAsync(s => s with { DetailCollapsed = false });
+        reopened.Current.DetailCollapsed.Should().BeFalse();
+    }
+
+    [Fact]
     public async Task LoadAsync_WithCorruptStoredValue_FallsBackToDefault()
     {
         // Robustness: a garbage value in storage must not crash startup — it degrades to the default.

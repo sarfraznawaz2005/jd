@@ -130,14 +130,19 @@ public partial class App : Application
             ClipboardMonitor clipboardMonitor = Services.GetRequiredService<ClipboardMonitor>();
             clipboardMonitor.UrlDetected += (_, url) => mainViewModel.RequestDownloadForUrl(url);
 
-            // Remember the sidebar's expanded/collapsed state across restarts (the initial value is applied
-            // in ApplyPersistedPreferences, alongside the theme, before the window paints).
+            // Remember the sidebar's and detail pane's expanded/collapsed state across restarts (the initial
+            // values are applied in ApplyPersistedPreferences, alongside the theme, before the window paints).
             mainViewModel.PropertyChanged += (_, e) =>
             {
                 if (e.PropertyName == nameof(MainWindowViewModel.SidebarCollapsed))
                 {
                     _ = Services.GetRequiredService<ISettingsService>()
                         .UpdateAsync(s => s with { SidebarCollapsed = mainViewModel.SidebarCollapsed });
+                }
+                else if (e.PropertyName == nameof(MainWindowViewModel.DetailCollapsed))
+                {
+                    _ = Services.GetRequiredService<ISettingsService>()
+                        .UpdateAsync(s => s with { DetailCollapsed = mainViewModel.DetailCollapsed });
                 }
             };
 
@@ -414,7 +419,9 @@ public partial class App : Application
         AppSettings current = Services.GetRequiredService<ISettingsService>().Current;
         Services.GetRequiredService<IThemeService>()
             .SetMode(current.Theme == AppTheme.Dark ? ThemeMode.Dark : ThemeMode.Light);
-        Services.GetRequiredService<MainWindowViewModel>().SidebarCollapsed = current.SidebarCollapsed;
+        MainWindowViewModel mainViewModel = Services.GetRequiredService<MainWindowViewModel>();
+        mainViewModel.SidebarCollapsed = current.SidebarCollapsed;
+        mainViewModel.DetailCollapsed = current.DetailCollapsed;
         GlobalSpeedLimitController speedLimit = Services.GetRequiredService<GlobalSpeedLimitController>();
         speedLimit.ApplyCurrent();
         speedLimit.Start(); // re-evaluate the time-of-day schedule automatically (TASK-145)
