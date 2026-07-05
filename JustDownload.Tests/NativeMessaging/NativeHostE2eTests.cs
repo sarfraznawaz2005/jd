@@ -76,6 +76,15 @@ public sealed class NativeHostE2eTests : IDisposable
     {
         // TASK-185: before this fix, ping always answered pong regardless of whether the desktop app was
         // actually running, so the extension popup showed "App connected" even with the app fully closed.
+        //
+        // The sibling AllowlistedExtension_PingPongs_AndQueuesDownloadLink_ToInbox test simulates a running
+        // app by holding AppLauncher.RunningMutexName for the lifetime of its method; xUnit runs facts in
+        // this class sequentially so that mutex is disposed well before this one starts, but observed once
+        // on a loaded ubuntu runner as still visible to AppRunningProbe immediately afterward. Wait for the
+        // mutex to genuinely disappear before asserting on it, so a benign OS-level release delay can't be
+        // mistaken for the real regression this test guards against.
+        await WaitForNoRunningAppMutexAsync();
+
         using var cts = new CancellationTokenSource(Timeout);
         Process host = StartHost(NativeHostIdentity.FirefoxExtensionId);
         try
@@ -155,6 +164,15 @@ public sealed class NativeHostE2eTests : IDisposable
             : "Debug";
         string name = OperatingSystem.IsWindows() ? "JustDownload.NativeHost.exe" : "JustDownload.NativeHost";
         return Path.Combine(repoRoot, "JustDownload.NativeHost", "bin", config, "net8.0", name);
+    }
+
+    private static async Task WaitForNoRunningAppMutexAsync()
+    {
+        var probe = new AppRunningProbe();
+        for (int attempt = 0; attempt < 20 && probe.IsRunning(); attempt++)
+        {
+            await Task.Delay(100);
+        }
     }
 
     private static async Task<bool> WaitForExitAsync(Process process, CancellationToken cancellationToken)

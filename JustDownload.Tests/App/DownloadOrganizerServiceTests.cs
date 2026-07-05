@@ -57,11 +57,15 @@ public sealed class DownloadOrganizerServiceTests
     [Fact]
     public async Task Completed_WithOrganizeEnabled_MovesFile_AndPersistsTheNewPath()
     {
-        Download record = CompletedRecord(@"C:\downloads", "movie.mp4", FileCategory.Video.ToString());
+        string directory = Path.Combine("downloads");
+        string sourcePath = Path.Combine(directory, "movie.mp4");
+        string organizedDirectory = Path.Combine(directory, "Video");
+        string organizedPath = Path.Combine(organizedDirectory, "movie.mp4");
+        Download record = CompletedRecord(directory, "movie.mp4", FileCategory.Video.ToString());
         IDownloadRepository repo = RepoFor(record);
         var organizer = Substitute.For<IDownloadOrganizer>();
-        organizer.OrganizeAsync(@"C:\downloads\movie.mp4", FileCategory.Video, Arg.Any<CancellationToken>())
-            .Returns(Task.FromResult(@"C:\downloads\Video\movie.mp4"));
+        organizer.OrganizeAsync(sourcePath, FileCategory.Video, Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(organizedPath));
         var manager = new FakeManager();
         using var service = new DownloadOrganizerService(manager, repo, organizer, NullLogger<DownloadOrganizerService>.Instance);
         service.Start();
@@ -70,7 +74,7 @@ public sealed class DownloadOrganizerServiceTests
         await Task.Delay(100); // fire-and-forget async handler
 
         await repo.Received(1).UpdateAsync(
-            Arg.Is<Download>(d => d.Directory == @"C:\downloads\Video" && d.Filename == "movie.mp4"),
+            Arg.Is<Download>(d => d.Directory == organizedDirectory && d.Filename == "movie.mp4"),
             Arg.Any<CancellationToken>());
     }
 
@@ -79,11 +83,13 @@ public sealed class DownloadOrganizerServiceTests
     {
         // Toggle off, or already in the right place — IDownloadOrganizer's own contract returns the
         // original path unchanged in both cases (TASK-046 AC0).
-        Download record = CompletedRecord(@"C:\downloads", "movie.mp4", FileCategory.Video.ToString());
+        string directory = Path.Combine("downloads");
+        string sourcePath = Path.Combine(directory, "movie.mp4");
+        Download record = CompletedRecord(directory, "movie.mp4", FileCategory.Video.ToString());
         IDownloadRepository repo = RepoFor(record);
         var organizer = Substitute.For<IDownloadOrganizer>();
-        organizer.OrganizeAsync(@"C:\downloads\movie.mp4", FileCategory.Video, Arg.Any<CancellationToken>())
-            .Returns(Task.FromResult(@"C:\downloads\movie.mp4"));
+        organizer.OrganizeAsync(sourcePath, FileCategory.Video, Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(sourcePath));
         var manager = new FakeManager();
         using var service = new DownloadOrganizerService(manager, repo, organizer, NullLogger<DownloadOrganizerService>.Instance);
         service.Start();
@@ -97,7 +103,7 @@ public sealed class DownloadOrganizerServiceTests
     [Fact]
     public async Task Completed_WithNoResolvedCategory_SkipsOrganizing()
     {
-        Download record = CompletedRecord(@"C:\downloads", "movie.mp4", categoryType: null);
+        Download record = CompletedRecord(Path.Combine("downloads"), "movie.mp4", categoryType: null);
         IDownloadRepository repo = RepoFor(record);
         var organizer = Substitute.For<IDownloadOrganizer>();
         var manager = new FakeManager();

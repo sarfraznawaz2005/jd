@@ -56,11 +56,15 @@ public sealed class DownloadThrottleTests : IDisposable
     [Fact]
     public async Task GlobalCap_ThrottlesAggregateThroughput()
     {
-        // AC0: a global cap slows the whole (multi-connection) download.
-        byte[] body = Bytes(256 * 1024);
+        // AC0: a global cap slows the whole (multi-connection) download. Sized well past the token
+        // bucket's one-copy-buffer-per-connection head start (TASK-030) so that head start is a small
+        // fraction of the total transfer, keeping the floor below robust on faster/leaner CI runners
+        // (this previously asserted >1200ms for 256 KiB/128 KiB/s ~= "2s", which a fast loopback +
+        // segmentation head start could clear in ~1s, flaking on quick ubuntu runners).
+        byte[] body = Bytes(768 * 1024);
         await using var server = new LoopbackHttpServer { Body = body, SupportRanges = true };
         using ServiceProvider provider = BuildProvider();
-        provider.GetRequiredService<IRateLimiter>().BytesPerSecond = 128 * 1024; // ~2s for 256 KiB
+        provider.GetRequiredService<IRateLimiter>().BytesPerSecond = 128 * 1024; // ~6s for 768 KiB
 
         var downloader = provider.GetRequiredService<ISegmentedDownloader>();
         var stopwatch = Stopwatch.StartNew();
@@ -72,15 +76,16 @@ public sealed class DownloadThrottleTests : IDisposable
         });
         stopwatch.Stop();
 
-        stopwatch.ElapsedMilliseconds.Should().BeGreaterThan(1200, "256 KiB at 128 KiB/s should take about two seconds");
+        stopwatch.ElapsedMilliseconds.Should().BeGreaterThan(3500, "768 KiB at 128 KiB/s should take about six seconds");
         (await File.ReadAllBytesAsync(Dest("global.bin"))).Should().Equal(body);
     }
 
     [Fact]
     public async Task PerDownloadCap_ThrottlesTransfer()
     {
-        // AC0: a per-download cap (with no global cap) slows just that download.
-        byte[] body = Bytes(128 * 1024);
+        // AC0: a per-download cap (with no global cap) slows just that download. See the margin note on
+        // GlobalCap_ThrottlesAggregateThroughput above.
+        byte[] body = Bytes(384 * 1024);
         await using var server = new LoopbackHttpServer { Body = body, SupportRanges = true };
         using ServiceProvider provider = BuildProvider();
 
@@ -91,11 +96,11 @@ public sealed class DownloadThrottleTests : IDisposable
             Url = server.Url("file.bin"),
             DestinationPath = Dest("perdl.bin"),
             Connections = 4,
-            SpeedLimit = 64 * 1024, // ~2s for 128 KiB
+            SpeedLimit = 64 * 1024, // ~6s for 384 KiB
         });
         stopwatch.Stop();
 
-        stopwatch.ElapsedMilliseconds.Should().BeGreaterThan(1200);
+        stopwatch.ElapsedMilliseconds.Should().BeGreaterThan(3500);
         (await File.ReadAllBytesAsync(Dest("perdl.bin"))).Should().Equal(body);
     }
 
