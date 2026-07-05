@@ -30,12 +30,13 @@ public sealed class NativeHostE2eTests : IDisposable
     public async Task AllowlistedExtension_PingPongs_AndQueuesDownloadLink_ToInbox()
     {
         // Ping now answers "pong" only when the desktop app is actually running (TASK-185) — simulate that
-        // by holding the same mutex AppLauncher/AppRunningProbe check, so this test still exercises the
-        // real ping-pong success path rather than the (separately tested) "app not running" case.
-        using var appRunning = new Mutex(initiallyOwned: true, AppLauncher.RunningMutexName);
-
+        // by having the host itself hold AppLauncher's single-instance mutex for its own lifetime
+        // (TASK-220: an in-process Mutex disposed in this still-running test process isn't reliably
+        // invisible to a freshly spawned process on macOS/Linux, so the simulation is scoped to a real,
+        // fully-exiting process instead — see the JUSTDOWNLOAD_TEST_HOLD_SINGLE_INSTANCE_MUTEX handling in
+        // JustDownload.NativeHost's Program.cs). Killing this host at the end releases it unambiguously.
         using var cts = new CancellationTokenSource(Timeout);
-        Process host = StartHost(NativeHostIdentity.FirefoxExtensionId);
+        Process host = StartHost(NativeHostIdentity.FirefoxExtensionId, simulateAppRunning: true);
         try
         {
             Stream toHost = host.StandardInput.BaseStream;
@@ -76,41 +77,21 @@ public sealed class NativeHostE2eTests : IDisposable
     {
         // TASK-185: before this fix, ping always answered pong regardless of whether the desktop app was
         // actually running, so the extension popup showed "App connected" even with the app fully closed.
-        //
-        // The sibling AllowlistedExtension_PingPongs_AndQueuesDownloadLink_ToInbox test simulates a running
-        // app by holding AppLauncher.RunningMutexName for the lifetime of its method; xUnit runs facts in
-        // this class sequentially so that mutex is disposed well before this one starts. Observed on
-        // macOS/ubuntu CI (not reproducible locally on Windows): a *freshly spawned* host process can still
-        // see that just-disposed named mutex as present for a moment — a cross-process visibility lag
-        // distinct from same-process disposal timing, since polling AppRunningProbe in this (parent) process
-        // before spawning the host didn't help (the parent's own view had already cleared; the lag is in the
-        // new child process's view). Retry with a fresh host process rather than trusting the first answer,
-        // so a transient cross-process lag can't be mistaken for the real regression this test guards
-        // against.
-        string? reply = null;
-        for (int attempt = 0; attempt < 10; attempt++)
+        // No process here ever holds AppLauncher's single-instance mutex (TASK-220), so this host process
+        // should never see it.
+        using var cts = new CancellationTokenSource(Timeout);
+        Process host = StartHost(NativeHostIdentity.FirefoxExtensionId);
+        try
         {
-            using var cts = new CancellationTokenSource(Timeout);
-            Process host = StartHost(NativeHostIdentity.FirefoxExtensionId);
-            try
-            {
-                await NativeMessageCodec.WriteAsync(host.StandardInput.BaseStream, "{\"type\":\"ping\"}", cts.Token);
-                reply = await NativeMessageCodec.ReadAsync(host.StandardOutput.BaseStream, cancellationToken: cts.Token);
-            }
-            finally
-            {
-                Kill(host);
-            }
+            await NativeMessageCodec.WriteAsync(host.StandardInput.BaseStream, "{\"type\":\"ping\"}", cts.Token);
+            string? reply = await NativeMessageCodec.ReadAsync(host.StandardOutput.BaseStream, cancellationToken: cts.Token);
 
-            if (reply is null || !reply.Contains("pong", StringComparison.Ordinal))
-            {
-                break;
-            }
-
-            await Task.Delay(200);
+            reply.Should().NotBeNull().And.NotContain("pong").And.Contain("app_not_running");
         }
-
-        reply.Should().NotBeNull().And.NotContain("pong").And.Contain("app_not_running");
+        finally
+        {
+            Kill(host);
+        }
     }
 
     [Fact]
@@ -132,7 +113,7 @@ public sealed class NativeHostE2eTests : IDisposable
         }
     }
 
-    private Process StartHost(string origin)
+    private Process StartHost(string origin, bool simulateAppRunning = false)
     {
         string exe = ResolveHostExecutable();
         File.Exists(exe).Should().BeTrue($"the native host must be built at {exe}");
@@ -147,6 +128,12 @@ public sealed class NativeHostE2eTests : IDisposable
         psi.ArgumentList.Add(origin);
         // Redirect the host's app-data dir (DB + inbox) to the temp folder so the real app data is untouched.
         psi.Environment["JUSTDOWNLOAD_DATA_DIR"] = _tempData;
+        if (simulateAppRunning)
+        {
+            // See Program.cs: makes this host process itself hold AppLauncher's single-instance mutex for
+            // its own lifetime, so killing it is the (real, cross-platform-reliable) release (TASK-220).
+            psi.Environment["JUSTDOWNLOAD_TEST_HOLD_SINGLE_INSTANCE_MUTEX"] = "1";
+        }
 
         return Process.Start(psi) ?? throw new InvalidOperationException("Failed to start the native host.");
     }

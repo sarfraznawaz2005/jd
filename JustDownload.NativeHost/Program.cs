@@ -53,6 +53,16 @@ if (ExtensionOrigin.Categorize(origin) is { } contactOrigin)
     }
 }
 
+// TEST-ONLY: lets the E2E test suite (NativeHostE2eTests, TASK-220) simulate a running desktop app across
+// a real process boundary. Disposing a named Mutex in a still-running process doesn't reliably make it
+// invisible to a freshly spawned process on macOS/Linux, so the test can't just hold one in its own
+// process and dispose it between test methods. Holding it here instead means an actual process exit —
+// a guaranteed OS-level release on every platform — ends the simulation the moment the test kills this
+// host, the same way it already tears down everything else this process holds.
+using Mutex? testAppRunningMutex = Environment.GetEnvironmentVariable("JUSTDOWNLOAD_TEST_HOLD_SINGLE_INSTANCE_MUTEX") == "1"
+    ? new Mutex(initiallyOwned: true, AppLauncher.RunningMutexName)
+    : null;
+
 var host = provider.GetRequiredService<NativeMessageHost>();
 await using Stream stdin = Console.OpenStandardInput();
 await using Stream stdout = Console.OpenStandardOutput();
