@@ -1,5 +1,6 @@
 AI Agents must ignore contents of this file:
 
+- we can update app from settings via check for updates feature, it works but when it detects installer has been launched, it should quit autoatically so user can continue with installation. Also if possible show version being installed on installer along with app's icon in logo area as well as titlebar in setup window.
 - show new download window progress in same new download window (check mockup of it in mockups folder) and do not auto show detalis pane if user has collasped it during new download start
 - once a download completes, we should show download completed dialog with option to open file as well as folder (like other download apps), this window should be indepddent and show should without showing main app window and should flash taskbar icon once completed.
 - i downloaded already download file, it did not rename and overwrote previous one, should have rename with (1) and so on suffix (cross os naming)
