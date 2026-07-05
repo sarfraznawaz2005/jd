@@ -89,6 +89,7 @@ try {
         -arch x64 `
         -d "ProductVersion=$ProductVersion" `
         -d "PublishDir=$publishDir" `
+        -d "InstallerDir=$installerDir" `
         -ext WixToolset.UI.wixext `
         -ext WixToolset.Util.wixext `
         -o $msiPath
