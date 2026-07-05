@@ -22,7 +22,14 @@ public enum UpdateCheckStatus
     /// </summary>
     AvailableForManualDownload,
 
-    /// <summary>A newer release was verified (signature + checksum) and its installer was launched.</summary>
+    /// <summary>
+    /// A newer release's <c>checksums.txt</c> signature verified and its installer's expected hash was
+    /// found in the signed manifest — ready to download on user confirmation
+    /// (<see cref="IUpdateChecker.DownloadAndApplyAsync"/>). Nothing has been downloaded yet.
+    /// </summary>
+    Available,
+
+    /// <summary>The installer was downloaded, its hash verified, and it was launched.</summary>
     Applied,
 
     /// <summary>The release has no <c>checksums.txt.sig</c> asset — treated as unsigned and rejected.</summary>

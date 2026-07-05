@@ -16,6 +16,7 @@ using JustDownload.Core.NativeMessaging;
 using JustDownload.Core.Settings;
 using JustDownload.Core.Throttling;
 using JustDownload.Core.Transport.Proxy;
+using JustDownload.Core.Updates;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace JustDownload.App;
@@ -368,14 +369,66 @@ public partial class App : Application
         }
     }
 
-    private async Task ShowSettingsDialogAsync(Window owner)
+    /// <summary>
+    /// Opens Settings modally over <paramref name="owner"/>. When <paramref name="initialSection"/> is
+    /// given, jumps straight to that section (TASK-223) — used by the update-available notification to
+    /// land on "Updates" instead of always opening on the first section. Also wires
+    /// <see cref="JustDownload.App.ViewModels.Settings.SettingsViewModel.QuitRequested"/> so the app quits
+    /// once an update installer has launched (TASK-223) — mirrors <see cref="Quit"/>'s use elsewhere for
+    /// tray "Quit"/window-close.
+    /// </summary>
+    private async Task ShowSettingsDialogAsync(Window owner, string? initialSection = null)
     {
-        var dialog = new SettingsWindow
+        var viewModel = Services.GetRequiredService<JustDownload.App.ViewModels.Settings.SettingsViewModel>();
+        if (initialSection is not null)
         {
-            DataContext = Services.GetRequiredService<JustDownload.App.ViewModels.Settings.SettingsViewModel>(),
-        };
+            viewModel.SelectSectionByName(initialSection);
+        }
+
+        var dialog = new SettingsWindow { DataContext = viewModel };
+        if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
+        {
+            viewModel.QuitRequested += (_, _) =>
+            {
+                dialog.Close();
+                Quit(desktop);
+            };
+        }
 
         await dialog.ShowDialog(owner);
+    }
+
+    /// <summary>
+    /// The one-shot startup update check (TASK-223): runs once on launch, off the UI thread. On a verified
+    /// update (<see cref="UpdateCheckStatus.Available"/>) or one this platform can't auto-apply yet
+    /// (<see cref="UpdateCheckStatus.AvailableForManualDownload"/>), surfaces a clickable notification —
+    /// nothing is ever downloaded or launched from here, only <see cref="UpdateSettingsViewModel.UpdateNowCommand"/>
+    /// (an explicit user click in Settings) does that.
+    /// </summary>
+    private async Task CheckForUpdateOnStartupAsync(IClassicDesktopStyleApplicationLifetime desktop)
+    {
+        IUpdateChecker checker = Services.GetRequiredService<IUpdateChecker>();
+        UpdateCheckResult result = await checker.CheckAsync().ConfigureAwait(false);
+        if (result.Status is UpdateCheckStatus.Available or UpdateCheckStatus.AvailableForManualDownload)
+        {
+            Dispatcher.UIThread.Post(() => NotifyUpdateAvailable(desktop, result));
+        }
+    }
+
+    private void NotifyUpdateAvailable(IClassicDesktopStyleApplicationLifetime desktop, UpdateCheckResult result)
+    {
+        Services.GetRequiredService<INotificationService>().Notify(new AppNotification(
+            "Update available",
+            $"JustDownload {result.LatestVersion} is available. Click to open Settings.",
+            AppNotificationKind.Info,
+            OnClick: () =>
+            {
+                if (desktop.MainWindow is { } window)
+                {
+                    BringToFront(window);
+                    _ = ShowSettingsDialogAsync(window, initialSection: "Updates");
+                }
+            }));
     }
 
     private async Task InitializeAndLoadAsync(IClassicDesktopStyleApplicationLifetime desktop, MainWindow window)
@@ -390,6 +443,11 @@ public partial class App : Application
             // Apply preferences that are only honored at startup, before the window paints (so a restart
             // opens in the saved theme with no flash) and so the global speed cap is enforced from the start.
             ApplyPersistedPreferences();
+
+            // One-shot, non-blocking update check (TASK-223): off-thread, never delays startup. Settings
+            // must already be loaded — IUpdateChecker.CheckAsync reads AutoUpdateEnabled itself and makes
+            // no network call at all when it's off, so no extra gating is needed here.
+            _ = Task.Run(() => CheckForUpdateOnStartupAsync(desktop));
 
             bool startMinimized = Services.GetRequiredService<ISettingsService>().Current.StartMinimizedToTray;
             ShowMainWindow(desktop, window, startMinimized);

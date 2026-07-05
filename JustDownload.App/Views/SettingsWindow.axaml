@@ -379,7 +379,7 @@
       </StackPanel>
     </DataTemplate>
 
-    <!-- Updates (TASK-080, opt-in) -->
+    <!-- Updates (TASK-080/TASK-223, opt-in) -->
     <DataTemplate DataType="vm:UpdateSettingsViewModel">
       <StackPanel Spacing="18">
         <TextBlock Text="Updates" Classes="SettingsHeading" />
@@ -390,23 +390,28 @@
             <TextBlock Text="Check for updates" VerticalAlignment="Center"
                        Foreground="{DynamicResource TextBrush}" />
           </StackPanel>
-          <TextBlock Text="Off by default. When on, a release's checksums are verified against an embedded signing key before anything is downloaded or launched — an unsigned or tampered release is always rejected."
+          <TextBlock Text="Off by default. When on, a release's checksums are verified against an embedded signing key before anything is downloaded — an unsigned or tampered release is always rejected. Nothing downloads or launches until you click &quot;Update Now&quot;."
                      Classes="SettingsHint" TextWrapping="Wrap" />
         </StackPanel>
         <StackPanel Spacing="10" IsVisible="{Binding AutoUpdateEnabled}">
-          <Grid ColumnDefinitions="Auto,*">
-            <Button Grid.Column="0" Classes="App Accent" Content="Check for Updates"
+          <StackPanel Orientation="Horizontal" Spacing="10">
+            <Button Classes="App Accent" Content="Check for Updates"
                     Command="{Binding CheckForUpdatesCommand}" HorizontalAlignment="Left" VerticalAlignment="Top" />
-            <TextBlock Grid.Column="1" Text="{Binding StatusText}" VerticalAlignment="Center" Margin="12,0,0,0"
-                       TextWrapping="Wrap" Classes.Error="{Binding IsStatusError}"
-                       Foreground="{DynamicResource TextDimBrush}">
-              <TextBlock.Styles>
-                <Style Selector="TextBlock.Error">
-                  <Setter Property="Foreground" Value="{DynamicResource RedBrush}" />
-                </Style>
-              </TextBlock.Styles>
-            </TextBlock>
-          </Grid>
+            <Button Classes="App Accent" Content="Update Now" IsVisible="{Binding IsUpdateAvailable}"
+                    Command="{Binding UpdateNowCommand}" HorizontalAlignment="Left" VerticalAlignment="Top" />
+            <Button Classes="App" Content="Cancel" IsVisible="{Binding IsDownloading}"
+                    Command="{Binding CancelDownloadCommand}" HorizontalAlignment="Left" VerticalAlignment="Top" />
+          </StackPanel>
+          <TextBlock Text="{Binding StatusText}" TextWrapping="Wrap" Classes.Error="{Binding IsStatusError}"
+                     Foreground="{DynamicResource TextDimBrush}">
+            <TextBlock.Styles>
+              <Style Selector="TextBlock.Error">
+                <Setter Property="Foreground" Value="{DynamicResource RedBrush}" />
+              </Style>
+            </TextBlock.Styles>
+          </TextBlock>
+          <ProgressBar IsVisible="{Binding IsDownloading}" Minimum="0" Maximum="100"
+                       Value="{Binding DownloadProgress}" HorizontalAlignment="Stretch" />
         </StackPanel>
       </StackPanel>
     </DataTemplate>

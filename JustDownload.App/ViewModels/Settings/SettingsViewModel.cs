@@ -45,6 +45,10 @@ public sealed partial class SettingsViewModel : ViewModelBase
     [ObservableProperty]
     private string? _transferStatus;
 
+    /// <summary>Bubbled from <see cref="UpdateSettingsViewModel.QuitRequested"/> (TASK-223) so the window
+    /// hosting this settings screen can close itself and quit the app once an update installer has launched.</summary>
+    public event EventHandler? QuitRequested;
+
     public SettingsViewModel(
         ISettingsService settings,
         IThemeService theme,
@@ -123,8 +127,21 @@ public sealed partial class SettingsViewModel : ViewModelBase
         Sections.Add(new SettingsSectionViewModel(
             "Advanced", "IconSetAdvanced",
             new AdvancedSettingsViewModel(_settings, _errorLogPath, _fileRevealer)));
-        Sections.Add(new SettingsSectionViewModel(
-            "Updates", "IconSetUpdates", new UpdateSettingsViewModel(_settings, _updateChecker, _appVersion)));
+        var updates = new UpdateSettingsViewModel(_settings, _updateChecker, _appVersion);
+        updates.QuitRequested += (_, _) => QuitRequested?.Invoke(this, EventArgs.Empty);
+        Sections.Add(new SettingsSectionViewModel("Updates", "IconSetUpdates", updates));
+    }
+
+    /// <summary>Selects the section whose <see cref="SettingsSectionViewModel.Label"/> matches
+    /// <paramref name="label"/> (TASK-223) — used to jump straight to "Updates" from a startup
+    /// notification instead of always opening on the first section. A no-op if no section matches.</summary>
+    public void SelectSectionByName(string label)
+    {
+        SettingsSectionViewModel? section = Sections.FirstOrDefault(s => s.Label == label);
+        if (section is not null)
+        {
+            Select(section);
+        }
     }
 
     /// <summary>

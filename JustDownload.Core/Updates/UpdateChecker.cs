@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Diagnostics.CodeAnalysis;
 using System.Net.Http;
 using System.Net.Http.Json;
@@ -14,12 +15,14 @@ using Microsoft.Extensions.Logging;
 namespace JustDownload.Core.Updates;
 
 /// <summary>
-/// Default <see cref="IUpdateChecker"/> (TASK-080). Opt-in (AC0/AC2): makes no network call unless
+/// Default <see cref="IUpdateChecker"/> (TASK-080/TASK-223). Opt-in (AC0/AC2): makes no network call unless
 /// <see cref="AppSettings.AutoUpdateEnabled"/> is on, and fails closed — also with no network call — if the
 /// embedded production public key is still the documented placeholder (<see cref="UpdateSigningKey"/>);
-/// "looks unset" never means "trust anyway". When a newer release exists, its <c>checksums.txt</c> is
-/// verified against the embedded ECDSA P-256 public key (AC1) and the target asset's SHA-256 is checked
-/// against the now-trusted manifest before anything is downloaded and launched.
+/// "looks unset" never means "trust anyway". <see cref="CheckAsync"/> only detects a newer release and
+/// verifies its <c>checksums.txt</c> against the embedded ECDSA P-256 public key (AC1), returning
+/// <see cref="UpdateCheckStatus.Available"/> with the verified installer's URL/hash; nothing is downloaded
+/// or launched until the caller explicitly confirms via <see cref="DownloadAndApplyAsync"/> (TASK-223 —
+/// downloading/launching without confirmation was TASK-080's original, now-revised, scope).
 /// <para>
 /// Version/asset detection resolves a per-OS/arch installer asset name (<see cref="ResolveInstallerAssetName"/>,
 /// TASK-172) once macOS (<c>build/build-macos-packages.ps1</c>, TASK-077) and Linux
@@ -47,6 +50,7 @@ internal sealed partial class UpdateChecker : IUpdateChecker
     private readonly bool _isLinux;
     private readonly Architecture _architecture;
     private readonly ILogger<UpdateChecker> _logger;
+    private volatile UpdateCheckResult? _lastResult;
 
     public UpdateChecker(
         ISettingsService settings,
@@ -106,7 +110,82 @@ internal sealed partial class UpdateChecker : IUpdateChecker
         _logger = logger;
     }
 
+    public UpdateCheckResult? LastResult => _lastResult;
+
     public async Task<UpdateCheckResult> CheckAsync(CancellationToken cancellationToken = default)
+    {
+        UpdateCheckResult result = await CheckCoreAsync(cancellationToken).ConfigureAwait(false);
+        _lastResult = result;
+        return result;
+    }
+
+    public Task<UpdateCheckResult> DownloadAndApplyAsync(
+        UpdateCheckResult checkResult, IProgress<double>? progress = null, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(checkResult);
+        if (checkResult.Status != UpdateCheckStatus.Available)
+        {
+            throw new ArgumentException(
+                $"Expected a result with Status == {UpdateCheckStatus.Available}, got {checkResult.Status}.",
+                nameof(checkResult));
+        }
+
+        return DownloadAndApplyCoreAsync(checkResult, progress, cancellationToken);
+    }
+
+    private async Task<UpdateCheckResult> DownloadAndApplyCoreAsync(
+        UpdateCheckResult checkResult, IProgress<double>? progress, CancellationToken cancellationToken)
+    {
+        string installerAssetName = checkResult.InstallerAssetName!;
+        string installerUrl = checkResult.InstallerDownloadUrl!.ToString();
+        string expectedHash = checkResult.ExpectedSha256!;
+        string latestVersionText = checkResult.LatestVersion!;
+        Uri? releaseUrl = checkResult.ReleaseUrl;
+
+        string vendorDir = _options.VendorDirectory ?? Path.Combine(AppDataPaths.Directory(_appInfo), "updates");
+        Directory.CreateDirectory(vendorDir);
+        string tempPath = Path.Combine(vendorDir, ".update-download.partial");
+        string finalPath = Path.Combine(vendorDir, installerAssetName);
+
+        UpdateCheckResult result;
+        try
+        {
+            using HttpClient client = CreateClient();
+            await DownloadAsync(client, installerUrl, tempPath, progress, cancellationToken).ConfigureAwait(false);
+
+            ChecksumResult verification =
+                await _checksum.VerifyAsync(tempPath, expectedHash, cancellationToken).ConfigureAwait(false);
+            if (!verification.IsMatch)
+            {
+                LogRejected(
+                    _logger, UpdateCheckStatus.RejectedAssetHashMismatch, "the downloaded bytes didn't match the signed hash");
+                result = new UpdateCheckResult(UpdateCheckStatus.RejectedAssetHashMismatch, latestVersionText, releaseUrl);
+                _lastResult = result;
+                return result;
+            }
+
+            File.Move(tempPath, finalPath, overwrite: true);
+        }
+        catch (HttpRequestException ex)
+        {
+            LogCheckFailed(_logger, ex);
+            result = new UpdateCheckResult(UpdateCheckStatus.Error, latestVersionText, releaseUrl, ex.Message);
+            _lastResult = result;
+            return result;
+        }
+        finally
+        {
+            TryDelete(tempPath);
+        }
+
+        await _applier.ApplyAsync(finalPath, cancellationToken).ConfigureAwait(false);
+        LogApplied(_logger, latestVersionText);
+        result = new UpdateCheckResult(UpdateCheckStatus.Applied, latestVersionText, releaseUrl);
+        _lastResult = result;
+        return result;
+    }
+
+    private async Task<UpdateCheckResult> CheckCoreAsync(CancellationToken cancellationToken)
     {
         // AC2: not even a metadata GET when the feature is off.
         if (!_settings.Current.AutoUpdateEnabled)
@@ -212,38 +291,16 @@ internal sealed partial class UpdateChecker : IUpdateChecker
             return new UpdateCheckResult(UpdateCheckStatus.RejectedAssetHashMismatch, latestVersionText, releaseUrl);
         }
 
-        string vendorDir = _options.VendorDirectory ?? Path.Combine(AppDataPaths.Directory(_appInfo), "updates");
-        Directory.CreateDirectory(vendorDir);
-        string tempPath = Path.Combine(vendorDir, ".update-download.partial");
-        string finalPath = Path.Combine(vendorDir, installerAssetName);
-        try
-        {
-            await DownloadAsync(client, installerUrl, tempPath, cancellationToken).ConfigureAwait(false);
-
-            ChecksumResult verification =
-                await _checksum.VerifyAsync(tempPath, expectedHash, cancellationToken).ConfigureAwait(false);
-            if (!verification.IsMatch)
-            {
-                LogRejected(
-                    _logger, UpdateCheckStatus.RejectedAssetHashMismatch, "the downloaded bytes didn't match the signed hash");
-                return new UpdateCheckResult(UpdateCheckStatus.RejectedAssetHashMismatch, latestVersionText, releaseUrl);
-            }
-
-            File.Move(tempPath, finalPath, overwrite: true);
-        }
-        catch (HttpRequestException ex)
-        {
-            LogCheckFailed(_logger, ex);
-            return new UpdateCheckResult(UpdateCheckStatus.Error, latestVersionText, releaseUrl, ex.Message);
-        }
-        finally
-        {
-            TryDelete(tempPath);
-        }
-
-        await _applier.ApplyAsync(finalPath, cancellationToken).ConfigureAwait(false);
-        LogApplied(_logger, latestVersionText);
-        return new UpdateCheckResult(UpdateCheckStatus.Applied, latestVersionText, releaseUrl);
+        // Everything needed to download/apply later is now verified (signature + manifest membership) —
+        // hand it back for DownloadAndApplyAsync to run once the user confirms, without downloading
+        // anything yet.
+        return new UpdateCheckResult(
+            UpdateCheckStatus.Available,
+            latestVersionText,
+            releaseUrl,
+            InstallerAssetName: installerAssetName,
+            InstallerDownloadUrl: new Uri(installerUrl),
+            ExpectedSha256: expectedHash);
     }
 
     private bool TryImportPublicKey([NotNullWhen(true)] out ECDsa? key)
@@ -279,8 +336,10 @@ internal sealed partial class UpdateChecker : IUpdateChecker
         return client;
     }
 
+    private const int DownloadBufferSize = 64 * 1024; // sub-LOH, matches ChecksumVerifier's copy buffer
+
     private static async Task DownloadAsync(
-        HttpClient client, string url, string destinationPath, CancellationToken cancellationToken)
+        HttpClient client, string url, string destinationPath, IProgress<double>? progress, CancellationToken cancellationToken)
     {
         using HttpResponseMessage response = await client
             .GetAsync(url, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
@@ -289,7 +348,32 @@ internal sealed partial class UpdateChecker : IUpdateChecker
         await using Stream source = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
         await using var destination = new FileStream(
             destinationPath, FileMode.Create, FileAccess.Write, FileShare.None);
-        await source.CopyToAsync(destination, cancellationToken).ConfigureAwait(false);
+
+        // Only report real fractional progress (against a known Content-Length); no faked/indeterminate
+        // reporting when the server doesn't declare one.
+        if (progress is null || response.Content.Headers.ContentLength is not { } totalBytes || totalBytes <= 0)
+        {
+            await source.CopyToAsync(destination, cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(DownloadBufferSize);
+        try
+        {
+            long totalRead = 0;
+            int read;
+            while ((read = await source.ReadAsync(buffer.AsMemory(0, DownloadBufferSize), cancellationToken)
+                       .ConfigureAwait(false)) > 0)
+            {
+                await destination.WriteAsync(buffer.AsMemory(0, read), cancellationToken).ConfigureAwait(false);
+                totalRead += read;
+                progress.Report((double)totalRead / totalBytes);
+            }
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(buffer);
+        }
     }
 
     /// <summary>

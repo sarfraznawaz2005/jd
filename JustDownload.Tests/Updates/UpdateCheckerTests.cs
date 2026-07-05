@@ -15,11 +15,14 @@ using Xunit;
 namespace JustDownload.Tests.Updates;
 
 /// <summary>
-/// The opt-in GitHub Releases update check (TASK-080): version detection, ECDSA P-256 signature
+/// The opt-in GitHub Releases update check (TASK-080/TASK-223): version detection, ECDSA P-256 signature
 /// verification of <c>checksums.txt</c>, and SHA-256 verification of the downloaded asset, all driven
 /// against a real loopback server with real cryptography (not mocked) — the same bar the ffmpeg/yt-dlp
-/// provisioner tests hold. Also covers the two fail-closed paths (AC2 disabled, unconfigured production key)
-/// that must never make a network call.
+/// provisioner tests hold. <see cref="UpdateChecker.CheckAsync"/> only detects/verifies (never downloads
+/// the installer or applies); <see cref="UpdateChecker.DownloadAndApplyAsync"/> — exercised separately —
+/// is the only path that downloads and launches, run once the caller (the user, via "Update Now")
+/// confirms. Also covers the two fail-closed paths (AC2 disabled, unconfigured production key) that must
+/// never make a network call.
 /// </summary>
 public sealed class UpdateCheckerTests : IDisposable
 {
@@ -72,7 +75,7 @@ public sealed class UpdateCheckerTests : IDisposable
     }
 
     [Fact]
-    public async Task CheckAsync_VerifiesAndApplies_WhenSignatureAndHashAreValid()
+    public async Task CheckAsync_ReportsAvailable_WhenSignatureAndHashAreValid()
     {
         await using var server = new PathRoutingLoopbackServer();
         (byte[] installerBytes, string sha256) = FakeInstaller();
@@ -88,22 +91,68 @@ public sealed class UpdateCheckerTests : IDisposable
 
         if (OperatingSystem.IsWindows())
         {
-            // TASK-080 locked scope: apply is Windows-only. Verified via the injectable "would apply" seam
-            // (FakeUpdateApplier) so no real process is spawned.
-            result.Status.Should().Be(UpdateCheckStatus.Applied);
-            applier.ApplyCount.Should().Be(1);
-            applier.AppliedPath.Should().NotBeNull();
-            File.Exists(applier.AppliedPath!).Should().BeTrue("the verified installer was downloaded before being handed to the applier");
-            File.ReadAllBytes(applier.AppliedPath!).Should().Equal(installerBytes);
+            // TASK-223: CheckAsync only detects/verifies — it never downloads the installer or applies it.
+            result.Status.Should().Be(UpdateCheckStatus.Available);
+            result.InstallerAssetName.Should().Be(UpdateChecker.WindowsInstallerAssetName);
+            result.InstallerDownloadUrl.Should().NotBeNull();
+            result.ExpectedSha256.Should().Be(sha256);
         }
         else
         {
             // No macOS/Linux installer format exists yet (TASK-077/078) — detected, not applied.
             result.Status.Should().Be(UpdateCheckStatus.AvailableForManualDownload);
-            applier.ApplyCount.Should().Be(0);
         }
 
+        applier.ApplyCount.Should().Be(0, "CheckAsync must never download or launch anything (TASK-223)");
         result.LatestVersion.Should().Be("2.0.0");
+        checker.LastResult.Should().Be(result);
+    }
+
+    [Fact]
+    public async Task DownloadAndApplyAsync_DownloadsVerifiesAndApplies_WhenCheckResultIsAvailable()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            // Apply is Windows-only in this checker instance (real OS/arch, no override) — TASK-172 covers
+            // macOS/Linux explicitly below via the forced-platform constructor.
+            return;
+        }
+
+        await using var server = new PathRoutingLoopbackServer();
+        (byte[] installerBytes, string sha256) = FakeInstaller();
+        byte[] checksumsBytes = ChecksumsFile(sha256);
+        byte[] signature = TestSigningKeys.Sign(checksumsBytes);
+        RouteFullRelease(server, "v2.0.0", installerBytes, checksumsBytes, signature);
+
+        var applier = new FakeUpdateApplier();
+        UpdateChecker checker = CreateChecker(server, autoUpdateEnabled: true, TestSigningKeys.PublicKeyBase64, applier, currentVersion: "1.0.0");
+        UpdateCheckResult checkResult = await checker.CheckAsync();
+        checkResult.Status.Should().Be(UpdateCheckStatus.Available);
+
+        var progress = new RecordingProgress();
+        UpdateCheckResult result = await checker.DownloadAndApplyAsync(checkResult, progress);
+
+        result.Status.Should().Be(UpdateCheckStatus.Applied);
+        applier.ApplyCount.Should().Be(1);
+        applier.AppliedPath.Should().NotBeNull();
+        File.Exists(applier.AppliedPath!).Should().BeTrue("the verified installer was downloaded before being handed to the applier");
+        File.ReadAllBytes(applier.AppliedPath!).Should().Equal(installerBytes);
+        checker.LastResult.Should().Be(result);
+        progress.Reports.Should().NotBeEmpty("the loopback response declares Content-Length, so real progress must be reported");
+        progress.Reports[^1].Should().BeApproximately(1.0, 0.0001, "the final report must reflect a fully-downloaded file");
+    }
+
+    [Fact]
+    public async Task DownloadAndApplyAsync_Throws_WhenCheckResultIsNotAvailable()
+    {
+        var applier = new FakeUpdateApplier();
+        await using var server = new PathRoutingLoopbackServer();
+        UpdateChecker checker = CreateChecker(server, autoUpdateEnabled: true, TestSigningKeys.PublicKeyBase64, applier);
+
+        Func<Task> act = () => checker.DownloadAndApplyAsync(new UpdateCheckResult(UpdateCheckStatus.UpToDate, "1.0.0"));
+
+        await act.Should().ThrowAsync<ArgumentException>(
+            "a caller must only pass a result whose Status is Available — this is a programming error, not a user path");
     }
 
     [Theory]
@@ -125,7 +174,7 @@ public sealed class UpdateCheckerTests : IDisposable
     [Theory]
     [InlineData(Architecture.Arm64, "JustDownload-2.0.0-osx-arm64.dmg")]
     [InlineData(Architecture.X64, "JustDownload-2.0.0-osx-x64.dmg")]
-    public async Task CheckAsync_VerifiesAndApplies_OnMacOs(Architecture architecture, string assetName)
+    public async Task DownloadAndApplyAsync_DownloadsVerifiesAndApplies_OnMacOs(Architecture architecture, string assetName)
     {
         await using var server = new PathRoutingLoopbackServer();
         (byte[] installerBytes, string sha256) = FakeInstaller();
@@ -138,7 +187,10 @@ public sealed class UpdateCheckerTests : IDisposable
             server, autoUpdateEnabled: true, TestSigningKeys.PublicKeyBase64, applier, currentVersion: "1.0.0",
             isWindows: false, isMacOs: true, isLinux: false, architecture: architecture);
 
-        UpdateCheckResult result = await checker.CheckAsync();
+        UpdateCheckResult checkResult = await checker.CheckAsync();
+        checkResult.Status.Should().Be(UpdateCheckStatus.Available);
+
+        UpdateCheckResult result = await checker.DownloadAndApplyAsync(checkResult);
 
         result.Status.Should().Be(UpdateCheckStatus.Applied);
         result.LatestVersion.Should().Be("2.0.0");
@@ -149,7 +201,7 @@ public sealed class UpdateCheckerTests : IDisposable
     }
 
     [Fact]
-    public async Task CheckAsync_VerifiesAndApplies_OnLinux()
+    public async Task DownloadAndApplyAsync_DownloadsVerifiesAndApplies_OnLinux()
     {
         const string assetName = "JustDownload-2.0.0-x86_64.AppImage";
         await using var server = new PathRoutingLoopbackServer();
@@ -163,7 +215,10 @@ public sealed class UpdateCheckerTests : IDisposable
             server, autoUpdateEnabled: true, TestSigningKeys.PublicKeyBase64, applier, currentVersion: "1.0.0",
             isWindows: false, isMacOs: false, isLinux: true, architecture: Architecture.X64);
 
-        UpdateCheckResult result = await checker.CheckAsync();
+        UpdateCheckResult checkResult = await checker.CheckAsync();
+        checkResult.Status.Should().Be(UpdateCheckStatus.Available);
+
+        UpdateCheckResult result = await checker.DownloadAndApplyAsync(checkResult);
 
         result.Status.Should().Be(UpdateCheckStatus.Applied);
         result.LatestVersion.Should().Be("2.0.0");
@@ -276,7 +331,7 @@ public sealed class UpdateCheckerTests : IDisposable
     }
 
     [Fact]
-    public async Task CheckAsync_Rejects_WhenDownloadedAssetDoesNotMatchItsSignedHash()
+    public async Task DownloadAndApplyAsync_Rejects_WhenDownloadedAssetDoesNotMatchItsSignedHash()
     {
         if (!OperatingSystem.IsWindows())
         {
@@ -289,13 +344,16 @@ public sealed class UpdateCheckerTests : IDisposable
         byte[] signature = TestSigningKeys.Sign(checksumsBytes);
 
         RouteFullRelease(server, "v2.0.0", installerBytes, checksumsBytes, signature);
-        // An attacker swaps the asset after checksums.txt was computed and signed.
-        server.Route(UpdateChecker.WindowsInstallerAssetName, Encoding.UTF8.GetBytes("swapped-malicious-bytes"));
 
         var applier = new FakeUpdateApplier();
         UpdateChecker checker = CreateChecker(server, autoUpdateEnabled: true, TestSigningKeys.PublicKeyBase64, applier, currentVersion: "1.0.0");
+        UpdateCheckResult checkResult = await checker.CheckAsync();
+        checkResult.Status.Should().Be(UpdateCheckStatus.Available);
 
-        UpdateCheckResult result = await checker.CheckAsync();
+        // An attacker swaps the asset after checksums.txt was computed/signed and after the check ran.
+        server.Route(UpdateChecker.WindowsInstallerAssetName, Encoding.UTF8.GetBytes("swapped-malicious-bytes"));
+
+        UpdateCheckResult result = await checker.DownloadAndApplyAsync(checkResult);
 
         result.Status.Should().Be(UpdateCheckStatus.RejectedAssetHashMismatch);
         applier.ApplyCount.Should().Be(0);
@@ -444,6 +502,16 @@ public sealed class UpdateCheckerTests : IDisposable
             ApplyCount++;
             return Task.CompletedTask;
         }
+    }
+
+    /// <summary>A synchronous <see cref="IProgress{T}"/> test double (TASK-223) — unlike <see cref="Progress{T}"/>,
+    /// this never marshals through a captured <see cref="SynchronizationContext"/>, so assertions made right
+    /// after the awaited call see every report deterministically.</summary>
+    private sealed class RecordingProgress : IProgress<double>
+    {
+        public List<double> Reports { get; } = [];
+
+        public void Report(double value) => Reports.Add(value);
     }
 
     private sealed class TestHandlerProvider : ISharedHttpHandlerProvider

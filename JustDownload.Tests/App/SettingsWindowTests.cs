@@ -128,4 +128,52 @@ public sealed class SettingsWindowTests
         updatesVm.LastStatus.Should().Be(UpdateCheckStatus.UpToDate);
         updatesVm.StatusText.Should().Be("You're up to date.");
     }
+
+    [AvaloniaFact]
+    public async Task Window_UpdatesSection_ShowsUpdateNowOnlyOnceAvailable_AndProgressBarWhileDownloading()
+    {
+        // TASK-223: "Update Now" and the progress bar must not exist as visible affordances until a signed
+        // update is actually detected/downloading — the whole point of the confirm-before-download flow.
+        var settings = Substitute.For<ISettingsService>();
+        settings.Current.Returns(new AppSettings { AutoUpdateEnabled = true });
+        settings.UpdateAsync(Arg.Any<Func<AppSettings, AppSettings>>(), Arg.Any<CancellationToken>())
+            .Returns(ci => Task.FromResult(ci.Arg<Func<AppSettings, AppSettings>>()(new AppSettings())));
+        var checker = Substitute.For<IUpdateChecker>();
+        var available = new UpdateCheckResult(
+            UpdateCheckStatus.Available, "1.0.1", InstallerAssetName: "JustDownload-win-x64-Setup.exe",
+            InstallerDownloadUrl: new Uri("https://example.com/setup.exe"), ExpectedSha256: new string('a', 64));
+        checker.CheckAsync(Arg.Any<CancellationToken>()).Returns(available);
+        var downloadStarted = new TaskCompletionSource();
+        var releaseDownload = new TaskCompletionSource();
+        checker.DownloadAndApplyAsync(Arg.Any<UpdateCheckResult>(), Arg.Any<IProgress<double>>(), Arg.Any<CancellationToken>())
+            .Returns(async _ =>
+            {
+                downloadStarted.SetResult();
+                await releaseDownload.Task;
+                return new UpdateCheckResult(UpdateCheckStatus.Applied, "1.0.1");
+            });
+
+        SettingsViewModel vm = BuildViewModel(settings, updateChecker: checker);
+        var window = new SettingsWindow { DataContext = vm };
+        window.Show();
+        vm.SelectCommand.Execute(vm.Sections.Single(s => s.Label == "Updates"));
+        var updatesVm = (UpdateSettingsViewModel)vm.Sections.Single(s => s.Label == "Updates").Content;
+
+        Button UpdateNowButton() => window.GetVisualDescendants().OfType<Button>()
+            .Single(b => (b.Content as string) == "Update Now");
+        ProgressBar ProgressBar() => window.GetVisualDescendants().OfType<ProgressBar>().Single();
+
+        UpdateNowButton().IsEffectivelyVisible.Should().BeFalse("no update has been detected yet");
+
+        await updatesVm.CheckForUpdatesCommand.ExecuteAsync(null);
+        UpdateNowButton().IsEffectivelyVisible.Should().BeTrue("a signed update is now available");
+        ProgressBar().IsEffectivelyVisible.Should().BeFalse("not downloading yet");
+
+        Task updateTask = updatesVm.UpdateNowCommand.ExecuteAsync(null);
+        await downloadStarted.Task;
+        ProgressBar().IsEffectivelyVisible.Should().BeTrue("the download is in progress");
+
+        releaseDownload.SetResult();
+        await updateTask;
+    }
 }

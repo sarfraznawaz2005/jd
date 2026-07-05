@@ -22,7 +22,8 @@ public sealed class AvaloniaNotificationService : INotificationService
         Dispatcher.UIThread.Post(() =>
         {
             WindowNotificationManager? manager = Resolve();
-            manager?.Show(new Notification(notification.Title, notification.Message, ToType(notification.Kind)));
+            manager?.Show(new Notification(
+                notification.Title, notification.Message, ToType(notification.Kind), onClick: notification.OnClick));
         });
     }
 

@@ -69,6 +69,30 @@ public sealed class SettingsViewModelTests
         vm.Sections[0].IsSelected.Should().BeFalse();
     }
 
+    [Fact]
+    public void SelectSectionByName_SelectsTheMatchingSection()
+    {
+        // TASK-223: the startup update-available notification jumps straight to "Updates" instead of
+        // always landing on the first section.
+        var vm = Build(Settings(), Substitute.For<ISettingsTransfer>());
+
+        vm.SelectSectionByName("Updates");
+
+        vm.SelectedSection.Label.Should().Be("Updates");
+        vm.Sections.Single(s => s.Label == "Updates").IsSelected.Should().BeTrue();
+        vm.Sections[0].IsSelected.Should().BeFalse();
+    }
+
+    [Fact]
+    public void SelectSectionByName_UnknownLabel_IsANoOp()
+    {
+        var vm = Build(Settings(), Substitute.For<ISettingsTransfer>());
+
+        vm.SelectSectionByName("NoSuchSection");
+
+        vm.SelectedSection.Label.Should().Be("General");
+    }
+
     private static SettingsViewModel Build(ISettingsService settings, ISettingsTransfer transfer) =>
         new(settings, Substitute.For<IThemeService>(), CategoryFolderRules.CreateDefault(),
             Substitute.For<JustDownload.Core.NativeMessaging.INativeHostInstaller>(),

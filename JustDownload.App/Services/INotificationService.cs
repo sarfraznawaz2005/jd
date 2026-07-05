@@ -17,7 +17,8 @@ public enum AppNotificationKind
 /// <param name="Title">The short headline.</param>
 /// <param name="Message">The body text.</param>
 /// <param name="Kind">The notification flavour.</param>
-public sealed record AppNotification(string Title, string Message, AppNotificationKind Kind);
+/// <param name="OnClick">Invoked if the user clicks the notification (TASK-223), or <see langword="null"/> for none.</param>
+public sealed record AppNotification(string Title, string Message, AppNotificationKind Kind, Action? OnClick = null);
 
 /// <summary>
 /// Surfaces a user-facing notification (TASK-061 AC0). The default implementation shows an in-app toast; it
