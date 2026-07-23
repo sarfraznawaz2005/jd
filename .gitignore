@@ -69,3 +69,6 @@ build/installer/out/
 
 # WiX Toolset repo-local extension cache (restored by build/build-installer.ps1, TASK-076)
 .wix/
+
+# Personal scratch notes — kept local only, never tracked
+/for_humans.txt
