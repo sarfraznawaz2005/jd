@@ -160,6 +160,38 @@ internal sealed partial class DownloadManager : IDownloadManager
                 $"Download {id} has no destination path resolved and cannot be started.");
         }
 
+        // The only guard against two engines writing the same file: PreallocatedFile opens the output with
+        // FileShare.ReadWrite (needed for one download's own concurrent segment workers), which does nothing
+        // to stop a second, unrelated download from also opening and writing that same path — nothing else
+        // in the engine enforces per-destination exclusivity. Refuse to start rather than risk silent
+        // corruption from two independent writers.
+        if (await FindActiveDestinationCollisionAsync(id, record.Directory, record.Filename, cancellationToken)
+            .ConfigureAwait(false) is { } collision)
+        {
+            string message = $"\"{record.Filename}\" is already being downloaded to this folder " +
+                $"(download #{collision.Id} is active there). Wait for it to finish, or rename this one.";
+
+            if (from is DownloadStatus.Queued or DownloadStatus.Paused)
+            {
+                // A fresh start attempt: fail it visibly like every other pre-flight problem here (no silent
+                // failures, §1) — both are legal transitions to Failed.
+                await TransitionToTerminalAsync(id, record, DownloadStatus.Failed, message, completedAt: null)
+                    .ConfigureAwait(false);
+            }
+            else
+            {
+                // from is Failed or Expired: neither has a legal self-transition to Failed
+                // (DownloadStateMachine), and the row already shows an error/needs-renew state — refresh the
+                // reason in place instead of attempting an illegal status change.
+                await _repository.UpdateAsync(record with { Error = message }, CancellationToken.None)
+                    .ConfigureAwait(false);
+                RaiseStatus(id, from, from);
+            }
+
+            LogFailed(_logger, id, new InvalidOperationException(message));
+            throw new InvalidOperationException(message);
+        }
+
         Download active = record with { Status = DownloadStatusCodes.Active, Error = null };
         await _repository.UpdateAsync(active, cancellationToken).ConfigureAwait(false);
         RaiseStatus(id, from, DownloadStatus.Active);
@@ -776,6 +808,26 @@ internal sealed partial class DownloadManager : IDownloadManager
         {
         }
     }
+
+    /// <summary>
+    /// Finds another download that is currently Active and targets the identical destination path, or
+    /// <see langword="null"/> if none — the pre-flight check <see cref="StartAsync"/> uses to refuse opening
+    /// a file a different in-flight download already owns.
+    /// </summary>
+    private async Task<Download?> FindActiveDestinationCollisionAsync(
+        long excludeId, string directory, string fileName, CancellationToken cancellationToken)
+    {
+        IReadOnlyList<Download> all = await _repository.GetAllAsync(cancellationToken).ConfigureAwait(false);
+        return all.FirstOrDefault(d =>
+            d.Id != excludeId
+            && DownloadStatusCodes.Parse(d.Status) == DownloadStatus.Active
+            && string.Equals(d.Directory, directory, PathComparison)
+            && string.Equals(d.Filename, fileName, PathComparison));
+    }
+
+    // Windows/macOS paths are case-insensitive; Linux is case-sensitive.
+    private static StringComparison PathComparison =>
+        OperatingSystem.IsLinux() ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase;
 
     /// <summary>Rebuilds the resume checkpoint from persisted segment rows (empty for a fresh download).</summary>
     private async Task<ReceivedRanges> LoadReceivedAsync(long id, CancellationToken cancellationToken)

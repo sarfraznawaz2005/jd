@@ -356,6 +356,200 @@ public sealed class DownloadManagerTests : IDisposable
         await act.Should().ThrowAsync<KeyNotFoundException>();
     }
 
+    // ---- Destination-collision guard (TASK-229) ----
+    //
+    // PreallocatedFile opens the output file with FileShare.ReadWrite (needed for one download's own
+    // concurrent segment workers), which does nothing to stop a second, unrelated download from also opening
+    // and writing that same path. StartAsync now refuses to start a download whose destination is already
+    // claimed by another Active row, rather than let two engines write the same file independently.
+
+    /// <summary>
+    /// Starts a real (slow-but-genuine) download and waits until it is observed Active in the repository —
+    /// the "another download is already active here" fixture every collision test below needs. The caller
+    /// must await the returned task before the test ends so the transfer completes and releases its file
+    /// handle before the temp directory is torn down.
+    /// </summary>
+    private async Task<(long Id, Task Run)> StartActiveAsync(Uri url, string directory, string fileName)
+    {
+        long id = await Manager.EnqueueAsync(new EnqueueDownloadRequest
+        {
+            Url = url,
+            DestinationDirectory = directory,
+            FileName = fileName,
+            MaxConnections = 1,
+        });
+
+        var activeSeen = new TaskCompletionSource();
+        void OnStatusChanged(object? sender, DownloadStatusChangedEventArgs e)
+        {
+            if (e.DownloadId == id && e.Current == DownloadStatus.Active)
+            {
+                activeSeen.TrySetResult();
+            }
+        }
+
+        Manager.StatusChanged += OnStatusChanged;
+        Task run = Manager.StartAsync(id);
+        await activeSeen.Task;
+        Manager.StatusChanged -= OnStatusChanged;
+        return (id, run);
+    }
+
+    [Fact]
+    public async Task StartAsync_Queued_BlockedByActiveCollisionAtSameDestination_FailsVisibly()
+    {
+        await using var server = new LoopbackHttpServer
+        {
+            Body = Bytes(32 * 1024),
+            SupportRanges = true,
+            ResponseDelay = TimeSpan.FromMilliseconds(400), // holds it Active long enough to race the collision
+        };
+        (long activeId, Task activeRun) = await StartActiveAsync(server.Url("file.bin"), _tempDir, "shared.bin");
+
+        long queuedId = await Manager.EnqueueAsync(new EnqueueDownloadRequest
+        {
+            Url = server.Url("file.bin"),
+            DestinationDirectory = _tempDir,
+            FileName = "shared.bin",
+        });
+
+        Func<Task> act = () => Manager.StartAsync(queuedId);
+        (await act.Should().ThrowAsync<InvalidOperationException>())
+            .WithMessage($"*{activeId}*");
+
+        Download? blocked = await Repository.GetAsync(queuedId);
+        blocked!.Status.Should().Be(DownloadStatusCodes.Failed);
+        blocked.Error.Should().Contain("already being downloaded");
+
+        await activeRun;
+    }
+
+    [Fact]
+    public async Task StartAsync_Paused_ResumeBlockedByActiveCollisionAtSameDestination_FailsVisibly()
+    {
+        // Reach Paused for the first row via a real pause (cancel mid-transfer), matching PauseResumeTests.
+        byte[] pausedBody = Bytes(256 * 1024);
+        await using var pausedServer = new LoopbackHttpServer
+        {
+            Body = pausedBody,
+            SupportRanges = true,
+            SlowTailFrom = 128 * 1024,
+            SlowTailDelay = TimeSpan.FromMilliseconds(600),
+        };
+        long pausedId = await Manager.EnqueueAsync(new EnqueueDownloadRequest
+        {
+            Url = pausedServer.Url("file.bin"),
+            DestinationDirectory = _tempDir,
+            FileName = "shared.bin",
+            MaxConnections = 4,
+        });
+
+        using var pauseCts = new CancellationTokenSource();
+        int cancelled = 0;
+        Manager.ProgressChanged += (_, e) =>
+        {
+            if (e.DownloadId == pausedId && e.Progress.DownloadedBytes >= 64 * 1024 &&
+                Interlocked.Exchange(ref cancelled, 1) == 0)
+            {
+                pauseCts.Cancel();
+            }
+        };
+        Func<Task> pause = () => Manager.StartAsync(pausedId, pauseCts.Token);
+        await pause.Should().ThrowAsync<OperationCanceledException>();
+        (await Repository.GetAsync(pausedId))!.Status.Should().Be(DownloadStatusCodes.Paused); // sanity
+
+        // Now another download claims the same destination — the resume attempt below must be blocked.
+        await using var activeServer = new LoopbackHttpServer
+        {
+            Body = Bytes(32 * 1024),
+            SupportRanges = true,
+            ResponseDelay = TimeSpan.FromMilliseconds(400),
+        };
+        (long activeId, Task activeRun) =
+            await StartActiveAsync(activeServer.Url("file.bin"), _tempDir, "shared.bin");
+
+        Func<Task> resume = () => Manager.StartAsync(pausedId);
+        (await resume.Should().ThrowAsync<InvalidOperationException>())
+            .WithMessage($"*{activeId}*");
+
+        (await Repository.GetAsync(pausedId))!.Status.Should().Be(DownloadStatusCodes.Failed);
+
+        await activeRun;
+    }
+
+    [Fact]
+    public async Task StartAsync_Failed_RetryBlockedByActiveCollisionAtSameDestination_RefreshesErrorInPlace()
+    {
+        // The .invalid TLD never resolves (RFC 2606), so this fails deterministically with no network.
+        long failedId = await Manager.EnqueueAsync(new EnqueueDownloadRequest
+        {
+            Url = new Uri("http://nonexistent.invalid/file.bin"),
+            DestinationDirectory = _tempDir,
+            FileName = "shared.bin",
+        });
+        Func<Task> firstAttempt = () => Manager.StartAsync(failedId);
+        await firstAttempt.Should().ThrowAsync<Exception>();
+        (await Repository.GetAsync(failedId))!.Status.Should().Be(DownloadStatusCodes.Failed); // sanity
+
+        await using var activeServer = new LoopbackHttpServer
+        {
+            Body = Bytes(32 * 1024),
+            SupportRanges = true,
+            ResponseDelay = TimeSpan.FromMilliseconds(400),
+        };
+        (long activeId, Task activeRun) =
+            await StartActiveAsync(activeServer.Url("file.bin"), _tempDir, "shared.bin");
+
+        Func<Task> retry = () => Manager.StartAsync(failedId);
+        (await retry.Should().ThrowAsync<InvalidOperationException>())
+            .WithMessage($"*{activeId}*");
+
+        Download? afterRetry = await Repository.GetAsync(failedId);
+        afterRetry!.Status.Should().Be(
+            DownloadStatusCodes.Failed, "Failed has no legal self-transition, so the status is left as-is");
+        afterRetry.Error.Should().Contain(
+            "already being downloaded", "the reason is refreshed in place even without a status change");
+
+        await activeRun;
+    }
+
+    [Fact]
+    public async Task StartAsync_Expired_RetryBlockedByActiveCollisionAtSameDestination_RefreshesErrorInPlace()
+    {
+        // Every response (including the pre-flight probe) answers 403 — a conventional expired-link status
+        // (ExpiryDetection.IsExpiryStatusCode) — so the first attempt lands on Expired deterministically.
+        await using var expiredServer = new LoopbackHttpServer { StatusOverride = 403 };
+        long expiredId = await Manager.EnqueueAsync(new EnqueueDownloadRequest
+        {
+            Url = expiredServer.Url("file.bin"),
+            DestinationDirectory = _tempDir,
+            FileName = "shared.bin",
+        });
+        Func<Task> firstAttempt = () => Manager.StartAsync(expiredId);
+        await firstAttempt.Should().ThrowAsync<Exception>();
+        (await Repository.GetAsync(expiredId))!.Status.Should().Be(DownloadStatusCodes.Expired); // sanity
+
+        await using var activeServer = new LoopbackHttpServer
+        {
+            Body = Bytes(32 * 1024),
+            SupportRanges = true,
+            ResponseDelay = TimeSpan.FromMilliseconds(400),
+        };
+        (long activeId, Task activeRun) =
+            await StartActiveAsync(activeServer.Url("file.bin"), _tempDir, "shared.bin");
+
+        Func<Task> retry = () => Manager.StartAsync(expiredId);
+        (await retry.Should().ThrowAsync<InvalidOperationException>())
+            .WithMessage($"*{activeId}*");
+
+        Download? afterRetry = await Repository.GetAsync(expiredId);
+        afterRetry!.Status.Should().Be(
+            DownloadStatusCodes.Expired, "Expired has no legal transition to Failed, so the status is left as-is");
+        afterRetry.Error.Should().Contain("already being downloaded");
+
+        await activeRun;
+    }
+
     public void Dispose()
     {
         _provider.Dispose();
