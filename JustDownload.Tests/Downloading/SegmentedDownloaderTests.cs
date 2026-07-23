@@ -167,6 +167,81 @@ public sealed class SegmentedDownloaderTests : IDisposable
         Interlocked.Read(ref maxReported).Should().Be(body.Length);
     }
 
+    /// <summary>Builds a provider with a short, deterministic idle-read timeout and small segmentation floors
+    /// so a modest test body still splits when multiple connections are requested.</summary>
+    private static ServiceProvider BuildStallTestProvider(int defaultConnections) =>
+        new ServiceCollection()
+            .AddLogging()
+            .AddSingleton(new SegmentationOptions
+            {
+                DefaultConnections = defaultConnections,
+                MinSegmentSize = 16 * 1024,
+                MinStealSize = 16 * 1024,
+                IdleReadTimeout = TimeSpan.FromMilliseconds(200),
+            })
+            .AddJustDownloadTransport()
+            .AddJustDownloadDownloading()
+            .BuildServiceProvider();
+
+    [Fact]
+    public async Task SingleConnectionDownload_StalledConnection_FailsPromptly_RatherThanHangingForever()
+    {
+        // A connection that stays open but stops sending bytes has no timeout of its own — HttpClient.Timeout
+        // is deliberately infinite for large transfers — so without an idle-read watchdog this would hang
+        // until the caller gives up. Stall for far longer than the configured idle timeout so a passing test
+        // proves the watchdog fired, not that the transfer happened to finish just in time. Connections=1
+        // routes through DownloadSingleAsync/ThrottledCopyAsync — the single-connection counterpart of the
+        // segmented path's guard, exercised separately below.
+        byte[] body = Bytes(64 * 1024);
+        await using var server = new LoopbackHttpServer
+        {
+            Body = body,
+            SupportRanges = true,
+            StallAfterBytes = 8 * 1024,
+            StallDuration = TimeSpan.FromSeconds(10),
+        };
+        using ServiceProvider provider = BuildStallTestProvider(defaultConnections: 1);
+        var downloader = provider.GetRequiredService<ISegmentedDownloader>();
+
+        // A bounded outer cancellation is a safety net for the test itself, not the mechanism under test: if
+        // the idle-read watchdog were broken/removed, this would fail with OperationCanceledException instead
+        // of the expected IOException — a clear test failure — rather than hanging the suite for 10s+.
+        using var safetyNet = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+
+        Func<Task> act = () => downloader.DownloadAsync(
+            new DownloadRequest { Url = server.Url("file.bin"), DestinationPath = Dest("stalled-single.bin"), Connections = 1 },
+            cancellationToken: safetyNet.Token);
+
+        (await act.Should().ThrowAsync<IOException>())
+            .WithMessage("*stalled*");
+    }
+
+    [Fact]
+    public async Task SegmentedDownload_StalledConnection_FailsPromptly_RatherThanHangingForever()
+    {
+        // Same protection, the multi-connection path: PumpAsync's per-segment idle-read guard, not
+        // ThrottledCopyAsync's. Every segment's response exceeds StallAfterBytes, so every worker stalls —
+        // the point is proving the download fails promptly rather than hanging, not which segment first does.
+        byte[] body = Bytes(64 * 1024);
+        await using var server = new LoopbackHttpServer
+        {
+            Body = body,
+            SupportRanges = true,
+            StallAfterBytes = 4 * 1024,
+            StallDuration = TimeSpan.FromSeconds(10),
+        };
+        using ServiceProvider provider = BuildStallTestProvider(defaultConnections: 2);
+        var downloader = provider.GetRequiredService<ISegmentedDownloader>();
+        using var safetyNet = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+
+        Func<Task> act = () => downloader.DownloadAsync(
+            new DownloadRequest { Url = server.Url("file.bin"), DestinationPath = Dest("stalled-segmented.bin"), Connections = 2 },
+            cancellationToken: safetyNet.Token);
+
+        (await act.Should().ThrowAsync<IOException>())
+            .WithMessage("*stalled*");
+    }
+
     public void Dispose()
     {
         try

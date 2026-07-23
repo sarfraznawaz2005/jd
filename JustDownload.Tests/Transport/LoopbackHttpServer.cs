@@ -73,6 +73,17 @@ internal sealed class LoopbackHttpServer : IAsyncDisposable
     /// <summary>Extra delay for "slow tail" requests (used to provoke work-stealing deterministically).</summary>
     public TimeSpan SlowTailDelay { get; set; } = TimeSpan.Zero;
 
+    /// <summary>
+    /// How many bytes of the response body to send before pausing for <see cref="StallDuration"/> — unlike
+    /// <see cref="ResponseDelay"/>/<see cref="SlowTailDelay"/> (which delay before anything is sent, so the
+    /// client is still waiting on headers), this simulates a connection that stays open and mid-transfer goes
+    /// silent, to test idle-read-timeout recovery. Default <see cref="long.MaxValue"/> (never stalls).
+    /// </summary>
+    public long StallAfterBytes { get; set; } = long.MaxValue;
+
+    /// <summary>The pause applied after <see cref="StallAfterBytes"/>. Default <see cref="TimeSpan.Zero"/> (off).</summary>
+    public TimeSpan StallDuration { get; set; } = TimeSpan.Zero;
+
     /// <summary>The peak number of simultaneously-open connections the server has seen.</summary>
     public int MaxConcurrentConnections => Volatile.Read(ref _maxConnections);
 
@@ -344,7 +355,20 @@ internal sealed class LoopbackHttpServer : IAsyncDisposable
         await stream.WriteAsync(head, ct).ConfigureAwait(false);
         if (!string.Equals(method, "HEAD", StringComparison.OrdinalIgnoreCase) && slice.Length > 0)
         {
-            await stream.WriteAsync(slice, ct).ConfigureAwait(false);
+            if (StallDuration > TimeSpan.Zero && slice.Length > StallAfterBytes)
+            {
+                // Split the body so the client genuinely observes the first chunk (flushed) before the
+                // connection goes silent, rather than everything sitting unsent in a single buffered write.
+                int firstChunk = (int)Math.Min(StallAfterBytes, slice.Length);
+                await stream.WriteAsync(slice.AsMemory(0, firstChunk), ct).ConfigureAwait(false);
+                await stream.FlushAsync(ct).ConfigureAwait(false);
+                await Task.Delay(StallDuration, ct).ConfigureAwait(false);
+                await stream.WriteAsync(slice.AsMemory(firstChunk), ct).ConfigureAwait(false);
+            }
+            else
+            {
+                await stream.WriteAsync(slice, ct).ConfigureAwait(false);
+            }
         }
 
         await stream.FlushAsync(ct).ConfigureAwait(false);

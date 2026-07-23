@@ -41,7 +41,17 @@ public partial class NewDownloadWindow : Window
             _autoDetectTimer.Stop();
             TriggerDetect();
         };
-        Closed += (_, _) => _autoDetectTimer.Stop();
+        Closed += (_, _) =>
+        {
+            _autoDetectTimer.Stop();
+
+            // Cancels any in-flight auto-detect probe still waiting out its timeout against an unresponsive
+            // server, rather than leaving it running in the background with nothing left to observe it.
+            if (DataContext is NewDownloadViewModel vm)
+            {
+                vm.Dispose();
+            }
+        };
     }
 
     private void OnUrlKeyDown(object? sender, KeyEventArgs e)

@@ -22,11 +22,24 @@ namespace JustDownload.App.ViewModels;
 /// view-model holds all behaviour and validation so it is testable headless; the window is a thin shell that
 /// binds to it and provides the folder picker. Depends only on interfaces (§6).
 /// </summary>
-public sealed partial class NewDownloadViewModel : ViewModelBase
+public sealed partial class NewDownloadViewModel : ViewModelBase, IDisposable
 {
     /// <summary>Upper bound on "name (n).ext" auto-rename attempts (TASK-139 follow-up), so a pathological
     /// run of collisions can't loop unbounded.</summary>
     private const int MaxRenameAttempts = 50;
+
+    /// <summary>Default for <see cref="_detectTimeout"/>, matching
+    /// <see cref="JustDownload.Core.Transport.Proxy.ProxyTester"/>'s default — the existing convention for a
+    /// UI-triggered network probe in this app.</summary>
+    private static readonly TimeSpan DefaultDetectTimeout = TimeSpan.FromSeconds(10);
+
+    /// <summary>
+    /// Bounds a single auto-detect probe. A plain HTTP read has no timeout of its own here — the shared
+    /// HttpClient's own Timeout is deliberately infinite for large transfers (HttpClientProvider) — so
+    /// without this, a server that accepts the connection but never responds would leave "Detecting…"
+    /// spinning forever.
+    /// </summary>
+    private readonly TimeSpan _detectTimeout;
 
     private readonly IResourceProbe _probe;
     private readonly IFileCategorizer _categorizer;
@@ -170,7 +183,8 @@ public sealed partial class NewDownloadViewModel : ViewModelBase
         IDownloadActions actions,
         IDuplicateDownloadCheck duplicateCheck,
         ISecretStore secrets,
-        ILogger<NewDownloadViewModel> logger)
+        ILogger<NewDownloadViewModel> logger,
+        TimeSpan? detectTimeout = null)
     {
         ArgumentNullException.ThrowIfNull(probe);
         ArgumentNullException.ThrowIfNull(categorizer);
@@ -190,6 +204,7 @@ public sealed partial class NewDownloadViewModel : ViewModelBase
         _duplicateCheck = duplicateCheck;
         _secrets = secrets;
         _logger = logger;
+        _detectTimeout = detectTimeout ?? DefaultDetectTimeout;
 
         Categories = BuildCategoryOptions();
         AppSettings remembered = _settings.Current;
@@ -333,6 +348,7 @@ public sealed partial class NewDownloadViewModel : ViewModelBase
         _detectCts?.Cancel();
         _detectCts?.Dispose();
         var cts = new CancellationTokenSource();
+        cts.CancelAfter(_detectTimeout);
         _detectCts = cts;
 
         IsDetecting = true;
@@ -355,7 +371,16 @@ public sealed partial class NewDownloadViewModel : ViewModelBase
         }
         catch (OperationCanceledException)
         {
-            // Superseded by a newer detection — ignore.
+            // _detectCts is only reassigned by a newer DetectAsync call or by Dispose — if it's still this
+            // call's own cts, nothing superseded it, so this is DetectTimeout firing on its own (the probe
+            // never got a response in time). Surface that like any other detection failure rather than
+            // leaving "Detecting…" stuck with no explanation; a genuinely superseded call stays silent since
+            // the newer call owns reporting the outcome.
+            if (ReferenceEquals(_detectCts, cts))
+            {
+                DetectionMessage = "Couldn't read this link automatically — check the URL or enter the details manually.";
+                DetectionMessageIsError = true;
+            }
         }
         catch (ResourceProbeException ex) when (ex.StatusCode > 0)
         {
@@ -760,4 +785,17 @@ public sealed partial class NewDownloadViewModel : ViewModelBase
         Level = LogLevel.Warning,
         Message = "Couldn't remember the New Download dialog's choices for the next run.")]
     private static partial void LogRememberFailed(ILogger logger, Exception exception);
+
+    /// <summary>
+    /// Cancels any in-flight auto-detect probe. Without this, closing the dialog while a probe is still
+    /// running (e.g. waiting out <see cref="DetectTimeout"/> against an unresponsive server) would leave that
+    /// probe running in the background for up to <see cref="DetectTimeout"/> with nothing left to observe its
+    /// result — a leaked task rather than a genuine hang, but pointless work all the same.
+    /// </summary>
+    public void Dispose()
+    {
+        _detectCts?.Cancel();
+        _detectCts?.Dispose();
+        _detectCts = null;
+    }
 }

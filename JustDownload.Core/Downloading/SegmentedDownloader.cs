@@ -153,8 +153,8 @@ internal sealed partial class SegmentedDownloader : ISegmentedDownloader
 
         await using Stream content = await response.OpenContentStreamAsync(cancellationToken).ConfigureAwait(false);
         long bytes = await ThrottledCopyAsync(
-            file, content, 0, totalLength, limiter, progress, connectionProgress, cancellationToken)
-            .ConfigureAwait(false);
+            file, content, 0, totalLength, limiter, progress, connectionProgress, _options.IdleReadTimeout,
+            cancellationToken).ConfigureAwait(false);
         await file.FlushToDiskAsync(cancellationToken).ConfigureAwait(false);
         connectionProgress?.Report(new ConnectionProgress
         {
@@ -542,7 +542,7 @@ internal sealed partial class SegmentedDownloader : ISegmentedDownloader
                 await response.OpenContentStreamAsync(cancellationToken).ConfigureAwait(false);
             await PumpAsync(
                 segment, connectionId, state, file, content, limiter, progress, received, connectionProgress,
-                cancellationToken).ConfigureAwait(false);
+                _options.IdleReadTimeout, cancellationToken).ConfigureAwait(false);
 
             if (segment.WriteOffset > segment.EndInclusive)
             {
@@ -575,9 +575,16 @@ internal sealed partial class SegmentedDownloader : ISegmentedDownloader
         IProgress<long>? progress,
         ReceivedRanges? received,
         IProgress<ConnectionProgress>? connectionProgress,
+        TimeSpan idleReadTimeout,
         CancellationToken cancellationToken)
     {
         byte[] buffer = ArrayPool<byte>.Shared.Rent(PreallocatedFile.CopyBufferSize);
+
+        // Linked so a real Pause/Cancel (the caller's token) still propagates normally; only this source's own
+        // timer distinguishes "the connection went silent" from that. Reused across reads (CancelAfter simply
+        // reschedules its timer) rather than allocated per read, which would run at buffer-size cadence on a
+        // fast link.
+        using var idleCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         try
         {
             while (true)
@@ -590,8 +597,24 @@ internal sealed partial class SegmentedDownloader : ISegmentedDownloader
                 }
 
                 int toRead = (int)Math.Min(buffer.Length, allowed);
-                int read = await content.ReadAsync(buffer.AsMemory(0, toRead), cancellationToken)
-                    .ConfigureAwait(false);
+                int read;
+                idleCts.CancelAfter(idleReadTimeout);
+                try
+                {
+                    read = await content.ReadAsync(buffer.AsMemory(0, toRead), idleCts.Token)
+                        .ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+                {
+                    // idleCts fired on its own timer, not the caller's token: the connection stayed open but
+                    // stopped sending anything. A plain read has no timeout of its own — HttpClient.Timeout is
+                    // deliberately infinite for large transfers (JustDownload.Core.Transport.HttpClientProvider)
+                    // — so without this the pump would await here forever. IOException is transient
+                    // (TransientFailure.IsTransient), so the caller's backoff retries it like any other drop.
+                    throw new IOException(
+                        $"Segment {segment.Index} stalled: no data received for {idleReadTimeout}.");
+                }
+
                 if (read <= 0)
                 {
                     return; // Stream ended; the caller decides whether to re-request.
@@ -652,16 +675,33 @@ internal sealed partial class SegmentedDownloader : ISegmentedDownloader
         IRateLimiter limiter,
         IProgress<long>? progress,
         IProgress<ConnectionProgress>? connectionProgress,
+        TimeSpan idleReadTimeout,
         CancellationToken cancellationToken)
     {
         byte[] buffer = ArrayPool<byte>.Shared.Rent(PreallocatedFile.CopyBufferSize);
+
+        // See the identical guard in PumpAsync: a plain read has no timeout of its own (HttpClient.Timeout is
+        // deliberately infinite for large transfers), so a connection that stays open but goes silent would
+        // otherwise hang here forever. This is the single-connection counterpart of that same protection —
+        // range-less resources and Connections=1 downloads take this path instead of PumpAsync's.
+        using var idleCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         try
         {
             long position = offset;
             long total = 0;
             while (true)
             {
-                int read = await content.ReadAsync(buffer, cancellationToken).ConfigureAwait(false);
+                int read;
+                idleCts.CancelAfter(idleReadTimeout);
+                try
+                {
+                    read = await content.ReadAsync(buffer, idleCts.Token).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+                {
+                    throw new IOException($"Download stalled: no data received for {idleReadTimeout}.");
+                }
+
                 if (read <= 0)
                 {
                     return total;

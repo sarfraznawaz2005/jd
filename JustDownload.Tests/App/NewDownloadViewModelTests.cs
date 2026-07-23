@@ -41,9 +41,9 @@ public sealed class NewDownloadViewModelTests
             Categorizer.Categorize(Arg.Any<string?>(), Arg.Any<string?>()).Returns(FileCategory.Program);
         }
 
-        public NewDownloadViewModel Build() =>
+        public NewDownloadViewModel Build(TimeSpan? detectTimeout = null) =>
             new(Probe, Categorizer, Folders, Settings, Manager, Actions, DuplicateCheck, Secrets,
-                NullLogger<NewDownloadViewModel>.Instance);
+                NullLogger<NewDownloadViewModel>.Instance, detectTimeout);
 
         public void SetProbe(string fileName, long? size, bool ranges) =>
             Probe.ProbeAsync(Arg.Any<Uri>(), Arg.Any<IReadOnlyList<KeyValuePair<string, string>>?>(), Arg.Any<CancellationToken>())
@@ -55,6 +55,25 @@ public sealed class NewDownloadViewModelTests
                     TotalLength = size,
                     SuggestedFileName = fileName,
                 }));
+
+        /// <summary>Makes the probe hang until its <see cref="CancellationToken"/> is cancelled, mimicking a
+        /// server that accepts the connection but never responds — the scenario <see cref="DetectTimeout"/>
+        /// (or a newer detect call) has to unblock.</summary>
+        public void SetProbeHangsUntilCancelled() =>
+            Probe.ProbeAsync(Arg.Any<Uri>(), Arg.Any<IReadOnlyList<KeyValuePair<string, string>>?>(), Arg.Any<CancellationToken>())
+                .Returns(ci =>
+                {
+                    // RunContinuationsAsynchronously matters: a real HTTP request's cancellation never resumes
+                    // its awaiter inline on the thread that called Cancel() (the BCL's socket-bound tasks post
+                    // continuations, they don't reenter). Without this, TrySetCanceled() below would resume
+                    // DetectAsync's awaiter synchronously and reentrantly, mid-way through a *second* call's
+                    // own _detectCts?.Cancel() — a test-only artifact that doesn't reflect real timing and
+                    // would make the "superseded" test spuriously see its own not-yet-reassigned cts.
+                    var tcs = new TaskCompletionSource<ResourceProbeResult>(
+                        TaskCreationOptions.RunContinuationsAsynchronously);
+                    ((CancellationToken)ci[2]).Register(() => tcs.TrySetCanceled());
+                    return tcs.Task;
+                });
     }
 
     [Fact]
@@ -269,6 +288,62 @@ public sealed class NewDownloadViewModelTests
 
         vm.DetectionMessage.Should().Contain("Couldn't read");
         vm.IsDetecting.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task DetectAsync_ServerNeverResponds_TimesOutRatherThanHangingForever()
+    {
+        // A server that accepts the connection but never sends a response has no built-in timeout to save it
+        // (HttpClient.Timeout is deliberately infinite for large transfers) — without DetectAsync's own
+        // CancelAfter, "Detecting…" would spin until the dialog is closed.
+        var h = new Harness();
+        h.SetProbeHangsUntilCancelled();
+        var vm = h.Build(detectTimeout: TimeSpan.FromMilliseconds(50));
+        vm.Url = "https://host.example/never-responds.bin";
+
+        await vm.DetectAsync();
+
+        vm.IsDetecting.Should().BeFalse();
+        vm.DetectionMessage.Should().Contain("Couldn't read");
+        vm.DetectionMessageIsError.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task DetectAsync_SupersededByNewerCall_StaysSilent_UnlikeATimeout()
+    {
+        // A newer DetectAsync call cancelling an older in-flight one is normal (re-typing the URL) and must
+        // not show an error — only DetectAsync's own CancelAfter firing on an otherwise-unsuperseded call
+        // should.
+        var h = new Harness();
+        h.SetProbeHangsUntilCancelled();
+        var vm = h.Build(detectTimeout: TimeSpan.FromSeconds(30)); // long enough that only supersession fires
+        vm.Url = "https://host.example/first.bin";
+
+        Task first = vm.DetectAsync();
+        h.SetProbe("second.bin", 1000, ranges: true);
+        vm.Url = "https://host.example/second.bin";
+        await vm.DetectAsync();
+        await first;
+
+        vm.DetectionMessageIsError.Should().BeFalse("the superseded call must not report a spurious timeout");
+        vm.FileName.Should().Be("second.bin", "the newer call's result is what the dialog shows");
+    }
+
+    [Fact]
+    public async Task Dispose_CancelsAnInFlightProbe_InsteadOfLeavingItRunning()
+    {
+        var h = new Harness();
+        h.SetProbeHangsUntilCancelled();
+        var vm = h.Build(detectTimeout: TimeSpan.FromSeconds(30));
+        vm.Url = "https://host.example/never-responds.bin";
+        Task detecting = vm.DetectAsync();
+
+        vm.Dispose();
+
+        // Bounded await: if Dispose did not cancel the probe this would hang until the 30s DetectTimeout, so a
+        // short wait is itself part of the assertion (a hang here is a test failure, not a fluke).
+        Task completed = await Task.WhenAny(detecting, Task.Delay(TimeSpan.FromSeconds(2)));
+        completed.Should().BeSameAs(detecting, "Dispose should cancel the in-flight probe promptly");
     }
 
     [Theory]
