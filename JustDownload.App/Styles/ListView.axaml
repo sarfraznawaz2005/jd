@@ -165,11 +165,14 @@
     <Setter Property="Height" Value="22" />
   </Style>
 
-  <!-- Segment-visualization cell (TASK-055): a small vertical block that fills with a connection's progress. -->
+  <!--
+    Segment-visualization cell (TASK-055, restyled per user feedback to sit in a single row like the speed
+    sparkline above it): a horizontal-fill block that stretches to share the row width with its siblings.
+  -->
   <Style Selector="ProgressBar.SegCell">
-    <Setter Property="Width" Value="22" />
-    <Setter Property="Height" Value="30" />
-    <Setter Property="MinWidth" Value="22" />
+    <Setter Property="Height" Value="26" />
+    <Setter Property="MinWidth" Value="3" />
+    <Setter Property="HorizontalAlignment" Value="Stretch" />
     <Setter Property="CornerRadius" Value="3" />
     <Setter Property="Background" Value="{DynamicResource TrackBrush}" />
     <Setter Property="Foreground" Value="{DynamicResource AccentBrush}" />

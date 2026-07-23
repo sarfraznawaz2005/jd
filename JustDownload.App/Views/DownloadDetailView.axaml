@@ -111,7 +111,11 @@
                 </Border>
               </StackPanel>
 
-              <!-- Live segment/connection visualization (TASK-055): one stacked strip per stream. -->
+              <!--
+                Live segment/connection visualization (TASK-055), restyled per user feedback: a single row of
+                horizontal-fill cells in a card, matching the "Speed (recent)" sparkline's footprint above
+                instead of wrapping into a multi-row block.
+              -->
               <ItemsControl ItemsSource="{Binding Segments.Streams}" IsVisible="{Binding Segments.HasStreams}">
                 <ItemsControl.ItemTemplate>
                   <DataTemplate x:DataType="vm:StreamStripViewModel">
@@ -120,19 +124,21 @@
                         <TextBlock Text="{Binding Label, StringFormat='{}{0} stream'}" Classes="StatKey" />
                         <TextBlock Text="{Binding SegmentCount, StringFormat='Segments: {0}'}" Classes="StatKey" />
                       </StackPanel>
-                      <ItemsControl ItemsSource="{Binding Cells}">
-                        <ItemsControl.ItemsPanel>
-                          <ItemsPanelTemplate>
-                            <WrapPanel Orientation="Horizontal" />
-                          </ItemsPanelTemplate>
-                        </ItemsControl.ItemsPanel>
-                        <ItemsControl.ItemTemplate>
-                          <DataTemplate x:DataType="vm:SegmentCellViewModel">
-                            <ProgressBar Classes="SegCell" Orientation="Vertical" Minimum="0" Maximum="100"
-                                         Value="{Binding FillPercent}" Margin="0,0,4,4" />
-                          </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                      </ItemsControl>
+                      <Border Background="{DynamicResource CardBrush}" CornerRadius="4" Padding="6" Height="38">
+                        <ItemsControl ItemsSource="{Binding Cells}">
+                          <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                              <UniformGrid Rows="1" />
+                            </ItemsPanelTemplate>
+                          </ItemsControl.ItemsPanel>
+                          <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="vm:SegmentCellViewModel">
+                              <ProgressBar Classes="SegCell" Orientation="Horizontal" Minimum="0" Maximum="100"
+                                           Value="{Binding FillPercent}" Margin="0,0,3,0" />
+                            </DataTemplate>
+                          </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                      </Border>
                     </StackPanel>
                   </DataTemplate>
                 </ItemsControl.ItemTemplate>
