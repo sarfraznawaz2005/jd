@@ -179,4 +179,60 @@ public sealed record AppSettings
     /// selected; the toggle lets the user hide it and keeps that choice on the next launch.
     /// </summary>
     public bool DetailCollapsed { get; init; }
+
+    /// <summary>
+    /// Whether a standalone progress window opens for each download when it starts or resumes (TASK-225,
+    /// US-15c). On by default — turn it off to keep progress inside the main window only.
+    /// </summary>
+    public bool ShowDownloadProgressWindow { get; init; } = true;
+
+    /// <summary>
+    /// Whether a download's progress window closes itself the moment the download completes (TASK-225), rather
+    /// than staying open on its "Complete" state with Open file / Open folder. Default <see langword="false"/>.
+    /// </summary>
+    public bool CloseProgressWindowWhenDone { get; init; }
+
+    /// <summary>
+    /// The Save-to folder the user last explicitly chose in the New Download dialog (TASK-227), remembered
+    /// across restarts. <see langword="null"/> — the default — means the user has never overridden it, so the
+    /// dialog keeps auto-targeting the folder for the detected category.
+    /// </summary>
+    public string? NewDownloadFolder { get; init; }
+
+    /// <summary>
+    /// The category the user last explicitly picked in the New Download dialog (TASK-227), as the
+    /// <c>FileCategory</c> member name. <see langword="null"/> — the default — means "Auto-detect".
+    /// </summary>
+    public string? NewDownloadCategory { get; init; }
+
+    /// <summary>The New Download dialog's "use dynamic segmentation" toggle (TASK-227). Default <see langword="true"/>.</summary>
+    public bool NewDownloadUseSegmentation { get; init; } = true;
+
+    /// <summary>The New Download dialog's per-download proxy-override toggle (TASK-227). Default <see langword="false"/>.</summary>
+    public bool NewDownloadUseProxyOverride { get; init; }
+
+    /// <summary>The remembered per-download override proxy kind (TASK-227). Default <see cref="ProxyKind.Http"/>.</summary>
+    public ProxyKind NewDownloadProxyKind { get; init; } = ProxyKind.Http;
+
+    /// <summary>The remembered per-download override proxy host (TASK-227), or <see langword="null"/>.</summary>
+    public string? NewDownloadProxyHost { get; init; }
+
+    /// <summary>The remembered per-download override proxy port (TASK-227). Default <c>0</c>.</summary>
+    public int NewDownloadProxyPort { get; init; }
+
+    /// <summary>The remembered per-download override proxy user name (TASK-227), or <see langword="null"/>.</summary>
+    public string? NewDownloadProxyUsername { get; init; }
+
+    /// <summary>The remembered per-download override proxy NTLM/Negotiate domain (TASK-227), or <see langword="null"/>.</summary>
+    public string? NewDownloadProxyDomain { get; init; }
+
+    /// <summary>
+    /// Opaque OS-keychain reference (§5) for the remembered per-download override proxy password — never the
+    /// password itself. <see langword="null"/> when no password was remembered.
+    /// </summary>
+    public string? NewDownloadProxyPasswordSecretRef { get; init; }
+
+    /// <summary>The New Download dialog's "add alternate mirror URLs" toggle (TASK-227). The mirror list
+    /// itself is per-download content and is deliberately not remembered. Default <see langword="false"/>.</summary>
+    public bool NewDownloadUseAlternateUrls { get; init; }
 }

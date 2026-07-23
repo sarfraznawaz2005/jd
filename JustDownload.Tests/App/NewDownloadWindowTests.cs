@@ -7,6 +7,7 @@ using JustDownload.App.ViewModels;
 using JustDownload.App.Views;
 using JustDownload.Core.Categorization;
 using JustDownload.Core.Lifecycle;
+using JustDownload.Core.Security;
 using JustDownload.Core.Settings;
 using JustDownload.Core.Transport;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -33,6 +34,7 @@ public sealed class NewDownloadWindowTests
             Substitute.For<IDownloadManager>(),
             Substitute.For<IDownloadActions>(),
             Substitute.For<IDuplicateDownloadCheck>(),
+            Substitute.For<ISecretStore>(),
             NullLogger<NewDownloadViewModel>.Instance);
     }
 

@@ -3,8 +3,10 @@ using JustDownload.App.Services;
 using JustDownload.App.ViewModels;
 using JustDownload.Core.Categorization;
 using JustDownload.Core.Lifecycle;
+using JustDownload.Core.Security;
 using JustDownload.Core.Settings;
 using JustDownload.Core.Transport;
+using JustDownload.Core.Transport.Proxy;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 using Xunit;
@@ -26,6 +28,7 @@ public sealed class NewDownloadViewModelTests
         public IDownloadManager Manager { get; } = Substitute.For<IDownloadManager>();
         public IDownloadActions Actions { get; } = Substitute.For<IDownloadActions>();
         public IDuplicateDownloadCheck DuplicateCheck { get; } = Substitute.For<IDuplicateDownloadCheck>();
+        public ISecretStore Secrets { get; } = Substitute.For<ISecretStore>();
 
         public Harness()
         {
@@ -39,7 +42,7 @@ public sealed class NewDownloadViewModelTests
         }
 
         public NewDownloadViewModel Build() =>
-            new(Probe, Categorizer, Folders, Settings, Manager, Actions, DuplicateCheck,
+            new(Probe, Categorizer, Folders, Settings, Manager, Actions, DuplicateCheck, Secrets,
                 NullLogger<NewDownloadViewModel>.Instance);
 
         public void SetProbe(string fileName, long? size, bool ranges) =>
@@ -468,5 +471,186 @@ public sealed class NewDownloadViewModelTests
 
         vm.SaveToFolder.Should().Be(@"C:\Users\me\Downloads\Video");
         await Task.CompletedTask;
+    }
+
+    // ---- Remembered choices across runs (TASK-227) ----
+
+    /// <summary>Captures the settings mutation a submit performs, so the next dialog can be built from it.</summary>
+    private static async Task<AppSettings> SubmitAndCaptureAsync(Harness h, Action<NewDownloadViewModel> arrange)
+    {
+        var saved = new AppSettings { ConnectionsPerDownload = 8 };
+        h.Settings.UpdateAsync(Arg.Do<Func<AppSettings, AppSettings>>(update => saved = update(saved)))
+            .Returns(_ => Task.FromResult(saved));
+
+        var vm = h.Build();
+        vm.Url = "https://host.example/file.bin";
+        vm.FileName = "file.bin";
+        arrange(vm);
+
+        await vm.DownloadNowCommand.ExecuteAsync(null);
+        return saved;
+    }
+
+    [Fact]
+    public async Task Submit_RemembersOptionChoices_ForTheNextRun()
+    {
+        var h = new Harness();
+
+        AppSettings saved = await SubmitAndCaptureAsync(h, vm =>
+        {
+            vm.SaveToFolder = @"D:\Chosen";
+            vm.SelectedCategory = vm.Categories.Single(c => c.Category == FileCategory.Video);
+            vm.UseSegmentation = false;
+            vm.UseAlternateUrls = true;
+        });
+
+        saved.NewDownloadFolder.Should().Be(@"D:\Chosen");
+        saved.NewDownloadCategory.Should().Be("Video");
+        saved.NewDownloadUseSegmentation.Should().BeFalse();
+        saved.NewDownloadUseAlternateUrls.Should().BeTrue();
+
+        // The next dialog opens on exactly those choices.
+        h.Settings.Current.Returns(saved);
+        var next = h.Build();
+        next.SaveToFolder.Should().Be(@"D:\Chosen");
+        next.SelectedCategory.Category.Should().Be(FileCategory.Video);
+        next.UseSegmentation.Should().BeFalse();
+        next.UseAlternateUrls.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Submit_RemembersProxyOverride_WithThePasswordInTheKeychain()
+    {
+        var h = new Harness();
+        h.Secrets.StoreAsync("hunter2", Arg.Any<CancellationToken>()).Returns(Task.FromResult("ref-1"));
+
+        AppSettings saved = await SubmitAndCaptureAsync(h, vm =>
+        {
+            vm.UseProxyOverride = true;
+            vm.OverrideProxyKind = ProxyKind.Socks5;
+            vm.OverrideProxyHost = "proxy.example";
+            vm.OverrideProxyPort = 1080;
+            vm.OverrideProxyUsername = "me";
+            vm.OverrideProxyDomain = "CORP";
+            vm.OverrideProxyPassword = "hunter2";
+        });
+
+        saved.NewDownloadUseProxyOverride.Should().BeTrue();
+        saved.NewDownloadProxyKind.Should().Be(ProxyKind.Socks5);
+        saved.NewDownloadProxyHost.Should().Be("proxy.example");
+        saved.NewDownloadProxyPort.Should().Be(1080);
+        saved.NewDownloadProxyUsername.Should().Be("me");
+        saved.NewDownloadProxyDomain.Should().Be("CORP");
+        saved.NewDownloadProxyPasswordSecretRef.Should().Be("ref-1");
+
+        // §5: only the opaque reference is persisted — the password itself never lands in settings.
+        SettingsSerializer.ToStorage(saved).Values.Should().NotContain("hunter2");
+
+        h.Settings.Current.Returns(saved);
+        var next = h.Build();
+        next.OverrideProxyHost.Should().Be("proxy.example");
+        next.OverrideProxyPassword.Should().BeEmpty("the stored password is never re-displayed");
+        next.HasStoredProxyPassword.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task BlankPasswordField_ReusesTheStoredSecret()
+    {
+        var h = new Harness();
+        h.Settings.Current.Returns(new AppSettings
+        {
+            ConnectionsPerDownload = 8,
+            NewDownloadUseProxyOverride = true,
+            NewDownloadProxyHost = "proxy.example",
+            NewDownloadProxyPort = 1080,
+            NewDownloadProxyUsername = "me",
+            NewDownloadProxyPasswordSecretRef = "ref-1",
+        });
+        h.Secrets.RetrieveAsync("ref-1", Arg.Any<CancellationToken>()).Returns(Task.FromResult<string?>("hunter2"));
+
+        var vm = h.Build();
+        vm.Url = "https://host.example/file.bin";
+        vm.FileName = "file.bin";
+        await vm.DownloadNowCommand.ExecuteAsync(null);
+
+        await h.Manager.Received(1).EnqueueAsync(
+            Arg.Is<EnqueueDownloadRequest>(r => r.Proxy!.Credentials!.Password == "hunter2"),
+            Arg.Any<CancellationToken>());
+        await h.Secrets.DidNotReceive().StoreAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task UntouchedFolder_IsNotRemembered_SoDetectionStillApplies()
+    {
+        var h = new Harness();
+        h.SetProbe("clip.mp4", 1000, ranges: true);
+
+        AppSettings saved = await SubmitAndCaptureAsync(h, _ => { });
+
+        saved.NewDownloadFolder.Should().BeNull("the user never chose a folder, so none is pinned");
+
+        // With nothing pinned, the next dialog still re-targets the folder from the probed category.
+        h.Settings.Current.Returns(saved);
+        var next = h.Build();
+        next.Url = "https://host.example/clip.mp4";
+        await next.DetectAsync();
+        next.SaveToFolder.Should().Be(@"C:\Users\me\Downloads\Program");
+    }
+
+    [Fact]
+    public async Task RememberedFolder_SurvivesDetection()
+    {
+        var h = new Harness();
+        h.Settings.Current.Returns(new AppSettings
+        {
+            ConnectionsPerDownload = 8,
+            NewDownloadFolder = @"D:\Pinned",
+        });
+        h.SetProbe("clip.mp4", 1000, ranges: true);
+
+        var vm = h.Build();
+        vm.SaveToFolder.Should().Be(@"D:\Pinned");
+
+        vm.Url = "https://host.example/clip.mp4";
+        await vm.DetectAsync();
+
+        vm.SaveToFolder.Should().Be(@"D:\Pinned", "a folder restored from a previous run counts as pinned");
+    }
+
+    [Fact]
+    public async Task RememberedCategory_TargetsItsFolder_WhenNoFolderWasPinned()
+    {
+        var h = new Harness();
+        h.Settings.Current.Returns(new AppSettings
+        {
+            ConnectionsPerDownload = 8,
+            NewDownloadCategory = "Video",
+        });
+
+        var vm = h.Build();
+
+        vm.SelectedCategory.Category.Should().Be(FileCategory.Video);
+        vm.SaveToFolder.Should().Be(@"C:\Users\me\Downloads\Video");
+        await Task.CompletedTask;
+    }
+
+    [Fact]
+    public async Task PersistenceFailure_DoesNotLoseTheDownload()
+    {
+        var h = new Harness();
+        h.Settings.UpdateAsync(Arg.Any<Func<AppSettings, AppSettings>>())
+            .Returns<Task<AppSettings>>(_ => throw new InvalidOperationException("keychain unavailable"));
+
+        var vm = h.Build();
+        vm.Url = "https://host.example/file.bin";
+        vm.FileName = "file.bin";
+        bool closed = false;
+        vm.CloseRequested += (_, ok) => closed = ok;
+
+        await vm.DownloadNowCommand.ExecuteAsync(null);
+
+        closed.Should().BeTrue("remembering preferences is best-effort and must not fail the enqueue");
+        await h.Manager.Received(1).EnqueueAsync(
+            Arg.Any<EnqueueDownloadRequest>(), Arg.Any<CancellationToken>());
     }
 }

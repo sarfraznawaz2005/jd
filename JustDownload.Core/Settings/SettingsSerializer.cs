@@ -43,6 +43,19 @@ internal static partial class SettingsSerializer
     internal const string ProxyPasswordSecretRefKey = "proxy.password_secret_ref";
     internal const string SidebarCollapsedKey = "ui.sidebar_collapsed";
     internal const string DetailCollapsedKey = "ui.detail_collapsed";
+    internal const string ShowDownloadProgressWindowKey = "ui.progress_window_enabled";
+    internal const string CloseProgressWindowWhenDoneKey = "ui.progress_window_close_when_done";
+    internal const string NewDownloadFolderKey = "newdownload.folder";
+    internal const string NewDownloadCategoryKey = "newdownload.category";
+    internal const string NewDownloadUseSegmentationKey = "newdownload.use_segmentation";
+    internal const string NewDownloadUseProxyOverrideKey = "newdownload.use_proxy_override";
+    internal const string NewDownloadProxyKindKey = "newdownload.proxy_kind";
+    internal const string NewDownloadProxyHostKey = "newdownload.proxy_host";
+    internal const string NewDownloadProxyPortKey = "newdownload.proxy_port";
+    internal const string NewDownloadProxyUsernameKey = "newdownload.proxy_username";
+    internal const string NewDownloadProxyDomainKey = "newdownload.proxy_domain";
+    internal const string NewDownloadProxyPasswordSecretRefKey = "newdownload.proxy_password_secret_ref";
+    internal const string NewDownloadUseAlternateUrlsKey = "newdownload.use_alternate_urls";
 
     /// <summary>
     /// Serializes every setting to its storage representation. The result always contains all keys so
@@ -93,6 +106,24 @@ internal static partial class SettingsSerializer
             [ProxyPasswordSecretRefKey] = settings.ProxyPasswordSecretRef ?? string.Empty,
             [SidebarCollapsedKey] = settings.SidebarCollapsed.ToString(CultureInfo.InvariantCulture),
             [DetailCollapsedKey] = settings.DetailCollapsed.ToString(CultureInfo.InvariantCulture),
+            [ShowDownloadProgressWindowKey] =
+                settings.ShowDownloadProgressWindow.ToString(CultureInfo.InvariantCulture),
+            [CloseProgressWindowWhenDoneKey] =
+                settings.CloseProgressWindowWhenDone.ToString(CultureInfo.InvariantCulture),
+            [NewDownloadFolderKey] = settings.NewDownloadFolder ?? string.Empty,
+            [NewDownloadCategoryKey] = settings.NewDownloadCategory ?? string.Empty,
+            [NewDownloadUseSegmentationKey] =
+                settings.NewDownloadUseSegmentation.ToString(CultureInfo.InvariantCulture),
+            [NewDownloadUseProxyOverrideKey] =
+                settings.NewDownloadUseProxyOverride.ToString(CultureInfo.InvariantCulture),
+            [NewDownloadProxyKindKey] = settings.NewDownloadProxyKind.ToString(),
+            [NewDownloadProxyHostKey] = settings.NewDownloadProxyHost ?? string.Empty,
+            [NewDownloadProxyPortKey] = settings.NewDownloadProxyPort.ToString(CultureInfo.InvariantCulture),
+            [NewDownloadProxyUsernameKey] = settings.NewDownloadProxyUsername ?? string.Empty,
+            [NewDownloadProxyDomainKey] = settings.NewDownloadProxyDomain ?? string.Empty,
+            [NewDownloadProxyPasswordSecretRefKey] = settings.NewDownloadProxyPasswordSecretRef ?? string.Empty,
+            [NewDownloadUseAlternateUrlsKey] =
+                settings.NewDownloadUseAlternateUrls.ToString(CultureInfo.InvariantCulture),
         };
     }
 
@@ -157,6 +188,30 @@ internal static partial class SettingsSerializer
                 ParseOptionalString(stored, ProxyPasswordSecretRefKey, defaults.ProxyPasswordSecretRef),
             SidebarCollapsed = ParseBool(stored, SidebarCollapsedKey, defaults.SidebarCollapsed, logger),
             DetailCollapsed = ParseBool(stored, DetailCollapsedKey, defaults.DetailCollapsed, logger),
+            ShowDownloadProgressWindow = ParseBool(
+                stored, ShowDownloadProgressWindowKey, defaults.ShowDownloadProgressWindow, logger),
+            CloseProgressWindowWhenDone = ParseBool(
+                stored, CloseProgressWindowWhenDoneKey, defaults.CloseProgressWindowWhenDone, logger),
+            NewDownloadFolder = ParseOptionalString(stored, NewDownloadFolderKey, defaults.NewDownloadFolder),
+            NewDownloadCategory = ParseOptionalString(stored, NewDownloadCategoryKey, defaults.NewDownloadCategory),
+            NewDownloadUseSegmentation =
+                ParseBool(stored, NewDownloadUseSegmentationKey, defaults.NewDownloadUseSegmentation, logger),
+            NewDownloadUseProxyOverride =
+                ParseBool(stored, NewDownloadUseProxyOverrideKey, defaults.NewDownloadUseProxyOverride, logger),
+            NewDownloadProxyKind =
+                ParseEnum(stored, NewDownloadProxyKindKey, defaults.NewDownloadProxyKind, logger),
+            NewDownloadProxyHost =
+                ParseOptionalString(stored, NewDownloadProxyHostKey, defaults.NewDownloadProxyHost),
+            NewDownloadProxyPort =
+                ParseInt(stored, NewDownloadProxyPortKey, defaults.NewDownloadProxyPort, logger),
+            NewDownloadProxyUsername =
+                ParseOptionalString(stored, NewDownloadProxyUsernameKey, defaults.NewDownloadProxyUsername),
+            NewDownloadProxyDomain =
+                ParseOptionalString(stored, NewDownloadProxyDomainKey, defaults.NewDownloadProxyDomain),
+            NewDownloadProxyPasswordSecretRef = ParseOptionalString(
+                stored, NewDownloadProxyPasswordSecretRefKey, defaults.NewDownloadProxyPasswordSecretRef),
+            NewDownloadUseAlternateUrls =
+                ParseBool(stored, NewDownloadUseAlternateUrlsKey, defaults.NewDownloadUseAlternateUrls, logger),
         };
     }
 

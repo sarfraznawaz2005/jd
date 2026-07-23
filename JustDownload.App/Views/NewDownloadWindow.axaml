@@ -118,6 +118,11 @@
           <TextBox Grid.Column="2" Watermark="Password" PasswordChar="•"
                    Text="{Binding OverrideProxyPassword, Mode=TwoWay}" />
         </Grid>
+        <!-- The remembered password lives in the OS keychain and is never loaded back into the field (§5) —
+             say so, so a blank box doesn't read as "no password saved" (TASK-227). -->
+        <TextBlock Text="A saved password will be used. Type a new one to replace it."
+                   IsVisible="{Binding HasStoredProxyPassword}" FontSize="11"
+                   Foreground="{DynamicResource TextFaintBrush}" />
         <TextBlock Text="{Binding ProxyOverrideError}" FontSize="11"
                    IsVisible="{Binding ProxyOverrideError, Converter={x:Static ObjectConverters.IsNotNull}}"
                    Foreground="{DynamicResource RedBrush}" />

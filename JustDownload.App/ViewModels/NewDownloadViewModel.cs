@@ -7,6 +7,7 @@ using JustDownload.App.Formatting;
 using JustDownload.App.Services;
 using JustDownload.Core.Categorization;
 using JustDownload.Core.Lifecycle;
+using JustDownload.Core.Security;
 using JustDownload.Core.Settings;
 using JustDownload.Core.Transport;
 using JustDownload.Core.Transport.Auth;
@@ -34,6 +35,7 @@ public sealed partial class NewDownloadViewModel : ViewModelBase
     private readonly IDownloadManager _manager;
     private readonly IDownloadActions _actions;
     private readonly IDuplicateDownloadCheck _duplicateCheck;
+    private readonly ISecretStore _secrets;
     private readonly ILogger<NewDownloadViewModel> _logger;
 
     // The user editing a field pins it, so re-detection never clobbers a manual choice.
@@ -167,6 +169,7 @@ public sealed partial class NewDownloadViewModel : ViewModelBase
         IDownloadManager manager,
         IDownloadActions actions,
         IDuplicateDownloadCheck duplicateCheck,
+        ISecretStore secrets,
         ILogger<NewDownloadViewModel> logger)
     {
         ArgumentNullException.ThrowIfNull(probe);
@@ -176,6 +179,7 @@ public sealed partial class NewDownloadViewModel : ViewModelBase
         ArgumentNullException.ThrowIfNull(manager);
         ArgumentNullException.ThrowIfNull(actions);
         ArgumentNullException.ThrowIfNull(duplicateCheck);
+        ArgumentNullException.ThrowIfNull(secrets);
         ArgumentNullException.ThrowIfNull(logger);
         _probe = probe;
         _categorizer = categorizer;
@@ -184,18 +188,79 @@ public sealed partial class NewDownloadViewModel : ViewModelBase
         _manager = manager;
         _actions = actions;
         _duplicateCheck = duplicateCheck;
+        _secrets = secrets;
         _logger = logger;
 
         Categories = BuildCategoryOptions();
-        _selectedCategory = Categories[0]; // "Auto"
-        _saveToFolder = folders.GetBaseFolder();
+        AppSettings remembered = _settings.Current;
+        _selectedCategory = ResolveRememberedCategory(remembered.NewDownloadCategory);
+        _saveToFolder = ResolveInitialFolder(remembered, _selectedCategory, folders);
+
+        // A folder the user explicitly chose last time counts as already pinned, so auto-detection (which
+        // otherwise re-targets the category's folder) doesn't immediately undo what we just restored.
+        _folderTouched = !string.IsNullOrWhiteSpace(remembered.NewDownloadFolder);
+
+        _useSegmentation = remembered.NewDownloadUseSegmentation;
+        _useProxyOverride = remembered.NewDownloadUseProxyOverride;
+        _overrideProxyKind = remembered.NewDownloadProxyKind;
+        _overrideProxyHost = remembered.NewDownloadProxyHost ?? string.Empty;
+        _overrideProxyPort = remembered.NewDownloadProxyPort;
+        _overrideProxyUsername = remembered.NewDownloadProxyUsername ?? string.Empty;
+        _overrideProxyDomain = remembered.NewDownloadProxyDomain ?? string.Empty;
+        _useAlternateUrls = remembered.NewDownloadUseAlternateUrls;
+
+        // The password itself stays in the OS keychain (§5) and is resolved only at submit time — it is never
+        // loaded into the bound field, so the dialog can't leak or re-display it.
+        HasStoredProxyPassword = !string.IsNullOrEmpty(remembered.NewDownloadProxyPasswordSecretRef);
+
         ConnectionsHint = string.Create(
             CultureInfo.InvariantCulture,
-            $"Use dynamic segmentation ({_settings.Current.ConnectionsPerDownload} connections)");
+            $"Use dynamic segmentation ({remembered.ConnectionsPerDownload} connections)");
+    }
+
+    /// <summary>The remembered category option (TASK-227), falling back to "Auto-detect".</summary>
+    private CategoryOption ResolveRememberedCategory(string? categoryName)
+    {
+        if (Enum.TryParse(categoryName, ignoreCase: true, out FileCategory category) && Enum.IsDefined(category))
+        {
+            foreach (CategoryOption option in Categories)
+            {
+                if (option.Category == category)
+                {
+                    return option;
+                }
+            }
+        }
+
+        return Categories[0]; // "Auto-detect"
+    }
+
+    /// <summary>
+    /// The folder the dialog opens on (TASK-227): the one the user last explicitly chose, else the folder for
+    /// a remembered category, else the plain base download folder.
+    /// </summary>
+    private static string ResolveInitialFolder(
+        AppSettings remembered, CategoryOption category, IDownloadFolderProvider folders)
+    {
+        if (!string.IsNullOrWhiteSpace(remembered.NewDownloadFolder))
+        {
+            return remembered.NewDownloadFolder;
+        }
+
+        return category.Category is { } concrete
+            ? folders.GetFolderForCategory(concrete)
+            : folders.GetBaseFolder();
     }
 
     /// <summary>The category picker options: "Auto" plus every concrete category.</summary>
     public ObservableCollection<CategoryOption> Categories { get; }
+
+    /// <summary>
+    /// Whether a proxy-override password from a previous run is held in the OS keychain (TASK-227). Drives the
+    /// dialog's "a saved password will be used" hint — leaving the password field blank keeps that stored
+    /// secret; typing a new one replaces it.
+    /// </summary>
+    public bool HasStoredProxyPassword { get; private set; }
 
     /// <summary>Caption for the segmentation toggle, reflecting the configured connection count.</summary>
     public string ConnectionsHint { get; }
@@ -381,7 +446,7 @@ public sealed partial class NewDownloadViewModel : ViewModelBase
             SpeedLimit = null,
             Referrer = _referrer,
             Cookies = _cookies,
-            Proxy = BuildProxyOverride(),
+            Proxy = await BuildProxyOverrideAsync().ConfigureAwait(true),
             AlternateUrls = ParseAlternateUrls(),
         };
 
@@ -391,15 +456,74 @@ public sealed partial class NewDownloadViewModel : ViewModelBase
             _actions.Start(id);
         }
 
+        await PersistChoicesAsync().ConfigureAwait(true);
         CloseRequested?.Invoke(this, true);
     }
+
+    /// <summary>
+    /// Remembers the dialog's option choices for the next run (TASK-227). Best-effort by design: the download
+    /// is already enqueued by this point, so a settings/keychain failure is logged rather than thrown — losing
+    /// a preference must never cost the user their download. Per-download content (URL, file name, the mirror
+    /// list) is deliberately not remembered.
+    /// </summary>
+    private async Task PersistChoicesAsync()
+    {
+        try
+        {
+            string? secretRef = _settings.Current.NewDownloadProxyPasswordSecretRef;
+            if (!UseProxyOverride || string.IsNullOrWhiteSpace(OverrideProxyUsername))
+            {
+                // No override or no auth — drop any password we were holding for it.
+                await DeleteSecretAsync(secretRef).ConfigureAwait(true);
+                secretRef = null;
+            }
+            else if (!string.IsNullOrEmpty(OverrideProxyPassword))
+            {
+                await DeleteSecretAsync(secretRef).ConfigureAwait(true);
+                secretRef = await _secrets.StoreAsync(OverrideProxyPassword).ConfigureAwait(true);
+            }
+
+            // Otherwise the field was left blank: keep the existing reference (matches ProxySettingsViewModel).
+            await _settings.UpdateAsync(s => s with
+            {
+                // Only a folder the user actually chose is remembered; an untouched one must keep following
+                // the detected category on the next run (AC: untouched folder still auto-detects).
+                NewDownloadFolder = _folderTouched ? NullIfBlank(SaveToFolder) : s.NewDownloadFolder,
+                NewDownloadCategory = SelectedCategory.Category?.ToString(),
+                NewDownloadUseSegmentation = UseSegmentation,
+                NewDownloadUseProxyOverride = UseProxyOverride,
+                NewDownloadProxyKind = OverrideProxyKind,
+                NewDownloadProxyHost = NullIfBlank(OverrideProxyHost),
+                NewDownloadProxyPort = OverrideProxyPort,
+                NewDownloadProxyUsername = NullIfBlank(OverrideProxyUsername),
+                NewDownloadProxyDomain = NullIfBlank(OverrideProxyDomain),
+                NewDownloadProxyPasswordSecretRef = secretRef,
+                NewDownloadUseAlternateUrls = UseAlternateUrls,
+            }).ConfigureAwait(true);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            LogRememberFailed(_logger, ex);
+        }
+    }
+
+    private async Task DeleteSecretAsync(string? secretRef)
+    {
+        if (!string.IsNullOrEmpty(secretRef))
+        {
+            await _secrets.DeleteAsync(secretRef).ConfigureAwait(true);
+        }
+    }
+
+    private static string? NullIfBlank(string value) =>
+        string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
     /// <summary>
     /// Builds the per-download proxy override (TASK-153) from the dialog fields, or <see langword="null"/> when
     /// the override is off (so the engine uses the global proxy). The password rides along as plaintext for the
     /// engine to store in the OS keychain (§5).
     /// </summary>
-    private ProxyConfiguration? BuildProxyOverride()
+    private async Task<ProxyConfiguration?> BuildProxyOverrideAsync()
     {
         if (!UseProxyOverride)
         {
@@ -411,10 +535,38 @@ public sealed partial class NewDownloadViewModel : ViewModelBase
             ? null
             : new NetworkCredentials(
                 username,
-                OverrideProxyPassword,
+                await ResolveProxyPasswordAsync().ConfigureAwait(true),
                 string.IsNullOrWhiteSpace(OverrideProxyDomain) ? null : OverrideProxyDomain.Trim());
 
         return new ProxyConfiguration(OverrideProxyKind, OverrideProxyHost.Trim(), OverrideProxyPort, credentials);
+    }
+
+    /// <summary>
+    /// The password to send with the proxy override: what the user just typed, or — when they left the field
+    /// blank and a previous run stored one (TASK-227) — the secret resolved from the OS keychain. A keychain
+    /// miss degrades to an empty password rather than failing the enqueue.
+    /// </summary>
+    private async Task<string> ResolveProxyPasswordAsync()
+    {
+        if (!string.IsNullOrEmpty(OverrideProxyPassword))
+        {
+            return OverrideProxyPassword;
+        }
+
+        if (_settings.Current.NewDownloadProxyPasswordSecretRef is not { Length: > 0 } secretRef)
+        {
+            return string.Empty;
+        }
+
+        try
+        {
+            return await _secrets.RetrieveAsync(secretRef).ConfigureAwait(true) ?? string.Empty;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            LogRememberFailed(_logger, ex);
+            return string.Empty;
+        }
     }
 
     /// <summary>
@@ -602,4 +754,10 @@ public sealed partial class NewDownloadViewModel : ViewModelBase
 
     [LoggerMessage(EventId = 1, Level = LogLevel.Debug, Message = "Auto-detection failed for {Url}.")]
     private static partial void LogDetectFailed(ILogger logger, Uri url, Exception exception);
+
+    [LoggerMessage(
+        EventId = 2,
+        Level = LogLevel.Warning,
+        Message = "Couldn't remember the New Download dialog's choices for the next run.")]
+    private static partial void LogRememberFailed(ILogger logger, Exception exception);
 }
