@@ -197,6 +197,46 @@ public sealed class NewDownloadViewModelTests
 
         vm.DuplicateWarning.Should().NotBeNull();
         vm.DuplicateWarning.Should().Contain("already queued");
+        vm.DuplicateWarningIsInformational.Should().BeFalse("a real collision reads as a warning, not an FYI");
+    }
+
+    [Fact]
+    public async Task DetectAsync_RecoverableInLibrary_ShowsDistinctInformationalMessage_AndDoesNotAutoRename()
+    {
+        // TASK-230: nothing is claiming the destination (the earlier attempt is Failed/Expired), so renaming
+        // around it would just hide that a previous attempt exists rather than surfacing it.
+        var h = new Harness();
+        h.SetProbe("file.bin", 1234, ranges: true);
+        h.DuplicateCheck.CheckAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<long?>(), Arg.Any<CancellationToken>())
+            .Returns(new DuplicateCheckResult(DuplicateKind.RecoverableInLibrary, ExistingDownloadId: 7));
+        var vm = h.Build();
+        vm.Url = "https://host.example/file.bin";
+
+        await vm.DetectAsync();
+
+        vm.FileName.Should().Be("file.bin", "unlike a real collision, this must not auto-rename");
+        vm.DuplicateWarning.Should().NotBeNull();
+        vm.DuplicateWarning.Should().Contain("didn't finish");
+        vm.DuplicateWarning.Should().NotContain("Rename it, or cancel to skip", "it's a heads-up, not a collision warning");
+        vm.DuplicateWarningIsInformational.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task DuplicateWarningIsInformational_ClearsAlongsideTheWarning()
+    {
+        var h = new Harness();
+        h.SetProbe("file.bin", 1234, ranges: true);
+        h.DuplicateCheck.CheckAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<long?>(), Arg.Any<CancellationToken>())
+            .Returns(new DuplicateCheckResult(DuplicateKind.RecoverableInLibrary, ExistingDownloadId: 7));
+        var vm = h.Build();
+        vm.Url = "https://host.example/file.bin";
+        await vm.DetectAsync();
+        vm.DuplicateWarningIsInformational.Should().BeTrue(); // sanity
+
+        vm.FileName = "something-else.bin"; // a manual edit invalidates the stale warning
+
+        vm.DuplicateWarning.Should().BeNull();
+        vm.DuplicateWarningIsInformational.Should().BeFalse();
     }
 
     [Fact]

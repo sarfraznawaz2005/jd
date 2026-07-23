@@ -407,9 +407,14 @@
             <Button Classes="App" Content="Cancel" IsVisible="{Binding IsDownloading}"
                     Command="{Binding CancelDownloadCommand}" HorizontalAlignment="Left" VerticalAlignment="Top" />
           </StackPanel>
-          <TextBlock Text="{Binding StatusText}" TextWrapping="Wrap" Classes.Error="{Binding IsStatusError}"
-                     Foreground="{DynamicResource TextDimBrush}">
+          <!-- Foreground is set only via these Style setters, never as a direct attribute — a local attribute
+               value outranks a Style setter (even a matched class selector) in Avalonia's value precedence,
+               so this once always rendered dim regardless of IsStatusError (a real, now-fixed bug). -->
+          <TextBlock Text="{Binding StatusText}" TextWrapping="Wrap" Classes.Error="{Binding IsStatusError}">
             <TextBlock.Styles>
+              <Style Selector="TextBlock">
+                <Setter Property="Foreground" Value="{DynamicResource TextDimBrush}" />
+              </Style>
               <Style Selector="TextBlock.Error">
                 <Setter Property="Foreground" Value="{DynamicResource RedBrush}" />
               </Style>

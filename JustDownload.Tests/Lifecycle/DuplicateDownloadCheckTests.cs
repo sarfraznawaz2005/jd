@@ -62,23 +62,55 @@ public sealed class DuplicateDownloadCheckTests : IDisposable
         result.Kind.Should().Be(DuplicateKind.AlreadyInLibrary);
     }
 
-    [Theory]
-    [InlineData(DownloadStatusCodes.Completed)]
-    [InlineData(DownloadStatusCodes.Failed)]
-    [InlineData(DownloadStatusCodes.Expired)]
-    public async Task NotOnDisk_RecordIsTerminal_ReportsNone(string status)
+    [Fact]
+    public async Task NotOnDisk_RecordIsCompleted_ReportsNone()
     {
         // Regression: the user deleted a completed download's file, then re-added the same URL/destination —
         // it must not warn "already downloaded" once the file is genuinely gone (only an active record still
-        // claiming the destination is a real collision).
+        // claiming the destination, or a recoverable one still visible in the library, is worth flagging).
         _repository.GetAllAsync(Arg.Any<CancellationToken>()).Returns(new[]
         {
-            new Download { Url = "u", Status = status, Directory = _dir, Filename = "gone.bin" },
+            new Download { Url = "u", Status = DownloadStatusCodes.Completed, Directory = _dir, Filename = "gone.bin" },
         });
 
         DuplicateCheckResult result = await Check().CheckAsync(_dir, "gone.bin", expectedSize: null);
 
         result.IsDuplicate.Should().BeFalse();
+    }
+
+    [Theory]
+    [InlineData(DownloadStatusCodes.Failed)]
+    [InlineData(DownloadStatusCodes.Expired)]
+    public async Task NotOnDisk_RecordIsFailedOrExpired_ReportsRecoverableInLibrary(string status)
+    {
+        // TASK-230: nothing is claiming the destination (the file is gone), but a previous attempt at this
+        // exact file is still sitting in the library — worth surfacing distinctly from a genuine collision.
+        _repository.GetAllAsync(Arg.Any<CancellationToken>()).Returns(new[]
+        {
+            new Download { Id = 42, Url = "u", Status = status, Directory = _dir, Filename = "gone.bin" },
+        });
+
+        DuplicateCheckResult result = await Check().CheckAsync(_dir, "gone.bin", expectedSize: null);
+
+        result.Kind.Should().Be(DuplicateKind.RecoverableInLibrary);
+        result.ExistingDownloadId.Should().Be(42);
+    }
+
+    [Fact]
+    public async Task ActiveCollision_TakesPriorityOver_ARecoverableOne()
+    {
+        // Both an Active row and a Failed row happen to target the same destination — the still-claiming one
+        // is the real collision and must win.
+        _repository.GetAllAsync(Arg.Any<CancellationToken>()).Returns(new[]
+        {
+            new Download { Id = 1, Url = "u", Status = DownloadStatusCodes.Failed, Directory = _dir, Filename = "gone.bin" },
+            new Download { Id = 2, Url = "u", Status = DownloadStatusCodes.Active, Directory = _dir, Filename = "gone.bin" },
+        });
+
+        DuplicateCheckResult result = await Check().CheckAsync(_dir, "gone.bin", expectedSize: null);
+
+        result.Kind.Should().Be(DuplicateKind.AlreadyInLibrary);
+        result.ExistingDownloadId.Should().Be(2);
     }
 
     [Fact]

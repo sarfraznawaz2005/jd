@@ -7,6 +7,7 @@
         Title="{Binding Title}"
         Width="620" Height="580"
         MinWidth="480" MinHeight="420"
+        CanMaximize="False"
         WindowStartupLocation="CenterScreen"
         Background="{DynamicResource CardBrush}">
 
@@ -28,11 +29,17 @@
       <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
 
         <StackPanel Grid.Column="0" VerticalAlignment="Center" Spacing="2">
+          <!-- Foreground is set only via these Style setters, never as a direct attribute on the element — a
+               local attribute value outranks a Style setter (even a matched class selector) in Avalonia's
+               value precedence, so a "Foreground=green + Style TextBlock.Failed=red" element would always
+               render green regardless of IsFailed (a real bug this once was). -->
           <TextBlock Text="{Binding OutcomeLabel}" IsVisible="{Binding IsFinished}"
                      FontSize="12.5" FontWeight="SemiBold"
-                     Foreground="{DynamicResource GreenBrush}"
                      Classes.Failed="{Binding IsFailed}">
             <TextBlock.Styles>
+              <Style Selector="TextBlock">
+                <Setter Property="Foreground" Value="{DynamicResource GreenBrush}" />
+              </Style>
               <Style Selector="TextBlock.Failed">
                 <Setter Property="Foreground" Value="{DynamicResource RedBrush}" />
               </Style>

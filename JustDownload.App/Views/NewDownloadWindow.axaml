@@ -71,7 +71,18 @@
                  IsVisible="{Binding FolderError, Converter={x:Static ObjectConverters.IsNotNull}}"
                  FontSize="11" Foreground="{DynamicResource RedBrush}" />
       <Border IsVisible="{Binding DuplicateWarning, Converter={x:Static ObjectConverters.IsNotNull}}"
-              BorderBrush="{DynamicResource RedBrush}" BorderThickness="1" CornerRadius="4" Padding="8,6">
+              BorderThickness="1" CornerRadius="4" Padding="8,6"
+              Classes.Informational="{Binding DuplicateWarningIsInformational}">
+        <Border.Styles>
+          <!-- A real collision (something is claiming the destination) reads as a warning; a
+               RecoverableInLibrary heads-up (nothing is claiming it, just worth knowing) reads as an FYI. -->
+          <Style Selector="Border">
+            <Setter Property="BorderBrush" Value="{DynamicResource RedBrush}" />
+          </Style>
+          <Style Selector="Border.Informational">
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderSoftBrush}" />
+          </Style>
+        </Border.Styles>
         <TextBlock Text="{Binding DuplicateWarning}" TextWrapping="Wrap" FontSize="11.5"
                    Foreground="{DynamicResource TextDimBrush}" />
       </Border>
@@ -144,10 +155,16 @@
     <Grid ColumnDefinitions="Auto,*,Auto,Auto" Margin="0,4,0,0">
       <TextBlock Grid.Column="0" Text="Detecting…" VerticalAlignment="Center" FontWeight="Bold"
                  IsVisible="{Binding IsDetecting}" FontSize="11.5" Foreground="{DynamicResource GreenBrush}" />
+      <!-- Foreground is set only via these Style setters, never as a direct attribute — a local attribute
+           value outranks a Style setter (even a matched class selector) in Avalonia's value precedence, so
+           this once always rendered green regardless of IsNotResumable (a real, now-fixed bug). -->
       <TextBlock Grid.Column="0" Text="{Binding DetectionMessage}" VerticalAlignment="Center" FontWeight="Bold"
                  IsVisible="{Binding IsDetectionInfoVisible}" FontSize="11.5"
-                 Foreground="{DynamicResource GreenBrush}" Classes.NotResumable="{Binding IsNotResumable}">
+                 Classes.NotResumable="{Binding IsNotResumable}">
         <TextBlock.Styles>
+          <Style Selector="TextBlock">
+            <Setter Property="Foreground" Value="{DynamicResource GreenBrush}" />
+          </Style>
           <Style Selector="TextBlock.NotResumable">
             <Setter Property="Foreground" Value="{DynamicResource AmberBrush}" />
           </Style>

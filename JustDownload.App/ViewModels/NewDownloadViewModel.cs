@@ -134,6 +134,14 @@ public sealed partial class NewDownloadViewModel : ViewModelBase, IDisposable
     [ObservableProperty]
     private string? _duplicateWarning;
 
+    /// <summary>
+    /// Whether <see cref="DuplicateWarning"/> is a heads-up rather than something to act on (TASK-230): a
+    /// <see cref="DuplicateKind.RecoverableInLibrary"/> collision doesn't claim the destination, so there is
+    /// nothing to rename around — the dialog renders it without the collision warnings' alarming red border.
+    /// </summary>
+    [ObservableProperty]
+    private bool _duplicateWarningIsInformational;
+
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(CanSubmit))]
     [NotifyPropertyChangedFor(nameof(ProxyOverrideError))]
@@ -642,7 +650,10 @@ public sealed partial class NewDownloadViewModel : ViewModelBase, IDisposable
             // Explorer avoid quietly overwriting or blocking on a name the user never deliberately chose
             // (user-reported: re-downloading a file didn't offer a renamed copy). Only when the name still
             // came from detection — the user typing/editing it themselves is left for them to resolve.
-            if (result.IsDuplicate && !_fileNameTouched)
+            // RecoverableInLibrary is deliberately excluded (TASK-230): the destination isn't actually
+            // claimed by anything, so renaming past a dead Failed/Expired entry would just hide it instead
+            // of letting the user notice a previous attempt already exists.
+            if (result.IsDuplicate && result.Kind != DuplicateKind.RecoverableInLibrary && !_fileNameTouched)
             {
                 string? renamed = await FindAvailableNameAsync(FileName.Trim(), cancellationToken).ConfigureAwait(true);
                 if (renamed is not null)
@@ -663,8 +674,14 @@ public sealed partial class NewDownloadViewModel : ViewModelBase, IDisposable
                 DuplicateKind.AlreadyInLibrary =>
                     "A download to this file is already queued, downloading, or paused in this folder. "
                     + "Rename it, or cancel to skip.",
+                // Informational, not a warning to act on (TASK-230): nothing is claiming the destination, so
+                // there is no collision to rename around — just worth knowing a previous attempt exists.
+                DuplicateKind.RecoverableInLibrary =>
+                    "A previous attempt to download this file didn't finish (see it in your downloads list). "
+                    + "This will start a separate, fresh copy.",
                 _ => null,
             };
+            DuplicateWarningIsInformational = result.Kind == DuplicateKind.RecoverableInLibrary;
         }
         catch (OperationCanceledException)
         {
@@ -719,6 +736,16 @@ public sealed partial class NewDownloadViewModel : ViewModelBase, IDisposable
     {
         _folderTouched = true;
         DuplicateWarning = null;
+    }
+
+    // Whichever site clears the warning, its "just an FYI" styling clears with it — only
+    // CheckForDuplicateAsync's switch ever has a reason to set it true.
+    partial void OnDuplicateWarningChanged(string? value)
+    {
+        if (value is null)
+        {
+            DuplicateWarningIsInformational = false;
+        }
     }
 
     partial void OnSelectedCategoryChanged(CategoryOption value)
