@@ -51,6 +51,9 @@ public partial class App : Application
             .AddSingleton<StatusSummaryViewModel>()
             .AddSingleton<DownloadsListViewModel>()
             .AddSingleton<DownloadDetailViewModel>()
+            .AddSingleton(CreateProgressWindowService)
+            .AddSingleton<ITaskbarAttention, TaskbarAttentionService>()
+            .AddSingleton(CreateTaskbarFlashNotifier)
             .AddSingleton<SidebarViewModel>()
             .AddSingleton<MainWindowViewModel>()
             .AddTransient<NewDownloadViewModel>()
@@ -67,6 +70,88 @@ public partial class App : Application
     /// the close-to-tray handler lets the close through instead of hiding the window again.
     /// </summary>
     private bool _isExplicitShutdown;
+
+    /// <summary>
+    /// Builds the per-download progress-window service (TASK-225). The service itself stays UI-free; the two
+    /// callbacks supplied here are the only parts that know about windows — one builds a view-model with its
+    /// own <see cref="DownloadDetailViewModel"/> (the app-wide singleton belongs to the docked pane and can't
+    /// be shared: each window follows a different download), the other shows or re-focuses the window.
+    /// </summary>
+    private static DownloadProgressWindowService CreateProgressWindowService(IServiceProvider services) =>
+        new(
+            services.GetRequiredService<IDownloadManager>(),
+            services.GetRequiredService<ISettingsService>(),
+            services.GetRequiredService<DownloadsListViewModel>(),
+            row => new DownloadProgressViewModel(
+                row,
+                ActivatorUtilities.CreateInstance<DownloadDetailViewModel>(services),
+                services.GetRequiredService<IFileRevealer>(),
+                services.GetRequiredService<ISettingsService>()),
+            PresentProgressWindow);
+
+    /// <summary>
+    /// Shows a download's progress window, or brings the existing one forward when it is already open. The
+    /// window is deliberately owner-less: it must stay usable (and visible in the taskbar) while the main
+    /// window is hidden to tray, which is exactly when a separate progress window earns its keep.
+    /// </summary>
+    private static void PresentProgressWindow(DownloadProgressViewModel viewModel)
+    {
+        if (Current?.ApplicationLifetime is not IClassicDesktopStyleApplicationLifetime desktop)
+        {
+            return;
+        }
+
+        if (desktop.Windows.FirstOrDefault(w => ReferenceEquals(w.DataContext, viewModel)) is { } existing)
+        {
+            BringToFront(existing);
+            return;
+        }
+
+        // Cascade instead of centring every window on the same spot — concurrent downloads would otherwise
+        // land exactly on top of each other, hiding all but the last.
+        int depth = desktop.Windows.Count(w => w is DownloadProgressWindow);
+        var window = new DownloadProgressWindow { DataContext = viewModel };
+
+        // A window closed from its title bar never raises CloseRequested, so untrack it here too — otherwise
+        // the service would consider the download "already shown" and never open a window for it again.
+        window.Closed += (_, _) =>
+            (Current as App)?.Services.GetRequiredService<DownloadProgressWindowService>().Forget(viewModel);
+        window.Show();
+
+        if (depth > 0)
+        {
+            int offset = depth * 28;
+            window.Position = new PixelPoint(window.Position.X + offset, window.Position.Y + offset);
+        }
+    }
+
+    /// <summary>
+    /// Builds the completion taskbar flash (TASK-226). The notifier stays window-agnostic; this resolver is
+    /// the piece that knows a download may have its own progress window worth flashing instead of the main one.
+    /// </summary>
+    private static TaskbarFlashNotifier CreateTaskbarFlashNotifier(IServiceProvider services) =>
+        new(
+            services.GetRequiredService<IDownloadManager>(),
+            services.GetRequiredService<ITaskbarAttention>(),
+            downloadId => ResolveFlashTarget(services, downloadId));
+
+    private static Window? ResolveFlashTarget(IServiceProvider services, long downloadId)
+    {
+        if (Current?.ApplicationLifetime is not IClassicDesktopStyleApplicationLifetime desktop)
+        {
+            return null;
+        }
+
+        DownloadProgressViewModel? progress =
+            services.GetRequiredService<DownloadProgressWindowService>().Find(downloadId);
+        Window? progressWindow = progress is null
+            ? null
+            : desktop.Windows.FirstOrDefault(w => ReferenceEquals(w.DataContext, progress));
+
+        // Fall back to the main window — but only while it's actually on screen; flashing a window hidden to
+        // tray would flash nothing at all, and the completion toast already covers that case.
+        return progressWindow ?? (desktop.MainWindow is { IsVisible: true } main ? main : null);
+    }
 
     /// <summary>Picks the per-OS launch-at-login backend (TASK-155). Falls back to the (inert,
     /// <c>IsSupported == false</c>) Windows implementation on an OS with no autostart mechanism.</summary>
@@ -154,6 +239,13 @@ public partial class App : Application
             Services.GetRequiredService<AutoExtractService>().Start();
             Services.GetRequiredService<DownloadOrganizerService>().Start();
             Services.GetRequiredService<PostDownloadCommandService>().Start();
+
+            // Open a standalone progress window as each download starts/resumes (TASK-225), so progress is
+            // visible without the main window — the classic download-manager behaviour.
+            Services.GetRequiredService<DownloadProgressWindowService>().Start();
+
+            // Flash the taskbar on completion so a finished download is noticed from another app (TASK-226).
+            Services.GetRequiredService<TaskbarFlashNotifier>().Start();
             InstallTrayIcon(desktop, window, mainViewModel);
             WireForwardedArguments(mainViewModel);
 
