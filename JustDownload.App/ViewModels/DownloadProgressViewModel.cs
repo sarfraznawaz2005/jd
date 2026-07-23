@@ -39,6 +39,15 @@ public sealed partial class DownloadProgressViewModel : ViewModelBase, IDisposab
     [NotifyCanExecuteChangedFor(nameof(OpenFolderCommand))]
     private DownloadStatus _status;
 
+    /// <summary>
+    /// Whether this window shows the collapsed, tabs-free status bar instead of the full
+    /// Download/Options/Connections view. Deliberately per-window and session-only — not persisted — so each
+    /// download the user is watching can be sized independently, and a fresh window always opens in the full
+    /// view. The window's code-behind reacts to this to snap its height to fit each mode.
+    /// </summary>
+    [ObservableProperty]
+    private bool _isCompact;
+
     public DownloadProgressViewModel(
         DownloadRowViewModel row,
         DownloadDetailViewModel detail,
@@ -124,6 +133,10 @@ public sealed partial class DownloadProgressViewModel : ViewModelBase, IDisposab
     /// </summary>
     [RelayCommand]
     private void Close() => CloseRequested?.Invoke(this, EventArgs.Empty);
+
+    /// <summary>Flips between the full and collapsed views.</summary>
+    [RelayCommand]
+    private void ToggleCompact() => IsCompact = !IsCompact;
 
     public void Dispose()
     {

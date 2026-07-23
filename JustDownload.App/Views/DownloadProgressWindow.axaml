@@ -12,14 +12,17 @@
 
   <Window.Resources>
     <StreamGeometry x:Key="IconFolderOpen">M2,3.5 H6.5 L8,5 H14 V12.5 H2 Z</StreamGeometry>
+    <!-- Small filled triangles for the compact-mode toggle — collapse (point down) / expand (point up). -->
+    <StreamGeometry x:Key="IconChevronDown">M3,5 L13,5 L8,11 Z</StreamGeometry>
+    <StreamGeometry x:Key="IconChevronUp">M3,10 L13,10 L8,4 Z</StreamGeometry>
   </Window.Resources>
 
   <DockPanel>
 
     <!-- Window-level footer: the terminal outcome plus the actions the docked detail pane has no need for
-         (open the finished file, dismiss the window, remember the auto-close choice). Pause/Resume/Cancel
-         deliberately stay inside DownloadDetailView so both hosts offer them from the same place. -->
-    <Border DockPanel.Dock="Bottom" Padding="16,12"
+         (open the finished file, dismiss the window, remember the auto-close choice, collapse to compact).
+         Full view only — the compact bar below carries its own slimmed-down version of these actions. -->
+    <Border DockPanel.Dock="Bottom" Padding="16,12" IsVisible="{Binding !IsCompact}"
             Background="{DynamicResource HeaderBrush}"
             BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,1,0,0">
       <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
@@ -42,6 +45,10 @@
         </StackPanel>
 
         <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+          <Button Classes="App Ghost IconOnly" Command="{Binding ToggleCompactCommand}"
+                  AutomationProperties.Name="Collapse to compact view" ToolTip.Tip="Collapse to compact view">
+            <PathIcon Data="{StaticResource IconChevronDown}" Width="11" Height="11" />
+          </Button>
           <Button Classes="App" Command="{Binding OpenFolderCommand}" IsVisible="{Binding IsComplete}">
             <StackPanel Orientation="Horizontal" Spacing="6">
               <PathIcon Data="{StaticResource IconFolderOpen}" Width="13" Height="13" />
@@ -55,7 +62,58 @@
       </Grid>
     </Border>
 
-    <!-- The same Download / Options / Connections content as the docked detail pane (mockups/detail.html). -->
-    <views:DownloadDetailView DataContext="{Binding Detail}" />
+    <Panel>
+      <!-- The same Download / Options / Connections content as the docked detail pane (mockups/detail.html).
+           IsVisible sits on the outer Panel — not the view itself — because DataContext reassigns the binding
+           scope, so a binding on the same element would resolve against Detail (no IsCompact there) rather
+           than the outer DownloadProgressViewModel. -->
+      <Panel IsVisible="{Binding !IsCompact}">
+        <views:DownloadDetailView DataContext="{Binding Detail}" />
+      </Panel>
+
+      <!-- Compact bar: file name, progress + percent, speed/ETA, and the actions that fit the current state —
+           no tabs, segment bars, or sparkline. The window's code-behind snaps its height to fit this. -->
+      <Grid IsVisible="{Binding IsCompact}" Margin="16" RowDefinitions="Auto,Auto,Auto" RowSpacing="10">
+
+        <Grid Grid.Row="0" ColumnDefinitions="*,Auto">
+          <TextBlock Grid.Column="0" Text="{Binding Row.FileName}" FontSize="13" FontWeight="SemiBold"
+                     TextTrimming="CharacterEllipsis" VerticalAlignment="Center"
+                     Foreground="{DynamicResource TextBrush}" />
+          <Button Grid.Column="1" Classes="App Ghost IconOnly" Command="{Binding ToggleCompactCommand}"
+                  AutomationProperties.Name="Expand to full view" ToolTip.Tip="Expand to full view">
+            <PathIcon Data="{StaticResource IconChevronUp}" Width="11" Height="11" />
+          </Button>
+        </Grid>
+
+        <Grid Grid.Row="1" ColumnDefinitions="*,Auto" ColumnSpacing="10">
+          <ProgressBar Grid.Column="0" Classes="Mini" Minimum="0" Maximum="100"
+                       Value="{Binding Row.ProgressPercent}" VerticalAlignment="Center" />
+          <TextBlock Grid.Column="1" Text="{Binding Row.ProgressPercent, StringFormat='{}{0:0}%'}"
+                     FontSize="12" VerticalAlignment="Center" Foreground="{DynamicResource TextDimBrush}" />
+        </Grid>
+
+        <Grid Grid.Row="2" ColumnDefinitions="*,Auto">
+          <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+            <TextBlock Text="{Binding Row.SpeedDisplay}" FontSize="11.5"
+                       Foreground="{DynamicResource TextFaintBrush}" />
+            <TextBlock Text="·" FontSize="11.5" Foreground="{DynamicResource TextFaintBrush}" />
+            <TextBlock Text="{Binding Row.EtaDisplay}" FontSize="11.5"
+                       Foreground="{DynamicResource TextFaintBrush}" />
+          </StackPanel>
+          <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
+            <Button Classes="App" Content="Open folder"
+                    Command="{Binding OpenFolderCommand}" IsVisible="{Binding IsComplete}" />
+            <Button Classes="App Accent" Content="Open file"
+                    Command="{Binding OpenFileCommand}" IsVisible="{Binding IsComplete}" />
+            <Button Classes="App" Command="{Binding Detail.ResumeCommand}" Content="Resume"
+                    IsVisible="{Binding !IsFinished}" />
+            <Button Classes="App" Command="{Binding Detail.PauseCommand}" Content="Pause"
+                    IsVisible="{Binding !IsFinished}" />
+            <Button Classes="App Danger" Command="{Binding Detail.CancelCommand}" Content="Cancel"
+                    IsVisible="{Binding !IsFinished}" />
+          </StackPanel>
+        </Grid>
+      </Grid>
+    </Panel>
   </DockPanel>
 </Window>

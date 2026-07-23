@@ -56,7 +56,24 @@ public sealed class TaskbarFlashNotifierTests
     }
 
     [AvaloniaFact]
-    public void Completion_Flashes_ButOtherTransitionsDoNot()
+    public void NonTerminalTransitions_DoNotFlash()
+    {
+        var manager = Substitute.For<IDownloadManager>();
+        var attention = new RecordingAttention();
+        using var notifier = new TaskbarFlashNotifier(manager, attention, _ => new Window());
+        notifier.Start();
+
+        RaiseStatus(manager, DownloadStatus.Paused);
+        RaiseStatus(manager, DownloadStatus.Queued);
+        Dispatcher.UIThread.RunJobs();
+
+        attention.Flashed.Should().BeEmpty();
+    }
+
+    [AvaloniaTheory]
+    [InlineData(DownloadStatus.Completed)]
+    [InlineData(DownloadStatus.Failed)]
+    public void TerminalTransitions_Flash(DownloadStatus terminal)
     {
         var manager = Substitute.For<IDownloadManager>();
         var attention = new RecordingAttention();
@@ -64,12 +81,7 @@ public sealed class TaskbarFlashNotifierTests
         using var notifier = new TaskbarFlashNotifier(manager, attention, _ => target);
         notifier.Start();
 
-        RaiseStatus(manager, DownloadStatus.Paused);
-        RaiseStatus(manager, DownloadStatus.Failed);
-        Dispatcher.UIThread.RunJobs();
-        attention.Flashed.Should().BeEmpty();
-
-        RaiseStatus(manager, DownloadStatus.Completed);
+        RaiseStatus(manager, terminal);
         Dispatcher.UIThread.RunJobs();
 
         attention.Flashed.Should().ContainSingle().Which.Should().BeSameAs(target);

@@ -17,13 +17,6 @@ namespace JustDownload.App.Services;
 /// </summary>
 public sealed class DownloadProgressWindowService : IDisposable
 {
-    /// <summary>
-    /// Upper bound on windows open at once. "Resume all" over a large queue would otherwise carpet the desktop
-    /// with windows the user never asked for individually; past this point the main window remains the place
-    /// to watch the rest. Chosen to comfortably exceed the default <c>MaxConcurrentDownloads</c> (4).
-    /// </summary>
-    public const int MaxOpenWindows = 8;
-
     private readonly IDownloadManager _manager;
     private readonly ISettingsService _settings;
     private readonly DownloadsListViewModel _list;
@@ -116,11 +109,6 @@ public sealed class DownloadProgressWindowService : IDisposable
 
     private void Open(DownloadRowViewModel row)
     {
-        if (_open.Count >= MaxOpenWindows)
-        {
-            return;
-        }
-
         DownloadProgressViewModel viewModel = _createViewModel(row);
         _open[row.Id] = viewModel;
         viewModel.CloseRequested += OnCloseRequested;

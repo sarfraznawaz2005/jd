@@ -108,8 +108,10 @@ public partial class App : Application
         }
 
         // Cascade instead of centring every window on the same spot — concurrent downloads would otherwise
-        // land exactly on top of each other, hiding all but the last.
-        int depth = desktop.Windows.Count(w => w is DownloadProgressWindow);
+        // land exactly on top of each other, hiding all but the last. Wraps every 12 steps (there is no cap
+        // on how many windows can be open at once) so a long-running batch keeps cascading near the screen
+        // instead of marching off the bottom-right edge forever.
+        int depth = desktop.Windows.Count(w => w is DownloadProgressWindow) % 12;
         var window = new DownloadProgressWindow { DataContext = viewModel };
 
         // A window closed from its title bar never raises CloseRequested, so untrack it here too — otherwise

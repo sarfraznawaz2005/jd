@@ -106,10 +106,11 @@ public sealed class DownloadProgressWindowTests
     }
 
     [AvaloniaFact]
-    public async Task EnsureWindow_HonoursTheOpenWindowCap()
+    public async Task EnsureWindow_HasNoCap_EveryDownloadGetsAWindow()
     {
         var harness = new Harness();
-        List<Download> records = [.. Enumerable.Range(1, DownloadProgressWindowService.MaxOpenWindows + 3)
+        const int downloadCount = 20; // comfortably past the old MaxOpenWindows=8 cap
+        List<Download> records = [.. Enumerable.Range(1, downloadCount)
             .Select(i => Record(i, DownloadStatusCodes.Active))];
         harness.Repository.GetAllAsync(Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<IReadOnlyList<Download>>(records));
@@ -120,7 +121,7 @@ public sealed class DownloadProgressWindowTests
             harness.Service.EnsureWindow(record.Id);
         }
 
-        harness.Service.OpenDownloadIds.Should().HaveCount(DownloadProgressWindowService.MaxOpenWindows);
+        harness.Service.OpenDownloadIds.Should().HaveCount(downloadCount);
     }
 
     [AvaloniaFact]
@@ -233,5 +234,64 @@ public sealed class DownloadProgressWindowTests
 
         window.Title.Should().Be(row.FileName);
         window.Close();
+    }
+
+    // ---- Compact mode (follow-up to TASK-225/226) ----
+
+    [AvaloniaFact]
+    public void ToggleCompactCommand_FlipsIsCompact()
+    {
+        var harness = new Harness();
+        DownloadProgressViewModel vm = harness.BuildViewModel(Row());
+
+        vm.IsCompact.Should().BeFalse("a fresh window always opens in the full view");
+
+        vm.ToggleCompactCommand.Execute(null);
+        vm.IsCompact.Should().BeTrue();
+
+        vm.ToggleCompactCommand.Execute(null);
+        vm.IsCompact.Should().BeFalse();
+    }
+
+    [AvaloniaFact]
+    public void ProgressWindow_SnapsHeight_WhenTogglingCompact()
+    {
+        var harness = new Harness();
+        DownloadProgressViewModel vm = harness.BuildViewModel(Row());
+        var window = new JustDownload.App.Views.DownloadProgressWindow { DataContext = vm };
+        window.Show();
+
+        double fullHeight = window.Height;
+        window.CanResize.Should().BeTrue();
+
+        vm.ToggleCompactCommand.Execute(null);
+
+        window.SizeToContent.Should().Be(Avalonia.Controls.SizeToContent.Height,
+            "the compact bar dictates its own height rather than keeping the full view's fixed size");
+        window.CanResize.Should().BeFalse("there is nothing to resize into in the compact bar");
+
+        vm.ToggleCompactCommand.Execute(null);
+
+        window.SizeToContent.Should().Be(Avalonia.Controls.SizeToContent.Manual);
+        window.Height.Should().Be(fullHeight, "expanding snaps back to the standard full-view size");
+        window.CanResize.Should().BeTrue();
+
+        window.Close();
+    }
+
+    [AvaloniaFact]
+    public void CompactBar_OffersPauseCancel_WhileInFlight_AndOpenActions_WhenFinished()
+    {
+        var harness = new Harness();
+        DownloadRowViewModel row = Row(status: DownloadStatusCodes.Active);
+        DownloadProgressViewModel vm = harness.BuildViewModel(row);
+        vm.IsCompact = true;
+
+        vm.IsFinished.Should().BeFalse("Pause/Cancel apply while the download is still running");
+
+        row.ApplyStatus(DownloadStatus.Completed);
+
+        vm.IsFinished.Should().BeTrue("Open file/folder replace Pause/Cancel once the download is done");
+        vm.IsComplete.Should().BeTrue();
     }
 }

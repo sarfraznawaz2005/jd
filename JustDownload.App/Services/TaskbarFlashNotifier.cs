@@ -5,10 +5,10 @@ using JustDownload.Core.Lifecycle;
 namespace JustDownload.App.Services;
 
 /// <summary>
-/// Flashes the taskbar when a download completes (TASK-226), so a user working in another app notices without
-/// being interrupted. Which window flashes is resolved per download by the shell — the download's own progress
-/// window (TASK-225) when one is open, otherwise the main window — keeping this class free of window lookup
-/// and unit-testable on its own (§3).
+/// Flashes the taskbar when a download reaches a terminal state — completed or failed (TASK-226) — so a user
+/// working in another app notices without being interrupted. Which window flashes is resolved per download by
+/// the shell — the download's own progress window (TASK-225) when one is open, otherwise the main window —
+/// keeping this class free of window lookup and unit-testable on its own (§3).
 /// </summary>
 public sealed class TaskbarFlashNotifier : IDisposable
 {
@@ -33,7 +33,7 @@ public sealed class TaskbarFlashNotifier : IDisposable
 
     private void OnStatusChanged(object? sender, DownloadStatusChangedEventArgs e)
     {
-        if (e.Current != DownloadStatus.Completed || !_attention.IsSupported)
+        if (e.Current is not (DownloadStatus.Completed or DownloadStatus.Failed) || !_attention.IsSupported)
         {
             return;
         }
