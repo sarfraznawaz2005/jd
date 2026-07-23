@@ -1,0 +1,61 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:JustDownload.App.ViewModels"
+        xmlns:views="using:JustDownload.App.Views"
+        x:Class="JustDownload.App.Views.DownloadProgressWindow"
+        x:DataType="vm:DownloadProgressViewModel"
+        Title="{Binding Title}"
+        Width="620" Height="580"
+        MinWidth="480" MinHeight="420"
+        WindowStartupLocation="CenterScreen"
+        Background="{DynamicResource CardBrush}">
+
+  <Window.Resources>
+    <StreamGeometry x:Key="IconFolderOpen">M2,3.5 H6.5 L8,5 H14 V12.5 H2 Z</StreamGeometry>
+  </Window.Resources>
+
+  <DockPanel>
+
+    <!-- Window-level footer: the terminal outcome plus the actions the docked detail pane has no need for
+         (open the finished file, dismiss the window, remember the auto-close choice). Pause/Resume/Cancel
+         deliberately stay inside DownloadDetailView so both hosts offer them from the same place. -->
+    <Border DockPanel.Dock="Bottom" Padding="16,12"
+            Background="{DynamicResource HeaderBrush}"
+            BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,1,0,0">
+      <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+
+        <StackPanel Grid.Column="0" VerticalAlignment="Center" Spacing="2">
+          <TextBlock Text="{Binding OutcomeLabel}" IsVisible="{Binding IsFinished}"
+                     FontSize="12.5" FontWeight="SemiBold"
+                     Foreground="{DynamicResource GreenBrush}"
+                     Classes.Failed="{Binding IsFailed}">
+            <TextBlock.Styles>
+              <Style Selector="TextBlock.Failed">
+                <Setter Property="Foreground" Value="{DynamicResource RedBrush}" />
+              </Style>
+            </TextBlock.Styles>
+          </TextBlock>
+          <CheckBox IsChecked="{Binding CloseWhenDone, Mode=TwoWay}"
+                    Content="Close this window when the download completes"
+                    MinHeight="0" Padding="8,2,0,2" VerticalContentAlignment="Center"
+                    FontSize="12" Foreground="{DynamicResource TextDimBrush}" />
+        </StackPanel>
+
+        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+          <Button Classes="App" Command="{Binding OpenFolderCommand}" IsVisible="{Binding IsComplete}">
+            <StackPanel Orientation="Horizontal" Spacing="6">
+              <PathIcon Data="{StaticResource IconFolderOpen}" Width="13" Height="13" />
+              <TextBlock Text="Open folder" VerticalAlignment="Center" />
+            </StackPanel>
+          </Button>
+          <Button Classes="App Accent" Content="Open file"
+                  Command="{Binding OpenFileCommand}" IsVisible="{Binding IsComplete}" />
+          <Button Classes="App" Content="Close" Command="{Binding CloseCommand}" IsCancel="True" />
+        </StackPanel>
+      </Grid>
+    </Border>
+
+    <!-- The same Download / Options / Connections content as the docked detail pane (mockups/detail.html). -->
+    <views:DownloadDetailView DataContext="{Binding Detail}" />
+  </DockPanel>
+</Window>

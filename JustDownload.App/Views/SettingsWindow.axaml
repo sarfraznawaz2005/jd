@@ -81,6 +81,11 @@
                        Foreground="{DynamicResource TextBrush}" />
           </StackPanel>
           <StackPanel Orientation="Horizontal" Spacing="12">
+            <ToggleSwitch IsChecked="{Binding ShowDownloadProgressWindow, Mode=TwoWay}" />
+            <TextBlock Text="Open a progress window for each download" VerticalAlignment="Center"
+                       Foreground="{DynamicResource TextBrush}" />
+          </StackPanel>
+          <StackPanel Orientation="Horizontal" Spacing="12">
             <ToggleSwitch IsChecked="{Binding AutoExtractArchives, Mode=TwoWay}" />
             <TextBlock Text="Automatically extract .zip archives when they finish" VerticalAlignment="Center"
                        Foreground="{DynamicResource TextBrush}" />

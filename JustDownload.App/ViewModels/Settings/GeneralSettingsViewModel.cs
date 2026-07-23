@@ -48,6 +48,10 @@ public sealed partial class GeneralSettingsViewModel : ViewModelBase
     [ObservableProperty]
     private bool _notificationsEnabled;
 
+    /// <summary>Whether each download gets its own standalone progress window (TASK-225).</summary>
+    [ObservableProperty]
+    private bool _showDownloadProgressWindow;
+
     [ObservableProperty]
     private bool _autoExtractArchives;
 
@@ -80,6 +84,7 @@ public sealed partial class GeneralSettingsViewModel : ViewModelBase
         _monitorClipboard = current.MonitorClipboard;
         _launchAtStartup = current.LaunchAtStartup;
         _notificationsEnabled = current.NotificationsEnabled;
+        _showDownloadProgressWindow = current.ShowDownloadProgressWindow;
         _autoExtractArchives = current.AutoExtractArchives;
         _showTosNotice = !current.SuppressTosNotice;
         _suppress = false;
@@ -211,6 +216,14 @@ public sealed partial class GeneralSettingsViewModel : ViewModelBase
         if (!_suppress)
         {
             _ = _settings.UpdateAsync(s => s with { NotificationsEnabled = value });
+        }
+    }
+
+    partial void OnShowDownloadProgressWindowChanged(bool value)
+    {
+        if (!_suppress)
+        {
+            _ = _settings.UpdateAsync(s => s with { ShowDownloadProgressWindow = value });
         }
     }
 

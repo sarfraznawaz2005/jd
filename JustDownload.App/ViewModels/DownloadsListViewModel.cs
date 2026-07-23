@@ -144,6 +144,17 @@ public sealed partial class DownloadsListViewModel : ViewModelBase, IDisposable
     /// <summary>Raised when the user asks to renew an expired download; the shell opens the renew dialog (TASK-053).</summary>
     public event EventHandler<DownloadRowViewModel>? RenewRequested;
 
+    /// <summary>
+    /// Raised (on the UI thread) once a freshly enqueued download's row exists (TASK-225). Rows are built
+    /// asynchronously from the repository, so a consumer that reacts to the download *starting* can lose the
+    /// race against its own row being created; this lets it wait for the row instead of polling.
+    /// </summary>
+    public event EventHandler<DownloadRowViewModel>? RowAdded;
+
+    /// <summary>The live row for a download, or <see langword="null"/> if it isn't loaded (TASK-225).</summary>
+    public DownloadRowViewModel? FindRow(long id) =>
+        _byId.TryGetValue(id, out DownloadRowViewModel? row) ? row : null;
+
     /// <summary>Applies a sidebar filter, rebuilding the visible rows from the full set (TASK-050).</summary>
     public void ApplyFilter(DownloadFilter filter)
     {
@@ -339,6 +350,7 @@ public sealed partial class DownloadsListViewModel : ViewModelBase, IDisposable
             _allRows.Insert(0, row); // newest first, matching the repository order
             _byId[id] = row;
             AddToCounts(row);
+            RowAdded?.Invoke(this, row);
             if (IsVisible(row))
             {
                 Downloads.Insert(0, row);
