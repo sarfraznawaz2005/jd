@@ -70,4 +70,11 @@ public interface IDownloadManager
     /// view refreshes this on each <see cref="ProgressChanged"/> tick for the selected download.
     /// </summary>
     IReadOnlyList<ConnectionStat> GetConnections(long id);
+
+    /// <summary>
+    /// Drops every trace of a download from the manager's in-memory state. Call it when a download is deleted:
+    /// the per-download snapshot, connection stats and emit bookkeeping are keyed by id and would otherwise
+    /// outlive the record they describe for the rest of the session.
+    /// </summary>
+    void Forget(long id);
 }

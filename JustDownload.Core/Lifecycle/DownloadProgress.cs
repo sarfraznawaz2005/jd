@@ -42,6 +42,13 @@ public sealed record DownloadProgress
     public int Connections { get; init; }
 
     /// <summary>
+    /// What the download is doing right now. Only meaningful while <see cref="Status"/> is
+    /// <see cref="DownloadStatus.Active"/>; a plain HTTP transfer is always
+    /// <see cref="DownloadPhase.Transferring"/>.
+    /// </summary>
+    public DownloadPhase Phase { get; init; }
+
+    /// <summary>
     /// Builds a snapshot, deriving <see cref="Fraction"/> and <see cref="Eta"/> from the raw inputs. This is
     /// a pure function: the same inputs always yield the same snapshot.
     /// </summary>

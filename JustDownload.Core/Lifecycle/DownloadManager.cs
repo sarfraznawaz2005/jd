@@ -102,6 +102,14 @@ internal sealed partial class DownloadManager : IDownloadManager
     public IReadOnlyList<ConnectionStat> GetConnections(long id) =>
         _connections.TryGetValue(id, out ConnectionTracker? tracker) ? tracker.Snapshot() : [];
 
+    public void Forget(long id)
+    {
+        _latest.TryRemove(id, out _);
+        _connections.TryRemove(id, out _);
+        _finishedRuns.TryRemove(id, out _);
+        _progressThrottle.Forget(id);
+    }
+
     public async Task<long> EnqueueAsync(
         EnqueueDownloadRequest request,
         CancellationToken cancellationToken = default)
@@ -1023,15 +1031,19 @@ internal sealed partial class DownloadManager : IDownloadManager
     private void OnMediaBytes(long id, SpeedEstimator estimator, MediaDownloadProgress report)
     {
         DateTimeOffset now = _clock.UtcNow;
+        bool combining = report.Phase == MediaDownloadPhase.Combining;
         var snapshot = new DownloadProgress
         {
             Status = DownloadStatus.Active,
             DownloadedBytes = report.DownloadedBytes,
             TotalBytes = null, // media segment/stream sizes aren't known up front
-            BytesPerSecond = estimator.Sample(now, report.DownloadedBytes),
+            // No bytes move while the streams are being joined, so a speed carried over from the transfer
+            // would be a stale reading of work that has already stopped.
+            BytesPerSecond = combining ? 0 : estimator.Sample(now, report.DownloadedBytes),
             Fraction = report.Fraction > 0 ? report.Fraction : null, // 0 = indeterminate (e.g. separate streams)
             Resumable = false,
             Connections = 1,
+            Phase = combining ? DownloadPhase.Processing : DownloadPhase.Transferring,
         };
 
         if (!TryPublishProgress(id, snapshot))
@@ -1039,7 +1051,9 @@ internal sealed partial class DownloadManager : IDownloadManager
             return;
         }
 
-        if (_progressThrottle.ShouldEmit(id, now))
+        // The phase change is the whole point of a combining report and there is only one of them, so it must
+        // never be dropped by the rate limiter the way an ordinary byte tick can be.
+        if (combining || _progressThrottle.ShouldEmit(id, now))
         {
             ProgressChanged?.Invoke(this, new DownloadProgressChangedEventArgs(id, snapshot));
         }

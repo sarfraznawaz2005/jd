@@ -421,9 +421,9 @@ public partial class App : Application
     /// <see cref="Window.ShowDialog"/>'s "visible owner" requirement was user-reported as unwanted: the main
     /// window should stay out of the way the user deliberately put it in.
     /// </summary>
-    private static async Task ShowWithoutForcingOwnerVisibleAsync(Window owner, Window dialog)
+    private static async Task ShowWithoutForcingOwnerVisibleAsync(Window? owner, Window dialog)
     {
-        if (owner.IsVisible)
+        if (owner is { IsVisible: true })
         {
             await dialog.ShowDialog(owner);
             return;
@@ -679,16 +679,18 @@ public partial class App : Application
     }
 
     /// <summary>
-    /// The best window to own a modal dialog: the most recently opened *visible* one, falling back to the
-    /// main window. Preferring a visible window matters when the app is minimized to tray (TASK-232) —
+    /// The best window to own a modal dialog: the most recently opened visible one, or <see langword="null"/>
+    /// when nothing is on screen. It matters when the app is minimized to tray (TASK-232) —
     /// <see cref="Window.MainWindow"/> is hidden then, and Avalonia refuses to parent a modal to it
-    /// ("Cannot show window with non-visible owner"), so a dialog opened from a browser hand-off would throw.
+    /// ("Cannot show window with non-visible owner"). Deliberately no fall back to the main window: handing
+    /// back a hidden window is handing back the very thing that throws, which is what stranded the ToS
+    /// notice and still threatened the re-download confirmation.
     /// </summary>
     private static Window? GetActiveWindow()
     {
         if (Current?.ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
-            return desktop.Windows.LastOrDefault(w => w.IsVisible) ?? desktop.MainWindow;
+            return desktop.Windows.LastOrDefault(w => w.IsVisible);
         }
 
         return null;
@@ -709,17 +711,7 @@ public partial class App : Application
         viewModel.CloseRequested += (_, chosen) => result = chosen;
 
         var dialog = new TosNoticeWindow { DataContext = viewModel };
-        Window? owner = GetActiveWindow();
-        if (owner is null)
-        {
-            var closed = new TaskCompletionSource();
-            dialog.Closed += (_, _) => closed.TrySetResult();
-            dialog.Show();
-            await closed.Task;
-            return result;
-        }
-
-        await ShowWithoutForcingOwnerVisibleAsync(owner, dialog);
+        await ShowWithoutForcingOwnerVisibleAsync(GetActiveWindow(), dialog);
         return result;
     }
 
@@ -729,23 +721,21 @@ public partial class App : Application
     /// </summary>
     private static async Task<bool> ConfirmRedownloadAsync(DownloadRowViewModel row)
     {
-        Window? owner = GetActiveWindow();
-        if (owner is null)
-        {
-            // Nothing to parent a modal to (e.g. started from the tray with no window up). Better to skip the
-            // re-download than to silently delete the user's file with no chance to decline.
-            return false;
-        }
+        var viewModel = new ConfirmViewModel(
+            "Re-download this file?",
+            $"\"{row.FileName}\" will be downloaded again from the start. The copy already on your "
+                + "computer will be deleted first and cannot be recovered.",
+            "Re-download");
 
-        var dialog = new ConfirmWindow
-        {
-            DataContext = new ConfirmViewModel(
-                "Re-download this file?",
-                $"\"{row.FileName}\" will be downloaded again from the start. The copy already on your "
-                    + "computer will be deleted first and cannot be recovered.",
-                "Re-download"),
-        };
+        // The answer comes from the view-model rather than ShowDialog<bool>, for the same reason the ToS
+        // notice takes it that way: with the app minimized to tray there is no visible window to parent a
+        // modal to, and the prompt has to be shown as its own top-level instead. Defaults to declining, so a
+        // dialog dismissed any other way never deletes the file already on disk.
+        bool confirmed = false;
+        viewModel.CloseRequested += (_, answer) => confirmed = answer;
 
-        return await dialog.ShowDialog<bool>(owner).ConfigureAwait(true);
+        var dialog = new ConfirmWindow { DataContext = viewModel };
+        await ShowWithoutForcingOwnerVisibleAsync(GetActiveWindow(), dialog).ConfigureAwait(true);
+        return confirmed;
     }
 }

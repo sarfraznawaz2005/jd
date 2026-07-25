@@ -98,6 +98,63 @@ public sealed class MediaProgressTests : IDisposable
     }
 
     [Fact]
+    public async Task CombiningReport_SurfacesAsAProcessingPhaseWithNoSpeed()
+    {
+        long id = await EnqueueMediaAsync();
+        var seen = new List<DownloadProgress>();
+        Manager.ProgressChanged += (_, e) => seen.Add(e.Progress);
+        _coordinator.DuringDownload = report =>
+        {
+            report.Report(new MediaDownloadProgress(0, 112_114_345));
+            report.Report(new MediaDownloadProgress(0, 112_114_345, MediaDownloadPhase.Combining));
+        };
+
+        await Manager.StartAsync(id);
+
+        DownloadProgress combining = seen.Should().ContainSingle(p => p.Phase == DownloadPhase.Processing).Which;
+        combining.Status.Should().Be(DownloadStatus.Active, "the download is still working, just not fetching");
+        combining.DownloadedBytes.Should().Be(112_114_345, "the byte total holds while the streams are joined");
+        combining.BytesPerSecond.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task CombiningReport_IsNeverDroppedByTheProgressRateLimiter()
+    {
+        // Ordinary byte ticks are coalesced to ~15Hz; the single phase change must not be coalesced away, or
+        // the UI would sit on "Downloading" for the whole merge.
+        long id = await EnqueueMediaAsync();
+        var seen = new List<DownloadProgress>();
+        Manager.ProgressChanged += (_, e) => seen.Add(e.Progress);
+        _coordinator.DuringDownload = report =>
+        {
+            for (int i = 1; i <= 50; i++)
+            {
+                report.Report(new MediaDownloadProgress(0, i * 1_000_000L));
+            }
+
+            report.Report(new MediaDownloadProgress(0, 50_000_000, MediaDownloadPhase.Combining));
+        };
+
+        await Manager.StartAsync(id);
+
+        seen.Should().Contain(p => p.Phase == DownloadPhase.Processing);
+    }
+
+    [Fact]
+    public async Task Forget_DropsTheDownloadsInMemoryState()
+    {
+        long id = await EnqueueMediaAsync();
+        _coordinator.DuringDownload = report => report.Report(new MediaDownloadProgress(0, 10_000));
+        await Manager.StartAsync(id);
+        Manager.GetProgress(id).Should().NotBeNull();
+
+        Manager.Forget(id);
+
+        Manager.GetProgress(id).Should().BeNull();
+        Manager.GetConnections(id).Should().BeEmpty();
+    }
+
+    [Fact]
     public async Task LateProgressReport_AfterCompletion_CannotResurrectTheDownload()
     {
         long id = await EnqueueMediaAsync();

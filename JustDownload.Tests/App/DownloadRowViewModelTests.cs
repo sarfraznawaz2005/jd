@@ -91,6 +91,62 @@ public sealed class DownloadRowViewModelTests
     }
 
     [Fact]
+    public void ApplyProgress_WhilePostProcessing_NamesTheWorkInsteadOfShowingAFrozenCount()
+    {
+        var row = new DownloadRowViewModel(Record(total: null), Now, FileCategory.Video);
+        row.ApplyProgress(DownloadProgress.Create(
+            DownloadStatus.Active, 112_114_345, totalBytes: null, 442_000, resumable: false, connections: 1));
+
+        row.ApplyProgress(new DownloadProgress
+        {
+            Status = DownloadStatus.Active,
+            DownloadedBytes = 112_114_345,
+            BytesPerSecond = 0,
+            Phase = DownloadPhase.Processing,
+        });
+
+        row.StatusLabel.Should().Be("Merging streams…");
+        row.IsProgressIndeterminate.Should().BeTrue("the merge has no measurable progress");
+        row.ShowProgressBar.Should().BeTrue("work is still happening, it just can't be measured");
+        row.SpeedDisplay.Should().Be("—", "no bytes move while streams are being joined");
+    }
+
+    [Fact]
+    public void ApplyProgress_PostProcessingAKnownSizeDownload_StillDropsTheStalePercentage()
+    {
+        // HLS counts segments, so its transfer has a real fraction — but that fraction says nothing about
+        // how far the mux has got, and leaving the bar at 100% would claim the download was done.
+        var row = new DownloadRowViewModel(Record(), Now, FileCategory.Video);
+
+        row.ApplyProgress(new DownloadProgress
+        {
+            Status = DownloadStatus.Active,
+            DownloadedBytes = 55_050_240,
+            Fraction = 1.0,
+            Phase = DownloadPhase.Processing,
+        });
+
+        row.StatusLabel.Should().Be("Merging streams…");
+        row.IsProgressIndeterminate.Should().BeTrue();
+    }
+
+    [Fact]
+    public void ApplyStatus_AfterPostProcessingBegan_KeepsNamingTheWork()
+    {
+        var row = new DownloadRowViewModel(Record(total: null), Now, FileCategory.Video);
+        row.ApplyProgress(new DownloadProgress
+        {
+            Status = DownloadStatus.Active,
+            DownloadedBytes = 112_114_345,
+            Phase = DownloadPhase.Processing,
+        });
+
+        row.ApplyStatus(DownloadStatus.Active);
+
+        row.StatusLabel.Should().Be("Merging streams…", "a bare status change must not reset the phase");
+    }
+
+    [Fact]
     public void ApplyProgress_WhenTheTotalIsFinallyRevealed_AdoptsItIntoTheSizeColumn()
     {
         var row = new DownloadRowViewModel(Record(total: null), Now, FileCategory.Video);

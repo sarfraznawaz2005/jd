@@ -46,4 +46,9 @@ public class FakeDownloadManager : IDownloadManager
     public virtual DownloadProgress? GetProgress(long id) => null;
 
     public virtual IReadOnlyList<ConnectionStat> GetConnections(long id) => [];
+
+    /// <summary>Ids passed to <see cref="Forget"/>, so tests can assert the cleanup happened.</summary>
+    public List<long> Forgotten { get; } = [];
+
+    public virtual void Forget(long id) => Forgotten.Add(id);
 }

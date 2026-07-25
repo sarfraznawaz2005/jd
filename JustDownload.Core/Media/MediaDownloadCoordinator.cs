@@ -42,6 +42,13 @@ internal sealed class MediaDownloadCoordinator : IMediaDownloadCoordinator
         _mediaMuxer = mediaMuxer;
     }
 
+    /// <summary>
+    /// Announces the local join/mux step, carrying the byte total forward unchanged — no more bytes will be
+    /// fetched, and the caller needs the count to stay put rather than reset while the step runs.
+    /// </summary>
+    private static void ReportCombining(IProgress<MediaDownloadProgress>? progress, long downloadedBytes) =>
+        progress?.Report(new MediaDownloadProgress(0, downloadedBytes, MediaDownloadPhase.Combining));
+
     public Task<MediaDownloadOutcome> DownloadAsync(
         MediaDownloadRequest request,
         IProgress<MediaDownloadProgress>? progress = null,
@@ -72,6 +79,7 @@ internal sealed class MediaDownloadCoordinator : IMediaDownloadCoordinator
             .DownloadAsync(request.MediaUrl, request.WorkingDirectory, request.Headers, hlsProgress, cancellationToken)
             .ConfigureAwait(false);
 
+        ReportCombining(progress, download.TotalBytes);
         await _hlsConcatenator
             .ConcatenateAsync(download.SegmentFiles, request.OutputPath, progress: null, cancellationToken)
             .ConfigureAwait(false);
@@ -130,6 +138,7 @@ internal sealed class MediaDownloadCoordinator : IMediaDownloadCoordinator
                 ?? new InvalidOperationException("A media stream failed to download.");
         }
 
+        ReportCombining(progress, videoBytes + audioBytes);
         await _mediaMuxer.MuxAsync(
             new MuxRequest
             {
@@ -173,6 +182,7 @@ internal sealed class MediaDownloadCoordinator : IMediaDownloadCoordinator
             cancellationToken).ConfigureAwait(false);
 
         string videoStreamPath = Path.Combine(request.WorkingDirectory, "video.stream");
+        ReportCombining(progress, videoBytes + audioBytes);
         await _hlsConcatenator.ConcatenateAsync(
             videoSegments.SegmentFiles, videoStreamPath, progress: null, cancellationToken).ConfigureAwait(false);
 
@@ -191,6 +201,7 @@ internal sealed class MediaDownloadCoordinator : IMediaDownloadCoordinator
             cancellationToken).ConfigureAwait(false);
 
         string audioStreamPath = Path.Combine(request.WorkingDirectory, "audio.stream");
+        ReportCombining(progress, videoBytes + audioBytes);
         await _hlsConcatenator.ConcatenateAsync(
             audioSegments.SegmentFiles, audioStreamPath, progress: null, cancellationToken).ConfigureAwait(false);
 

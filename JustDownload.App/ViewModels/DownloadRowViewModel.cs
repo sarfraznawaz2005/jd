@@ -61,6 +61,9 @@ public sealed partial class DownloadRowViewModel : ViewModelBase
     /// <summary>Bytes fetched so far, so a bare status change can keep showing the unknown-size measure.</summary>
     private long _downloadedBytes;
 
+    /// <summary>The last reported phase, so a bare status change doesn't silently reset it to Transferring.</summary>
+    private DownloadPhase _phase;
+
     public DownloadRowViewModel(Download download, DateTimeOffset now, FileCategory category)
     {
         ArgumentNullException.ThrowIfNull(download);
@@ -148,8 +151,9 @@ public sealed partial class DownloadRowViewModel : ViewModelBase
         ArgumentNullException.ThrowIfNull(progress);
         Status = progress.Status;
         _downloadedBytes = progress.DownloadedBytes;
-        StatusLabel = BuildLabel(progress.Status, progress.Fraction, progress.DownloadedBytes);
-        IsProgressIndeterminate = IsIndeterminate(progress.Status, progress.Fraction);
+        _phase = progress.Phase;
+        StatusLabel = BuildLabel(progress.Status, progress.Fraction, progress.DownloadedBytes, progress.Phase);
+        IsProgressIndeterminate = IsIndeterminate(progress.Status, progress.Fraction, progress.Phase);
         ShowProgressBar = HasBar(progress.Status) && (progress.Fraction is not null || IsProgressIndeterminate);
         ProgressPercent = progress.Fraction is { } f ? Math.Clamp(f * 100, 0, 100) : 0;
         SpeedDisplay = progress.Status == DownloadStatus.Active ? ByteFormatter.FormatSpeed(progress.BytesPerSecond) : "—";
@@ -172,8 +176,8 @@ public sealed partial class DownloadRowViewModel : ViewModelBase
     {
         Status = status;
         double? fraction = ProgressPercent > 0 ? ProgressPercent / 100 : null;
-        StatusLabel = BuildLabel(status, fraction, _downloadedBytes);
-        IsProgressIndeterminate = IsIndeterminate(status, fraction);
+        StatusLabel = BuildLabel(status, fraction, _downloadedBytes, _phase);
+        IsProgressIndeterminate = IsIndeterminate(status, fraction, _phase);
         ShowProgressBar = HasBar(status) && (fraction is not null || IsProgressIndeterminate);
         if (status != DownloadStatus.Active)
         {
@@ -186,10 +190,21 @@ public sealed partial class DownloadRowViewModel : ViewModelBase
     /// Builds the status cell's label, pairing the state with the best measure of how far it has got:
     /// a percentage when the total size is known (<c>Downloading · 33%</c>, <c>Paused · 74%</c>), otherwise
     /// the bytes fetched so far (<c>Downloading · 106.9 MB</c>) so an unknown-size download still shows it is
-    /// making headway. Pure.
+    /// making headway. A download past its transfer names the work it is actually doing instead. Pure.
     /// </summary>
-    public static string BuildLabel(DownloadStatus status, double? fraction, long downloadedBytes = 0)
+    public static string BuildLabel(
+        DownloadStatus status,
+        double? fraction,
+        long downloadedBytes = 0,
+        DownloadPhase phase = DownloadPhase.Transferring)
     {
+        if (status == DownloadStatus.Active && phase == DownloadPhase.Processing)
+        {
+            // Joining segments and muxing streams moves no bytes, so any measure here would sit frozen and
+            // read as a stalled download (user-reported).
+            return "Merging streams…";
+        }
+
         string? measure = fraction is { } f
             ? Math.Round(Math.Clamp(f, 0, 1) * 100).ToString("0", CultureInfo.InvariantCulture) + "%"
             : downloadedBytes > 0 ? ByteFormatter.FormatSize(downloadedBytes) : null;
@@ -210,11 +225,12 @@ public sealed partial class DownloadRowViewModel : ViewModelBase
         status is DownloadStatus.Active or DownloadStatus.Paused;
 
     /// <summary>
-    /// A marquee is only honest while bytes are actually moving: a paused unknown-size download keeps no bar
-    /// at all rather than animating as though it were still transferring.
+    /// A marquee is only honest while work is actually happening: a paused unknown-size download keeps no bar
+    /// at all rather than animating as though it were still transferring. Post-processing is unmeasurable
+    /// work in progress, so it runs the marquee even for a source whose transfer had a percentage.
     /// </summary>
-    private static bool IsIndeterminate(DownloadStatus status, double? fraction) =>
-        status == DownloadStatus.Active && fraction is null;
+    private static bool IsIndeterminate(DownloadStatus status, double? fraction, DownloadPhase phase) =>
+        status == DownloadStatus.Active && (fraction is null || phase == DownloadPhase.Processing);
 
     private static string FormatSize(long? totalBytes) =>
         totalBytes is > 0 ? ByteFormatter.FormatSize(totalBytes.Value) : "—";

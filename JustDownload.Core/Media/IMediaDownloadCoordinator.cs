@@ -28,8 +28,25 @@ public sealed record MediaDownloadRequest
     public IReadOnlyList<KeyValuePair<string, string>> Headers { get; init; } = [];
 }
 
+/// <summary>
+/// Which part of a media download is running (TASK-154). The local join/mux step follows the last fetched
+/// byte and can take a while on a large file, so it is reported distinctly rather than left looking like a
+/// transfer that stopped making progress.
+/// </summary>
+public enum MediaDownloadPhase
+{
+    /// <summary>Fetching segments or streams from the network.</summary>
+    Downloading,
+
+    /// <summary>Joining the fetched segments and muxing the streams into the output container.</summary>
+    Combining,
+}
+
 /// <summary>Progress of a media download (TASK-154): a 0–1 fraction by segment count and the running byte total.</summary>
-public readonly record struct MediaDownloadProgress(double Fraction, long DownloadedBytes);
+public readonly record struct MediaDownloadProgress(
+    double Fraction,
+    long DownloadedBytes,
+    MediaDownloadPhase Phase = MediaDownloadPhase.Downloading);
 
 /// <summary>The outcome of a media download (TASK-154): the total bytes written to the output file.</summary>
 public sealed record MediaDownloadOutcome(long TotalBytes);

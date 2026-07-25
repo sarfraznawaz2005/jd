@@ -106,6 +106,10 @@ public sealed partial class DownloadActionsService : IDownloadActions, IDisposab
         }
 
         await _repository.DeleteAsync(id, cancellationToken).ConfigureAwait(false);
+
+        // The record is gone; the engine's in-memory snapshot and connection stats for it must go too, or
+        // they linger for the rest of the session describing a download that no longer exists.
+        _manager.Forget(id);
     }
 
     public void Dispose()

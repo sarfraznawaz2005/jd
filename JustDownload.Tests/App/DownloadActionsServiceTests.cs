@@ -58,4 +58,26 @@ public sealed class DownloadActionsServiceTests
         await secrets.DidNotReceive().DeleteAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
         await repository.Received(1).DeleteAsync(3, Arg.Any<CancellationToken>());
     }
+
+    [Fact]
+    public async Task RemoveAsync_DropsTheEnginesInMemoryStateForTheDownload()
+    {
+        var manager = Substitute.For<IDownloadManager>();
+        var repository = Substitute.For<IDownloadRepository>();
+        var secrets = Substitute.For<ISecretStore>();
+        repository.GetAsync(9, Arg.Any<CancellationToken>()).Returns(Task.FromResult<Download?>(new Download
+        {
+            Url = "https://example.com/z",
+            Status = DownloadStatusCodes.Completed,
+        }));
+
+        using var service = new DownloadActionsService(
+            manager, repository, secrets, NullLogger<DownloadActionsService>.Instance);
+
+        await service.RemoveAsync(9);
+
+        // Progress snapshots and connection stats are keyed by id and would otherwise describe a deleted
+        // download for the rest of the session.
+        manager.Received(1).Forget(9);
+    }
 }

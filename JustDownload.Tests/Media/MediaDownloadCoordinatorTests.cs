@@ -198,6 +198,59 @@ public sealed class MediaDownloadCoordinatorTests : IDisposable
         await mux.DidNotReceive().MuxAsync(Arg.Any<MuxRequest>(), Arg.Any<IProgress<FfmpegProgress>?>(), Arg.Any<CancellationToken>());
     }
 
+    [Fact]
+    public async Task SeparateStreams_AnnouncesTheCombiningPhase_BeforeMuxing()
+    {
+        var sep = Substitute.For<ISeparateStreamDownloader>();
+        sep.DownloadAsync(Arg.Any<StreamDownloadRequest>(), Arg.Any<StreamDownloadRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new SeparateStreamResult(
+                Ok(StreamRole.Video, Path.Combine(_dir, "work", "video.stream"), 7000),
+                Ok(StreamRole.Audio, Path.Combine(_dir, "work", "audio.stream"), 3000)));
+
+        var mux = Substitute.For<IMediaMuxer>();
+        bool combiningAnnouncedBeforeMux = false;
+        mux.MuxAsync(Arg.Any<MuxRequest>(), Arg.Any<IProgress<FfmpegProgress>?>(), Arg.Any<CancellationToken>())
+            .Returns(_ => new MuxResult(Path.Combine(_dir, "out.mkv"), MediaContainer.Mkv));
+
+        var reports = new List<MediaDownloadProgress>();
+        var progress = new SynchronousProgress(p =>
+        {
+            reports.Add(p);
+            if (p.Phase == MediaDownloadPhase.Combining)
+            {
+                combiningAnnouncedBeforeMux = mux.ReceivedCalls().Any() is false;
+            }
+        });
+
+        await Build(sep, mux).DownloadAsync(
+            new MediaDownloadRequest
+            {
+                Kind = MediaKind.SeparateStreams,
+                MediaUrl = new Uri("https://x.example/video"),
+                AudioUrl = new Uri("https://x.example/audio"),
+                OutputPath = Path.Combine(_dir, "out.mkv"),
+                WorkingDirectory = Path.Combine(_dir, "work"),
+            },
+            progress);
+
+        reports.Should().Contain(p => p.Phase == MediaDownloadPhase.Combining);
+        combiningAnnouncedBeforeMux.Should().BeTrue(
+            "the mux is the slow step — saying so afterwards would be too late to help");
+    }
+
+    /// <summary>
+    /// A direct <see cref="IProgress{T}"/> so reports are observed inline and in order — <see cref="Progress{T}"/>
+    /// would hand them to a captured context and make the ordering assertion above unverifiable.
+    /// </summary>
+    private sealed class SynchronousProgress : IProgress<MediaDownloadProgress>
+    {
+        private readonly Action<MediaDownloadProgress> _onReport;
+
+        public SynchronousProgress(Action<MediaDownloadProgress> onReport) => _onReport = onReport;
+
+        public void Report(MediaDownloadProgress value) => _onReport(value);
+    }
+
     public void Dispose()
     {
         try
