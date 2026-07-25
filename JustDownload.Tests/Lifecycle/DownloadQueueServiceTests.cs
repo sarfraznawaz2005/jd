@@ -1,4 +1,3 @@
-using JustDownload.Tests.Fakes;
 using System.Collections.Concurrent;
 using FluentAssertions;
 using JustDownload.Core;
@@ -9,6 +8,7 @@ using JustDownload.Core.Data.Repositories;
 using JustDownload.Core.Downloading;
 using JustDownload.Core.Lifecycle;
 using JustDownload.Core.Settings;
+using JustDownload.Tests.Fakes;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;

@@ -1,4 +1,3 @@
-using JustDownload.Tests.Fakes;
 using System.IO.Compression;
 using FluentAssertions;
 using JustDownload.App.Services;
@@ -8,6 +7,7 @@ using JustDownload.Core.Downloading;
 using JustDownload.Core.Lifecycle;
 using JustDownload.Core.PostProcess;
 using JustDownload.Core.Settings;
+using JustDownload.Tests.Fakes;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 using Xunit;

@@ -1,8 +1,8 @@
-using JustDownload.Tests.Fakes;
 using System.Collections.Concurrent;
 using FluentAssertions;
 using JustDownload.Core.Downloading;
 using JustDownload.Core.Lifecycle;
+using JustDownload.Tests.Fakes;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 

@@ -1,4 +1,3 @@
-using JustDownload.Tests.Fakes;
 using Avalonia.Controls;
 using FluentAssertions;
 using JustDownload.App.Services;
@@ -7,6 +6,7 @@ using JustDownload.Core.Data.Repositories;
 using JustDownload.Core.Downloading;
 using JustDownload.Core.Lifecycle;
 using JustDownload.Core.Settings;
+using JustDownload.Tests.Fakes;
 using NSubstitute;
 using Xunit;
 

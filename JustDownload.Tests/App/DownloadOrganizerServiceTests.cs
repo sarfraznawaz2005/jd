@@ -1,4 +1,3 @@
-using JustDownload.Tests.Fakes;
 using FluentAssertions;
 using JustDownload.App.Services;
 using JustDownload.Core.Categorization;
@@ -6,6 +5,7 @@ using JustDownload.Core.Data.Models;
 using JustDownload.Core.Data.Repositories;
 using JustDownload.Core.Downloading;
 using JustDownload.Core.Lifecycle;
+using JustDownload.Tests.Fakes;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 using Xunit;
