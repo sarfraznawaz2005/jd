@@ -139,6 +139,13 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 
 ## 2. Definition of Done — quality gates (run AFTER each task, before marking done)
 
+> **Gates 2 and 3 are run ON REQUEST, not automatically.** Do **not** kick off the full `dotnet test`
+> suite or `dotnet format` on your own initiative — wait until asked. A targeted `dotnet build` and a
+> narrowly-filtered test run (`--filter`) to verify the change in front of you are always fine and
+> expected. When you stop, **state plainly that the full suite and format check have not been run yet**
+> so the reported state stays honest. The gates below still define done; the user decides when the
+> expensive ones execute.
+
 A task is not finished until **all** of these pass, with concrete evidence recorded:
 
 1. **Build** — `dotnet build -c Release` with **analyzers on and warnings-as-errors**, zero warnings.
@@ -160,6 +167,10 @@ A task is not finished until **all** of these pass, with concrete evidence recor
 8. **Commit** — once 1–7 pass, **commit the change** (§8).
 
 If a gate can't pass, the task is **not done** — note why and either fix it or hand it back with a reason.
+
+**Windows shell note:** the Bash tool is Git Bash — PowerShell here-strings (`@'…'@`) are **not** valid
+there and will leak `@` characters into whatever you are writing. For multi-line commit messages from
+Bash use a heredoc (`git commit -F - <<'EOF'`); use `@'…'@` only in the PowerShell tool.
 
 ## 3. Testing
 

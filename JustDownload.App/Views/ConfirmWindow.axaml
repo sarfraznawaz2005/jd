@@ -1,0 +1,28 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:JustDownload.App.ViewModels"
+        x:Class="JustDownload.App.Views.ConfirmWindow"
+        x:DataType="vm:ConfirmViewModel"
+        Title="{Binding Heading}"
+        Width="420" SizeToContent="Height"
+        MinWidth="380"
+        CanResize="False"
+        WindowStartupLocation="CenterOwner"
+        Background="{DynamicResource CardBrush}">
+
+  <StackPanel Margin="20" Spacing="14">
+
+    <TextBlock Text="{Binding Heading}" FontSize="16" FontWeight="SemiBold"
+               Foreground="{DynamicResource TextBrush}" />
+
+    <TextBlock Text="{Binding Message}" TextWrapping="Wrap" Foreground="{DynamicResource TextBrush}" />
+
+    <!-- Cancel is the default and Escape maps to it: the confirm button drives a destructive action, so a
+         stray Enter must not trigger it. -->
+    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+      <Button Classes="App" Content="Cancel" Command="{Binding CancelCommand}"
+              IsDefault="True" IsCancel="True" />
+      <Button Classes="App Danger" Content="{Binding ConfirmLabel}" Command="{Binding ConfirmCommand}" />
+    </StackPanel>
+  </StackPanel>
+</Window>

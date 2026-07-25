@@ -27,6 +27,7 @@ public sealed partial class DownloadRowViewModel : ViewModelBase
     [NotifyPropertyChangedFor(nameof(CanResume))]
     [NotifyPropertyChangedFor(nameof(CanPause))]
     [NotifyPropertyChangedFor(nameof(CanRenew))]
+    [NotifyPropertyChangedFor(nameof(CanRestart))]
     [NotifyPropertyChangedFor(nameof(CanOpenFile))]
     private DownloadStatus _status;
 
@@ -114,6 +115,12 @@ public sealed partial class DownloadRowViewModel : ViewModelBase
 
     /// <summary>Renew is offered when the link has expired (or failed and may need a fresh URL).</summary>
     public bool CanRenew => Status is DownloadStatus.Expired or DownloadStatus.Failed;
+
+    /// <summary>
+    /// Re-download (fetch again from byte zero) is offered for anything not currently transferring — an
+    /// active download must be paused first so its workers release the destination file.
+    /// </summary>
+    public bool CanRestart => Status != DownloadStatus.Active;
 
     /// <summary>The completed file can be opened from disk.</summary>
     public bool CanOpenFile => Status == DownloadStatus.Completed && FilePath is not null;

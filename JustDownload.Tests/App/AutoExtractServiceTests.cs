@@ -1,3 +1,4 @@
+using JustDownload.Tests.Fakes;
 using System.IO.Compression;
 using FluentAssertions;
 using JustDownload.App.Services;
@@ -24,29 +25,12 @@ public sealed class AutoExtractServiceTests : IDisposable
 
     public AutoExtractServiceTests() => Directory.CreateDirectory(_dir);
 
-    private sealed class FakeManager : IDownloadManager
-    {
-        public event EventHandler<DownloadStatusChangedEventArgs>? StatusChanged;
-
-#pragma warning disable CS0067
-        public event EventHandler<DownloadProgressChangedEventArgs>? ProgressChanged;
-#pragma warning restore CS0067
-
-        public void Raise(long id, DownloadStatus current) =>
-            StatusChanged?.Invoke(this, new DownloadStatusChangedEventArgs(id, DownloadStatus.Active, current));
-
-        public Task<long> EnqueueAsync(EnqueueDownloadRequest r, CancellationToken ct = default) => throw new NotSupportedException();
-        public Task<DownloadResult> StartAsync(long id, CancellationToken ct = default) => throw new NotSupportedException();
-        public Task<DownloadResult> RenewAsync(long id, Uri u, CancellationToken ct = default) => throw new NotSupportedException();
-        public DownloadProgress? GetProgress(long id) => null;
-        public IReadOnlyList<ConnectionStat> GetConnections(long id) => [];
-    }
 
     [Fact]
     public async Task Completed_Zip_WithSettingOn_IsExtracted()
     {
         string zipPath = WriteZip("bundle.zip");
-        var manager = new FakeManager();
+        var manager = new FakeDownloadManager();
         using var service = new AutoExtractService(
             manager, RepoFor("bundle.zip"), new ArchiveExtractor(), Settings(on: true),
             NullLogger<AutoExtractService>.Instance);
@@ -63,7 +47,7 @@ public sealed class AutoExtractServiceTests : IDisposable
     public async Task Completed_Zip_WithSettingOff_IsNotExtracted()
     {
         WriteZip("bundle.zip");
-        var manager = new FakeManager();
+        var manager = new FakeDownloadManager();
         using var service = new AutoExtractService(
             manager, RepoFor("bundle.zip"), new ArchiveExtractor(), Settings(on: false),
             NullLogger<AutoExtractService>.Instance);
@@ -78,7 +62,7 @@ public sealed class AutoExtractServiceTests : IDisposable
     [Fact]
     public async Task Completed_NonArchive_IsIgnored()
     {
-        var manager = new FakeManager();
+        var manager = new FakeDownloadManager();
         using var service = new AutoExtractService(
             manager, RepoFor("video.mp4"), new ArchiveExtractor(), Settings(on: true),
             NullLogger<AutoExtractService>.Instance);

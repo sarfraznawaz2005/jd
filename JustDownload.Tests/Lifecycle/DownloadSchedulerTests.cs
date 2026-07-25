@@ -43,30 +43,6 @@ public sealed class DownloadSchedulerTests
             Task.CompletedTask;
     }
 
-    private sealed class FakeManager : IDownloadManager
-    {
-        public event EventHandler<DownloadStatusChangedEventArgs>? StatusChanged;
-
-#pragma warning disable CS0067
-        public event EventHandler<DownloadProgressChangedEventArgs>? ProgressChanged;
-#pragma warning restore CS0067
-
-        public void Raise(DownloadStatus current) =>
-            StatusChanged?.Invoke(this, new DownloadStatusChangedEventArgs(1, DownloadStatus.Active, current));
-
-        public Task<long> EnqueueAsync(EnqueueDownloadRequest request, CancellationToken ct = default) =>
-            throw new NotSupportedException();
-
-        public Task<DownloadResult> StartAsync(long id, CancellationToken ct = default) =>
-            throw new NotSupportedException();
-
-        public Task<DownloadResult> RenewAsync(long id, Uri newUrl, CancellationToken ct = default) =>
-            throw new NotSupportedException();
-
-        public DownloadProgress? GetProgress(long id) => null;
-
-        public IReadOnlyList<ConnectionStat> GetConnections(long id) => [];
-    }
 
     private sealed class FakeRepo : IDownloadRepository
     {
@@ -135,12 +111,12 @@ public sealed class DownloadSchedulerTests
     }
 
     private sealed record Harness(
-        DownloadScheduler Scheduler, FakeQueue Queue, FakeManager Manager, FakeRepo Repo, FakePower Power, TestClock Clock);
+        DownloadScheduler Scheduler, FakeQueue Queue, FakeDownloadManager Manager, FakeRepo Repo, FakePower Power, TestClock Clock);
 
     private static Harness Build()
     {
         var queue = new FakeQueue();
-        var manager = new FakeManager();
+        var manager = new FakeDownloadManager();
         var repo = new FakeRepo();
         var power = new FakePower();
         var clock = new TestClock();
@@ -205,10 +181,10 @@ public sealed class DownloadSchedulerTests
         scheduler.CompletionAction = QueueCompletionAction.Shutdown;
         // Queue is empty: nothing running, nothing queued.
 
-        h.Manager.Raise(DownloadStatus.Completed);
+        h.Manager.Raise(1, DownloadStatus.Completed);
         await WaitUntilAsync(() => h.Power.Shutdowns > 0, TimeSpan.FromSeconds(2));
 
-        h.Manager.Raise(DownloadStatus.Completed); // another terminal event must not power off twice
+        h.Manager.Raise(1, DownloadStatus.Completed); // another terminal event must not power off twice
         await Task.Delay(100);
 
         h.Power.Shutdowns.Should().Be(1, "the completion action fires exactly once per scheduled session");
@@ -222,7 +198,7 @@ public sealed class DownloadSchedulerTests
         using DownloadScheduler scheduler = h.Scheduler;
         scheduler.CompletionAction = QueueCompletionAction.Sleep;
 
-        h.Manager.Raise(DownloadStatus.Completed);
+        h.Manager.Raise(1, DownloadStatus.Completed);
         await WaitUntilAsync(() => h.Power.Sleeps > 0, TimeSpan.FromSeconds(2));
 
         h.Power.Sleeps.Should().Be(1);
@@ -236,7 +212,7 @@ public sealed class DownloadSchedulerTests
         scheduler.CompletionAction = QueueCompletionAction.Shutdown;
         h.Repo.Queued.Add(new Download { Url = "u", Status = DownloadStatusCodes.Queued }); // still queued work
 
-        h.Manager.Raise(DownloadStatus.Completed);
+        h.Manager.Raise(1, DownloadStatus.Completed);
         await Task.Delay(150);
 
         h.Power.Shutdowns.Should().Be(0, "the queue is not drained while work remains");
@@ -246,14 +222,14 @@ public sealed class DownloadSchedulerTests
     public async Task CompletionActionFailure_IsCaughtAndLogged()
     {
         var queue = new FakeQueue();
-        var manager = new FakeManager();
+        var manager = new FakeDownloadManager();
         var repo = new FakeRepo();
         var power = new ThrowingPower();
         var logger = new RecordingLogger<DownloadScheduler>();
         using var scheduler = new DownloadScheduler(queue, manager, repo, power, new TestClock(), logger);
         scheduler.CompletionAction = QueueCompletionAction.Shutdown; // queue is empty, so it will try to power off
 
-        manager.Raise(DownloadStatus.Completed);
+        manager.Raise(1, DownloadStatus.Completed);
         await WaitUntilAsync(() => logger.Levels.Contains(LogLevel.Error), TimeSpan.FromSeconds(2));
 
         logger.Levels.Should().Contain(LogLevel.Error,
@@ -267,7 +243,7 @@ public sealed class DownloadSchedulerTests
         using DownloadScheduler scheduler = h.Scheduler;
         // CompletionAction defaults to None.
 
-        h.Manager.Raise(DownloadStatus.Completed);
+        h.Manager.Raise(1, DownloadStatus.Completed);
         await Task.Delay(150);
 
         h.Power.Shutdowns.Should().Be(0);

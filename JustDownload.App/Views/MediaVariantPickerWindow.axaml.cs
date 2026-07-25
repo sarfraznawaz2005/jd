@@ -26,17 +26,20 @@ public partial class MediaVariantPickerWindow : Window
     {
         if (e.Key == Key.Enter)
         {
-            TriggerDetect();
+            // Pressing Enter is an explicit request, so it re-runs even for an unchanged URL (TASK-237).
+            TriggerDetect(force: true);
         }
     }
 
-    private void OnUrlCommitted(object? sender, RoutedEventArgs e) => TriggerDetect();
+    // Focus loss is an implicit commit and fires constantly — whenever a dialog or another control takes
+    // focus — so it must not re-extract a URL that has already been attempted.
+    private void OnUrlCommitted(object? sender, RoutedEventArgs e) => TriggerDetect(force: false);
 
-    private void TriggerDetect()
+    private void TriggerDetect(bool force)
     {
         if (DataContext is MediaVariantPickerViewModel { CanDetect: true } vm)
         {
-            _ = vm.DetectAsync();
+            _ = force ? vm.RedetectAsync() : vm.DetectAsync();
         }
     }
 

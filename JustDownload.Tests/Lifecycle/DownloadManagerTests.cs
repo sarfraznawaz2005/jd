@@ -356,6 +356,114 @@ public sealed class DownloadManagerTests : IDisposable
         await act.Should().ThrowAsync<KeyNotFoundException>();
     }
 
+    /// <summary>
+    /// Re-download (context menu) is the one path that revives a completed download: it re-queues the same
+    /// row, discards the old file, and fetches the whole resource again rather than resuming.
+    /// </summary>
+    [Fact]
+    public async Task RestartAsync_OnCompletedDownload_RefetchesFromScratch_IntoTheSameRow()
+    {
+        byte[] body = Bytes(96 * 1024);
+        await using var server = new LoopbackHttpServer { Body = body, SupportRanges = true };
+
+        long id = await Manager.EnqueueAsync(new EnqueueDownloadRequest
+        {
+            Url = server.Url("file.bin"),
+            DestinationDirectory = _tempDir,
+            FileName = "again.bin",
+            MaxConnections = 4,
+        });
+        await Manager.StartAsync(id);
+
+        string path = Path.Combine(_tempDir, "again.bin");
+        (await Repository.GetAsync(id))!.Status.Should().Be(DownloadStatusCodes.Completed);
+
+        // Corrupt the finished file: only a genuine re-fetch (not a resume, which would consider the byte
+        // count already satisfied) can restore it to the server's bytes.
+        await File.WriteAllBytesAsync(path, [1, 2, 3]);
+
+        var statusEvents = new List<DownloadStatusChangedEventArgs>();
+        Manager.StatusChanged += (_, e) => statusEvents.Add(e);
+
+        DownloadResult result = await Manager.RestartAsync(id);
+
+        result.TotalBytes.Should().Be(body.Length);
+        (await File.ReadAllBytesAsync(path)).Should().Equal(body, "the restart re-fetched every byte");
+
+        Download? saved = await Repository.GetAsync(id);
+        saved!.Id.Should().Be(id, "the restart reuses the same row rather than adding a second one");
+        saved.Status.Should().Be(DownloadStatusCodes.Completed);
+        saved.Error.Should().BeNull();
+
+        // Re-queued first, then run again: complete → queued → active → complete.
+        statusEvents.Select(e => e.Current).Should()
+            .ContainInOrder(DownloadStatus.Queued, DownloadStatus.Active, DownloadStatus.Completed);
+    }
+
+    [Fact]
+    public async Task RestartAsync_ClearsThePersistedCheckpoint_SoNoStaleSegmentsSurvive()
+    {
+        byte[] body = Bytes(96 * 1024);
+        await using var server = new LoopbackHttpServer { Body = body, SupportRanges = true };
+
+        long id = await Manager.EnqueueAsync(new EnqueueDownloadRequest
+        {
+            Url = server.Url("file.bin"),
+            DestinationDirectory = _tempDir,
+            FileName = "checkpoint.bin",
+            MaxConnections = 4,
+        });
+        await Manager.StartAsync(id);
+
+        // A stale "everything already fetched" checkpoint: if the restart kept it, the re-run would skip the
+        // whole range and leave the corrupted file in place.
+        var segments = _provider.GetRequiredService<ISegmentRepository>();
+        await segments.AddAsync(new DownloadSegment
+        {
+            DownloadId = id,
+            Index = 0,
+            Start = 0,
+            End = body.Length - 1,
+            Downloaded = body.Length,
+            State = "complete",
+        });
+        (await segments.GetByDownloadAsync(id)).Should().NotBeEmpty();
+        await File.WriteAllBytesAsync(Path.Combine(_tempDir, "checkpoint.bin"), [9, 9, 9]);
+
+        await Manager.RestartAsync(id);
+
+        (await File.ReadAllBytesAsync(Path.Combine(_tempDir, "checkpoint.bin"))).Should()
+            .Equal(body, "the stale checkpoint was discarded, so every byte was fetched again");
+    }
+
+    /// <summary>
+    /// An in-flight transfer still owns the destination file handle, so a restart must refuse rather than
+    /// delete the file out from under its own workers.
+    /// </summary>
+    [Fact]
+    public async Task RestartAsync_OnActiveDownload_IsRefused()
+    {
+        await using var server = new LoopbackHttpServer
+        {
+            Body = Bytes(32 * 1024),
+            SupportRanges = true,
+            ResponseDelay = TimeSpan.FromMilliseconds(400), // holds it Active long enough to race the restart
+        };
+        (long id, Task run) = await StartActiveAsync(server.Url("file.bin"), _tempDir, "busy.bin");
+
+        Func<Task> act = () => Manager.RestartAsync(id);
+        await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("*pause it first*");
+
+        await run;
+    }
+
+    [Fact]
+    public async Task RestartAsync_UnknownId_Throws()
+    {
+        Func<Task> act = async () => await Manager.RestartAsync(99999);
+        await act.Should().ThrowAsync<KeyNotFoundException>();
+    }
+
     // ---- Destination-collision guard (TASK-229) ----
     //
     // PreallocatedFile opens the output file with FileShare.ReadWrite (needed for one download's own

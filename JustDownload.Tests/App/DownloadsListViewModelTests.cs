@@ -40,8 +40,8 @@ public sealed class DownloadsListViewModelTests
                 .Returns(Task.FromResult<IReadOnlyList<Download>>(Array.Empty<Download>()));
         }
 
-        public DownloadsListViewModel Build() =>
-            new(Repository, Manager, Actions, Clipboard, Revealer, Categorizer, Clock);
+        public DownloadsListViewModel Build(Func<DownloadRowViewModel, Task<bool>>? confirmRedownload = null) =>
+            new(Repository, Manager, Actions, Clipboard, Revealer, Categorizer, Clock, confirmRedownload);
     }
 
     private static Download Record(long id, string status = DownloadStatusCodes.Paused) => new()
@@ -192,6 +192,77 @@ public sealed class DownloadsListViewModelTests
         vm.PauseCommand.CanExecute(null).Should().BeTrue();
         vm.PauseCommand.Execute(null);
         h.Actions.Received(1).Pause(9);
+    }
+
+    /// <summary>
+    /// "Re-download" (context menu) is the only action offered on a finished download that runs it again —
+    /// Resume cannot, because Completed is terminal. It stays available in every state except Active.
+    /// </summary>
+    [AvaloniaFact]
+    public async Task RestartCommand_IsOfferedForCompleted_AndDrivesTheActionSurface()
+    {
+        var h = new Harness();
+        h.Repository.GetAllAsync(Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<Download>>(new[] { Record(9, DownloadStatusCodes.Completed) }));
+        var vm = h.Build();
+        await vm.LoadAsync();
+        vm.SelectedDownload = vm.Downloads[0];
+
+        vm.ResumeCommand.CanExecute(null).Should().BeFalse("a completed download cannot resume");
+        vm.RestartCommand.CanExecute(null).Should().BeTrue("but it can be downloaded again from scratch");
+
+        vm.RestartCommand.Execute(null);
+        h.Actions.Received(1).Restart(9);
+
+        // While transferring there is nothing to restart into — the file is still held open by its workers.
+        vm.Downloads[0].ApplyStatus(DownloadStatus.Active);
+        vm.RestartCommand.CanExecute(null).Should().BeFalse("an active download must be paused first");
+
+        vm.Downloads[0].ApplyStatus(DownloadStatus.Paused);
+        vm.RestartCommand.CanExecute(null).Should().BeTrue();
+    }
+
+    /// <summary>
+    /// Re-download deletes the finished file before re-fetching, which cannot be undone — so declining the
+    /// confirmation must leave the engine completely untouched.
+    /// </summary>
+    [AvaloniaFact]
+    public async Task RestartCommand_DecliningTheConfirmation_LeavesTheFileAlone()
+    {
+        var h = new Harness();
+        h.Repository.GetAllAsync(Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<Download>>(new[] { Record(9, DownloadStatusCodes.Completed) }));
+
+        DownloadRowViewModel? asked = null;
+        var vm = h.Build(confirmRedownload: row =>
+        {
+            asked = row;
+            return Task.FromResult(false);
+        });
+        await vm.LoadAsync();
+        vm.SelectedDownload = vm.Downloads[0];
+
+        await vm.RestartCommand.ExecuteAsync(null);
+
+        asked.Should().NotBeNull("the user must be asked before their file is discarded");
+        asked!.Id.Should().Be(9);
+        h.Actions.DidNotReceive().Restart(Arg.Any<long>());
+    }
+
+    [AvaloniaFact]
+    public async Task RestartCommand_AcceptingTheConfirmation_RestartsTheDownload()
+    {
+        var h = new Harness();
+        h.Repository.GetAllAsync(Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<Download>>(new[] { Record(9, DownloadStatusCodes.Completed) }));
+
+        var vm = h.Build(confirmRedownload: _ => Task.FromResult(true));
+        await vm.LoadAsync();
+        vm.SelectedDownload = vm.Downloads[0];
+
+        await vm.RestartCommand.ExecuteAsync(null);
+
+        h.Actions.Received(1).Restart(9);
     }
 
     [AvaloniaFact]

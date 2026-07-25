@@ -18,4 +18,12 @@ public sealed record PendingLink
 
     /// <summary>The detected media kind (hls/dash/video/audio), if any.</summary>
     public string? MediaKind { get; init; }
+
+    /// <summary>
+    /// Whether <see cref="Url"/> is a *page* to run the extractor pipeline on rather than a direct media URL
+    /// (TASK-232). The extension sets this for MediaSource-backed sites it deliberately does not guess at —
+    /// YouTube serves everything over SABR, where no fetchable stream URL exists for it to sniff — so the
+    /// app resolves the real streams itself via <c>IMediaExtractorRegistry</c>.
+    /// </summary>
+    public bool Extract { get; init; }
 }

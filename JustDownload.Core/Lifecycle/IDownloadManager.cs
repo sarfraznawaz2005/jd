@@ -45,6 +45,20 @@ public interface IDownloadManager
     Task<DownloadResult> RenewAsync(long id, Uri newUrl, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Re-downloads an existing entry from scratch: discards its resume checkpoint and the file already on
+    /// disk, resets the row to <see cref="DownloadStatus.Queued"/>, and fetches the same URL again from byte
+    /// zero into the same destination. This is the only path that can revive a
+    /// <see cref="DownloadStatus.Completed"/> download, and it is a reset rather than a lifecycle transition
+    /// (<see cref="DownloadStateMachine.CanRestart"/>), so the terminal-state guarantee is unaffected.
+    /// </summary>
+    /// <exception cref="KeyNotFoundException">No download exists with that id.</exception>
+    /// <exception cref="InvalidOperationException">
+    /// The download is currently active (pause it first), has no destination resolved, or its existing file
+    /// could not be deleted.
+    /// </exception>
+    Task<DownloadResult> RestartAsync(long id, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// The latest in-memory progress snapshot for a download, or <see langword="null"/> if none has been
     /// observed this session (e.g. it has not started since launch).
     /// </summary>

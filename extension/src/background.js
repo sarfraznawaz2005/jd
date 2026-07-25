@@ -120,7 +120,11 @@ api.webRequest.onBeforeRequest.addListener(
     }
     const kind = JD.classifyMedia(details.url);
     if (kind) {
-      mediaStore.add(details.tabId, { url: details.url, kind });
+      // Normalize away the player's per-chunk params before storing (TASK-232): an MSE player fetches one
+      // segment per request, so the raw URLs address slices rather than the stream, and every slice would
+      // otherwise land as its own store entry — enough to churn straight past the store's per-tab cap on a
+      // page that plays for more than a few seconds. Normalized, they collapse to one entry per stream.
+      mediaStore.add(details.tabId, { url: JD.normalizeMediaUrl(details.url), kind });
     }
   },
   { urls: ["<all_urls>"] },
@@ -181,8 +185,9 @@ api.contextMenus.onClicked.addListener((info, tab) => {
  * @param {{id?: number}=} tab
  * @param {string|null} pageUrl
  * @param {string|null} mediaKind
+ * @param {boolean} extract whether `url` is a page for the app's extractor pipeline (TASK-232)
  */
-async function sendDownload(url, tab, pageUrl, mediaKind = null) {
+async function sendDownload(url, tab, pageUrl, mediaKind = null, extract = false) {
   const cookies = await collectCookieHeader(url);
   const message = JD.buildDownloadMessage({
     url,
@@ -191,6 +196,7 @@ async function sendDownload(url, tab, pageUrl, mediaKind = null) {
     cookies,
     headers: { "User-Agent": navigator.userAgent },
     mediaKind,
+    extract,
   });
   return forwardToApp(message);
 }
@@ -253,6 +259,7 @@ api.runtime.onMessage.addListener((message, sender, sendResponse) => {
         sender?.tab,
         message.pageUrl || sender?.tab?.url || null,
         message.mediaKind,
+        message.extract === true,
       ).then((forwarded) => sendResponse({ ok: true, forwarded }));
       return true; // async response
 

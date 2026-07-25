@@ -58,4 +58,34 @@ public sealed class DownloadStateMachineTests
     {
         DownloadStateMachine.NextStates(DownloadStatus.Completed).Should().BeEmpty();
     }
+
+    /// <summary>
+    /// Re-download resets a download rather than transitioning it, so it is the one way a completed download
+    /// runs again — without making Completed non-terminal for any ordinary transition.
+    /// </summary>
+    [Fact]
+    public void CanRestart_EverythingExceptActive_AndLeavesTheTransitionTableAlone()
+    {
+        DownloadStateMachine.CanRestart(DownloadStatus.Active).Should().BeFalse("its workers still hold the file");
+
+        foreach (DownloadStatus status in Enum.GetValues<DownloadStatus>())
+        {
+            if (status != DownloadStatus.Active)
+            {
+                DownloadStateMachine.CanRestart(status).Should().BeTrue($"{status} can be re-downloaded");
+                DownloadStateMachine.EnsureCanRestart(status).Should().Be(DownloadStatus.Queued);
+            }
+        }
+
+        // The reset must not have been smuggled in as a transition: Completed stays terminal.
+        DownloadStateMachine.IsTerminal(DownloadStatus.Completed).Should().BeTrue();
+        DownloadStateMachine.CanTransition(DownloadStatus.Completed, DownloadStatus.Queued).Should().BeFalse();
+    }
+
+    [Fact]
+    public void EnsureCanRestart_OnActive_Throws()
+    {
+        Action act = () => DownloadStateMachine.EnsureCanRestart(DownloadStatus.Active);
+        act.Should().Throw<InvalidOperationException>().WithMessage("*pause it first*");
+    }
 }

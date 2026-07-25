@@ -4,6 +4,7 @@ using System.Globalization;
 using CommunityToolkit.Mvvm.ComponentModel;
 using JustDownload.App.Services;
 using JustDownload.Core.Categorization;
+using JustDownload.Core.Diagnostics;
 using JustDownload.Core.Lifecycle;
 using JustDownload.Core.Media;
 using JustDownload.Core.Media.Extraction;
@@ -44,8 +45,11 @@ public sealed partial class MediaVariantPickerViewModel : ViewModelBase
     private readonly IDownloadActions _actions;
     private readonly IDownloadFolderProvider _folders;
     private readonly ITosNoticeGate _tosGate;
+    private readonly IGlobalErrorHandler _errors;
     private readonly ILogger<MediaVariantPickerViewModel> _logger;
     private MediaSource? _source;
+    private bool _detecting;
+    private Uri? _lastAttemptedUrl;
 
     [ObservableProperty]
     private string _url = string.Empty;
@@ -59,7 +63,11 @@ public sealed partial class MediaVariantPickerViewModel : ViewModelBase
     [ObservableProperty]
     private MediaKind? _kind;
 
+    // Without this the Download button, bound to CanConfirm, never re-evaluated after the picker was built
+    // and so stayed disabled even with a quality selected (TASK-237). CanConfirm is computed, so choosing a
+    // variant raised no notification of its own.
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanConfirm))]
     private VariantOption? _selectedVariant;
 
     [ObservableProperty]
@@ -75,6 +83,7 @@ public sealed partial class MediaVariantPickerViewModel : ViewModelBase
         IDownloadActions actions,
         IDownloadFolderProvider folders,
         ITosNoticeGate tosGate,
+        IGlobalErrorHandler errors,
         ILogger<MediaVariantPickerViewModel> logger)
     {
         ArgumentNullException.ThrowIfNull(registry);
@@ -83,6 +92,7 @@ public sealed partial class MediaVariantPickerViewModel : ViewModelBase
         ArgumentNullException.ThrowIfNull(actions);
         ArgumentNullException.ThrowIfNull(folders);
         ArgumentNullException.ThrowIfNull(tosGate);
+        ArgumentNullException.ThrowIfNull(errors);
         ArgumentNullException.ThrowIfNull(logger);
         _registry = registry;
         _settings = settings;
@@ -90,6 +100,7 @@ public sealed partial class MediaVariantPickerViewModel : ViewModelBase
         _actions = actions;
         _folders = folders;
         _tosGate = tosGate;
+        _errors = errors;
         _logger = logger;
         _selectedContainer = settings.Current.DefaultContainer;
     }
@@ -119,18 +130,66 @@ public sealed partial class MediaVariantPickerViewModel : ViewModelBase
     /// <summary>Whether a variant is chosen and can be downloaded.</summary>
     public bool CanConfirm => SelectedVariant is not null && _source is not null;
 
-    /// <summary>Extracts the media at the current <see cref="Url"/> (called by the view on commit).</summary>
-    public async Task DetectAsync()
+    /// <summary>
+    /// Extracts the media at the current <see cref="Url"/> (called by the view when the URL box commits, and
+    /// by the shell for a browser hand-off). Deliberately never throws: every caller starts it from a UI
+    /// event and nobody awaits it, so an escaping exception would surface only as a delayed
+    /// <c>UnobservedTaskException</c> on the finalizer thread while the user sat looking at an empty picker
+    /// with a disabled Download button (§1: no silent failures). Failures are reported through the global
+    /// error handler and stated in <see cref="Message"/> instead.
+    /// </summary>
+    public Task DetectAsync() => DetectAsync(force: false);
+
+    /// <summary>
+    /// Re-runs extraction even when the URL has not changed — for an explicit request (the user pressing
+    /// Enter in the URL box), where "nothing happened" would be the wrong answer (TASK-237).
+    /// </summary>
+    public Task RedetectAsync() => DetectAsync(force: true);
+
+    private async Task DetectAsync(bool force)
     {
-        if (TryGetUrl(out Uri? uri))
+        if (!TryGetUrl(out Uri? uri))
+        {
+            return;
+        }
+
+        // The view commits the URL on *every* focus loss, so the same unchanged URL arrives here again and
+        // again — when the picker opens, and each time a dialog or control takes focus. Re-extracting it is
+        // pure waste, and since the ToS notice is raised per extraction the user was shown it a second time
+        // after having already agreed, and again after dismissing it (TASK-237). Remembered even when the
+        // attempt fails or is declined, so a refusal is not re-asked on the next stray focus change.
+        if (!force && uri == _lastAttemptedUrl)
+        {
+            return;
+        }
+
+        _lastAttemptedUrl = uri;
+
+        try
         {
             await LoadAsync(uri).ConfigureAwait(true);
+        }
+        catch (OperationCanceledException)
+        {
+            // Expected when a load is abandoned — not a failure worth reporting.
+        }
+        catch (Exception ex)
+        {
+            _errors.Handle(ex, nameof(DetectAsync));
+            Message = "Couldn't read this page. See the error log for details.";
         }
     }
 
     /// <summary>
     /// Enqueues the chosen variant as a media download (TASK-100): video stream + optional audio + container,
     /// saved into the Video category folder, then starts it. Raises <see cref="CloseRequested"/>.
+    /// <para>
+    /// Enqueue failures are reported rather than thrown (TASK-236). The view calls this from an
+    /// <c>async void</c> click handler, where an escaping exception is not merely swallowed but *fatal* — it
+    /// reaches <see cref="AppDomain.UnhandledException"/> and takes the process down — and this method does
+    /// real database and disk work. On failure the dialog deliberately stays open, showing what went wrong,
+    /// so the user can retry without re-picking a quality.
+    /// </para>
     /// </summary>
     public async Task ConfirmAsync()
     {
@@ -140,20 +199,36 @@ public sealed partial class MediaVariantPickerViewModel : ViewModelBase
             return;
         }
 
-        string videoUrl = SelectedVariant.Variant.Id;
-        var request = new EnqueueDownloadRequest
+        try
         {
-            Url = new Uri(videoUrl),
-            DestinationDirectory = _folders.GetFolderForCategory(FileCategory.Video),
-            FileName = MediaFileName(_source.SuggestedFileName, videoUrl, SelectedContainer),
-            CategoryType = FileCategory.Video.ToString(),
-            MediaKind = Kind,
-            MediaAudioUrl = SelectedAudio is { } audio ? new Uri(audio.Variant.Id) : null,
-            MediaContainer = SelectedContainer,
-        };
+            string videoUrl = SelectedVariant.Variant.Id;
+            var request = new EnqueueDownloadRequest
+            {
+                Url = new Uri(videoUrl),
+                DestinationDirectory = _folders.GetFolderForCategory(FileCategory.Video),
+                FileName = MediaFileName(_source.SuggestedFileName, videoUrl, SelectedContainer),
+                CategoryType = FileCategory.Video.ToString(),
+                MediaKind = Kind,
+                MediaAudioUrl = SelectedAudio is { } audio ? new Uri(audio.Variant.Id) : null,
+                MediaContainer = SelectedContainer,
+            };
 
-        long id = await _manager.EnqueueAsync(request).ConfigureAwait(true);
-        _actions.Start(id);
+            long id = await _manager.EnqueueAsync(request).ConfigureAwait(true);
+            _actions.Start(id);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+        catch (Exception ex)
+        {
+            _errors.Handle(ex, nameof(ConfirmAsync));
+            Message = "Couldn't start this download. See the error log for details.";
+            return;
+        }
+
+        // Raised outside the guard above: a subscriber's own fault is not an enqueue failure, and reporting
+        // it as one would tell the user the download failed when it is already queued and running.
         CloseRequested?.Invoke(this, true);
     }
 
@@ -202,6 +277,32 @@ public sealed partial class MediaVariantPickerViewModel : ViewModelBase
     {
         ArgumentNullException.ThrowIfNull(url);
 
+        // Re-entrancy guard (TASK-234): the view commits the URL — and so calls back in here — whenever the
+        // URL box loses focus, and showing any modal takes that focus away. The ToS notice below is exactly
+        // such a modal, so without this guard it stole focus, the re-entrant call raised a second notice
+        // owned by the first, and the user got a stack of identical dialogs. Covers the gate as well as the
+        // extraction, because the window where a second call does damage opens before IsLoading is set.
+        if (_detecting)
+        {
+            return;
+        }
+
+        _detecting = true;
+        try
+        {
+            await LoadCoreAsync(url, headers, cancellationToken).ConfigureAwait(true);
+        }
+        finally
+        {
+            _detecting = false;
+        }
+    }
+
+    private async Task LoadCoreAsync(
+        Uri url,
+        IReadOnlyList<KeyValuePair<string, string>>? headers,
+        CancellationToken cancellationToken)
+    {
         if (!await _tosGate.ConfirmAsync(cancellationToken).ConfigureAwait(true))
         {
             return;
@@ -262,6 +363,7 @@ public sealed partial class MediaVariantPickerViewModel : ViewModelBase
 
             OnPropertyChanged(nameof(HasVariants));
             OnPropertyChanged(nameof(HasAudio));
+            OnPropertyChanged(nameof(CanConfirm)); // _source is a plain field — nothing else announces it
         }
         catch (OperationCanceledException)
         {

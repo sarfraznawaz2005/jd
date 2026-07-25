@@ -1,3 +1,4 @@
+using JustDownload.Tests.Fakes;
 using FluentAssertions;
 using JustDownload.App.Services;
 using JustDownload.Core.Data.Models;
@@ -17,23 +18,6 @@ namespace JustDownload.Tests.App;
 /// </summary>
 public sealed class PostDownloadCommandServiceTests
 {
-    private sealed class FakeManager : IDownloadManager
-    {
-        public event EventHandler<DownloadStatusChangedEventArgs>? StatusChanged;
-
-#pragma warning disable CS0067
-        public event EventHandler<DownloadProgressChangedEventArgs>? ProgressChanged;
-#pragma warning restore CS0067
-
-        public void Raise(long id, DownloadStatus current) =>
-            StatusChanged?.Invoke(this, new DownloadStatusChangedEventArgs(id, DownloadStatus.Active, current));
-
-        public Task<long> EnqueueAsync(EnqueueDownloadRequest r, CancellationToken ct = default) => throw new NotSupportedException();
-        public Task<DownloadResult> StartAsync(long id, CancellationToken ct = default) => throw new NotSupportedException();
-        public Task<DownloadResult> RenewAsync(long id, Uri u, CancellationToken ct = default) => throw new NotSupportedException();
-        public DownloadProgress? GetProgress(long id) => null;
-        public IReadOnlyList<ConnectionStat> GetConnections(long id) => [];
-    }
 
     private static IDownloadRepository RepoWith(string directory, string filename)
     {
@@ -62,7 +46,7 @@ public sealed class PostDownloadCommandServiceTests
     [Fact]
     public async Task Completed_WithCommandSet_LaunchesItWithTheFilePathAsArgument()
     {
-        var manager = new FakeManager();
+        var manager = new FakeDownloadManager();
         var launcher = Substitute.For<IProcessLauncher>();
         using var service = new PostDownloadCommandService(
             manager, RepoWith(@"C:\Downloads", "movie.mkv"), Settings(@"C:\Tools\scan.exe"), launcher,
@@ -80,7 +64,7 @@ public sealed class PostDownloadCommandServiceTests
     [Fact]
     public async Task Completed_WithNoCommand_DoesNotLaunch()
     {
-        var manager = new FakeManager();
+        var manager = new FakeDownloadManager();
         var launcher = Substitute.For<IProcessLauncher>();
         using var service = new PostDownloadCommandService(
             manager, RepoWith(@"C:\Downloads", "movie.mkv"), Settings(command: null), launcher,
@@ -96,7 +80,7 @@ public sealed class PostDownloadCommandServiceTests
     [Fact]
     public async Task NonCompletedTransition_DoesNotLaunch()
     {
-        var manager = new FakeManager();
+        var manager = new FakeDownloadManager();
         var launcher = Substitute.For<IProcessLauncher>();
         using var service = new PostDownloadCommandService(
             manager, RepoWith(@"C:\Downloads", "movie.mkv"), Settings(@"C:\Tools\scan.exe"), launcher,

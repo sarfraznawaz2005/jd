@@ -4,6 +4,7 @@ using JustDownload.App.Services;
 using JustDownload.App.ViewModels;
 using JustDownload.App.Views;
 using JustDownload.Core.Categorization;
+using JustDownload.Core.Diagnostics;
 using JustDownload.Core.Lifecycle;
 using JustDownload.Core.Media;
 using JustDownload.Core.Media.Extraction;
@@ -50,7 +51,8 @@ public sealed class MediaVariantPickerTests
         ISettingsService settings,
         IDownloadManager? manager = null,
         IDownloadActions? actions = null,
-        ITosNoticeGate? tosGate = null)
+        ITosNoticeGate? tosGate = null,
+        IGlobalErrorHandler? errors = null)
     {
         var folders = Substitute.For<IDownloadFolderProvider>();
         folders.GetFolderForCategory(Arg.Any<FileCategory>()).Returns(@"C:\Downloads\Video");
@@ -60,6 +62,7 @@ public sealed class MediaVariantPickerTests
             actions ?? Substitute.For<IDownloadActions>(),
             folders,
             tosGate ?? AlwaysAllows(),
+            errors ?? Substitute.For<IGlobalErrorHandler>(),
             NullLogger<MediaVariantPickerViewModel>.Instance);
     }
 
@@ -292,5 +295,232 @@ public sealed class MediaVariantPickerTests
 
         window.IsVisible.Should().BeTrue();
         vm.HasVariants.Should().BeTrue();
+    }
+
+    /// <summary>
+    /// Stands in for the real notice's side effect: showing a modal pulls focus off the URL box, and the
+    /// view commits the URL on focus loss — calling straight back into <c>LoadAsync</c> while this notice is
+    /// still open (TASK-234).
+    /// </summary>
+    private sealed class ReentrantGate : ITosNoticeGate
+    {
+        public MediaVariantPickerViewModel? ViewModel { get; set; }
+
+        public int Shown { get; private set; }
+
+        public async Task<bool> ConfirmAsync(CancellationToken cancellationToken = default)
+        {
+            Shown++;
+            await ViewModel!.LoadAsync(MediaUrl, cancellationToken: cancellationToken).ConfigureAwait(false);
+            return true;
+        }
+    }
+
+    [Fact]
+    public async Task LoadAsync_RaisesOnlyOneNotice_WhenShowingItReCommitsTheUrl()
+    {
+        // TASK-234, user-reported: the ToS notice stacked two-deep, the second owned by the first, because
+        // showing it stole focus and the focus-loss handler started a whole second extraction.
+        var gate = new ReentrantGate();
+        IMediaExtractorRegistry registry = RegistryReturning(HlsSource(720));
+        MediaVariantPickerViewModel vm = Build(
+            registry, SettingsWith(VideoQuality.P720, MediaContainer.Mkv), tosGate: gate);
+        gate.ViewModel = vm;
+
+        await vm.LoadAsync(MediaUrl);
+
+        gate.Shown.Should().Be(1, "a second notice must never be raised while the first one is still open");
+        await registry.Received(1).ExtractAsync(Arg.Any<MediaRequest>(), Arg.Any<CancellationToken>());
+        vm.HasVariants.Should().BeTrue("the original extraction still completes normally");
+    }
+
+    [Fact]
+    public async Task DetectAsync_ReportsAndExplains_WhenExtractionBlowsUp()
+    {
+        // TASK-235: every caller starts DetectAsync from a UI event and none of them await it, so it must
+        // absorb its own failures. This is the real regression from TASK-233: the ToS notice threw "Cannot
+        // show window with non-visible owner" and the user got a blank picker with no explanation, the
+        // failure reaching the log only as a delayed UnobservedTaskException.
+        var boom = new InvalidOperationException("Cannot show window with non-visible owner.");
+        var gate = Substitute.For<ITosNoticeGate>();
+        gate.ConfirmAsync(Arg.Any<CancellationToken>()).Returns<Task<bool>>(_ => throw boom);
+        var errors = Substitute.For<IGlobalErrorHandler>();
+        MediaVariantPickerViewModel vm = Build(
+            RegistryReturning(HlsSource(720)), SettingsWith(VideoQuality.P720, MediaContainer.Mkv),
+            tosGate: gate, errors: errors);
+        vm.Url = MediaUrl.AbsoluteUri;
+
+        await vm.DetectAsync(); // must not throw
+
+        errors.Received(1).Handle(boom, Arg.Any<string>());
+        vm.Message.Should().NotBeNullOrWhiteSpace("the user has to be told why the picker is empty");
+        vm.CanConfirm.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task DetectAsync_SkipsAnUnchangedUrl_SoTheNoticeIsNotRaisedTwice()
+    {
+        // TASK-237, user-reported: the URL box commits on every focus loss, so extraction ran twice for one
+        // URL and the ToS notice reappeared after the user had already agreed to it.
+        var gate = Substitute.For<ITosNoticeGate>();
+        gate.ConfirmAsync(Arg.Any<CancellationToken>()).Returns(Task.FromResult(true));
+        IMediaExtractorRegistry registry = RegistryReturning(HlsSource(720));
+        MediaVariantPickerViewModel vm = Build(
+            registry, SettingsWith(VideoQuality.P720, MediaContainer.Mkv), tosGate: gate);
+        vm.Url = MediaUrl.AbsoluteUri;
+
+        await vm.DetectAsync();
+        await vm.DetectAsync();
+        await vm.DetectAsync();
+
+        await gate.Received(1).ConfirmAsync(Arg.Any<CancellationToken>());
+        await registry.Received(1).ExtractAsync(Arg.Any<MediaRequest>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task DetectAsync_SkipsAnUnchangedUrl_EvenAfterTheNoticeWasDeclined()
+    {
+        // Closing the notice with X counts as declining; a stray focus change must not re-ask.
+        var gate = Substitute.For<ITosNoticeGate>();
+        gate.ConfirmAsync(Arg.Any<CancellationToken>()).Returns(Task.FromResult(false));
+        MediaVariantPickerViewModel vm = Build(
+            RegistryReturning(HlsSource(720)), SettingsWith(VideoQuality.P720, MediaContainer.Mkv),
+            tosGate: gate);
+        vm.Url = MediaUrl.AbsoluteUri;
+
+        await vm.DetectAsync();
+        await vm.DetectAsync();
+
+        await gate.Received(1).ConfirmAsync(Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task DetectAsync_RunsAgain_WhenTheUrlActuallyChanges()
+    {
+        IMediaExtractorRegistry registry = RegistryReturning(HlsSource(720));
+        MediaVariantPickerViewModel vm = Build(
+            registry, SettingsWith(VideoQuality.P720, MediaContainer.Mkv));
+
+        vm.Url = MediaUrl.AbsoluteUri;
+        await vm.DetectAsync();
+        vm.Url = "https://cdn.example.com/other.m3u8";
+        await vm.DetectAsync();
+
+        await registry.Received(2).ExtractAsync(Arg.Any<MediaRequest>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task RedetectAsync_RunsAgain_ForTheSameUrl()
+    {
+        // Enter is explicit, so it must work even after a declined notice — otherwise the only way to retry
+        // would be to edit a URL that was correct all along.
+        IMediaExtractorRegistry registry = RegistryReturning(HlsSource(720));
+        MediaVariantPickerViewModel vm = Build(
+            registry, SettingsWith(VideoQuality.P720, MediaContainer.Mkv));
+        vm.Url = MediaUrl.AbsoluteUri;
+
+        await vm.DetectAsync();
+        await vm.RedetectAsync();
+
+        await registry.Received(2).ExtractAsync(Arg.Any<MediaRequest>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task CanConfirm_NotifiesSoTheDownloadButtonEnables()
+    {
+        // TASK-237: CanConfirm is computed and nothing announced it, so the Download button — bound to it
+        // with IsEnabled="{Binding CanConfirm}" — stayed disabled even with a quality selected. The existing
+        // ConfirmAsync tests never caught this because they call the view-model directly.
+        MediaVariantPickerViewModel vm = Build(
+            RegistryReturning(HlsSource(360, 720)), SettingsWith(VideoQuality.P720, MediaContainer.Mkv));
+        var notified = new List<string?>();
+        vm.PropertyChanged += (_, e) => notified.Add(e.PropertyName);
+
+        await vm.LoadAsync(MediaUrl);
+
+        vm.CanConfirm.Should().BeTrue();
+        notified.Should().Contain(nameof(MediaVariantPickerViewModel.CanConfirm),
+            "the view only re-reads a computed property when it is told to");
+    }
+
+    [Fact]
+    public async Task ConfirmAsync_ReportsAndKeepsTheDialogOpen_WhenEnqueueFails()
+    {
+        // TASK-236: the view calls this from an async void click handler, so an escaping exception is fatal
+        // rather than merely silent — it reaches AppDomain.UnhandledException and kills the app. Enqueue does
+        // real DB work, so it can genuinely fail (disk full, locked database, ...).
+        var boom = new IOException("database is locked");
+        var manager = Substitute.For<IDownloadManager>();
+        manager.EnqueueAsync(Arg.Any<EnqueueDownloadRequest>(), Arg.Any<CancellationToken>())
+            .Returns<Task<long>>(_ => throw boom);
+        var errors = Substitute.For<IGlobalErrorHandler>();
+        MediaVariantPickerViewModel vm = Build(
+            RegistryReturning(HlsSource(720)), SettingsWith(VideoQuality.P720, MediaContainer.Mkv),
+            manager: manager, errors: errors);
+        await vm.LoadAsync(MediaUrl);
+        bool closed = false;
+        vm.CloseRequested += (_, _) => closed = true;
+
+        await vm.ConfirmAsync(); // must not throw
+
+        errors.Received(1).Handle(boom, Arg.Any<string>());
+        vm.Message.Should().NotBeNullOrWhiteSpace("the user has to be told the download did not start");
+        closed.Should().BeFalse("the dialog stays open so the quality choice is not lost on a retry");
+    }
+
+    [Fact]
+    public async Task ConfirmAsync_StillClosesWithSuccess_WhenEnqueueWorks()
+    {
+        // Guards the catch above from swallowing the happy path.
+        var manager = Substitute.For<IDownloadManager>();
+        manager.EnqueueAsync(Arg.Any<EnqueueDownloadRequest>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(7L));
+        var errors = Substitute.For<IGlobalErrorHandler>();
+        MediaVariantPickerViewModel vm = Build(
+            RegistryReturning(HlsSource(720)), SettingsWith(VideoQuality.P720, MediaContainer.Mkv),
+            manager: manager, errors: errors);
+        await vm.LoadAsync(MediaUrl);
+        bool? closedEnqueued = null;
+        vm.CloseRequested += (_, ok) => closedEnqueued = ok;
+
+        await vm.ConfirmAsync();
+
+        closedEnqueued.Should().BeTrue();
+        errors.DidNotReceive().Handle(Arg.Any<Exception>(), Arg.Any<string>());
+        vm.Message.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task DetectAsync_StaysSilent_WhenTheLoadIsCanceled()
+    {
+        var gate = Substitute.For<ITosNoticeGate>();
+        gate.ConfirmAsync(Arg.Any<CancellationToken>()).Returns<Task<bool>>(_ => throw new OperationCanceledException());
+        var errors = Substitute.For<IGlobalErrorHandler>();
+        MediaVariantPickerViewModel vm = Build(
+            RegistryReturning(HlsSource(720)), SettingsWith(VideoQuality.P720, MediaContainer.Mkv),
+            tosGate: gate, errors: errors);
+        vm.Url = MediaUrl.AbsoluteUri;
+
+        await vm.DetectAsync();
+
+        errors.DidNotReceive().Handle(Arg.Any<Exception>(), Arg.Any<string>());
+        vm.Message.Should().BeNull("an abandoned load is not a failure to report");
+    }
+
+    [Fact]
+    public async Task LoadAsync_RunsAgain_OnceTheEarlierAttemptHasFinished()
+    {
+        // The guard must be a re-entrancy guard, not a one-shot latch — re-detecting after the first pass
+        // finished is exactly what the URL box's commit is for.
+        var gate = Substitute.For<ITosNoticeGate>();
+        gate.ConfirmAsync(Arg.Any<CancellationToken>()).Returns(Task.FromResult(true));
+        IMediaExtractorRegistry registry = RegistryReturning(HlsSource(720));
+        MediaVariantPickerViewModel vm = Build(
+            registry, SettingsWith(VideoQuality.P720, MediaContainer.Mkv), tosGate: gate);
+
+        await vm.LoadAsync(MediaUrl);
+        await vm.LoadAsync(MediaUrl);
+
+        await registry.Received(2).ExtractAsync(Arg.Any<MediaRequest>(), Arg.Any<CancellationToken>());
     }
 }

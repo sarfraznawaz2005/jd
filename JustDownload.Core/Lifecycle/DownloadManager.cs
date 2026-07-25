@@ -485,6 +485,71 @@ internal sealed partial class DownloadManager : IDownloadManager
     }
 
     /// <summary>
+    /// Re-downloads an existing entry from scratch: discards its resume checkpoint and the file already on
+    /// disk, resets the row to <see cref="DownloadStatus.Queued"/>, and fetches the resource again from byte
+    /// zero into the same destination. Unlike <see cref="StartAsync"/> this deliberately does not resume, and
+    /// unlike <see cref="RenewAsync"/> the URL is unchanged.
+    /// <para>
+    /// This is the one path that can revive a <see cref="DownloadStatus.Completed"/> download. It is a reset
+    /// rather than a transition (see <see cref="DownloadStateMachine.CanRestart"/>), so the terminal-state
+    /// guarantee still holds for every ordinary status change.
+    /// </para>
+    /// </summary>
+    /// <exception cref="KeyNotFoundException">No download exists with that id.</exception>
+    /// <exception cref="InvalidOperationException">The download is currently active, or has no destination.</exception>
+    public async Task<DownloadResult> RestartAsync(long id, CancellationToken cancellationToken = default)
+    {
+        Download record = await _repository.GetAsync(id, cancellationToken).ConfigureAwait(false)
+            ?? throw new KeyNotFoundException($"No download exists with id {id}.");
+
+        DownloadStatus from = DownloadStatusCodes.Parse(record.Status);
+        DownloadStatus reset = DownloadStateMachine.EnsureCanRestart(from);
+
+        // Drop the checkpoint first: if deleting the file below fails, the row is already un-resumable, so a
+        // later start can never stitch new bytes onto the stale ones it no longer knows about.
+        await ClearSegmentsAsync(id).ConfigureAwait(false);
+        DeleteDestinationFile(record);
+
+        Download requeued = record with
+        {
+            Status = DownloadStatusCodes.ToCode(reset),
+            Error = null,
+            CompletedAt = null,
+            RetryCount = 0,
+        };
+        await _repository.UpdateAsync(requeued, cancellationToken).ConfigureAwait(false);
+        RaiseStatus(id, from, reset);
+        LogRestarted(_logger, id, from);
+
+        return await StartAsync(id, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Removes the previously downloaded file so the restart writes a fresh one rather than resuming into,
+    /// or preallocating over, the old bytes. A file that is already gone is not an error; one that is locked
+    /// is — the caller must see that rather than silently re-downloading into a file it cannot replace.
+    /// </summary>
+    private static void DeleteDestinationFile(Download record)
+    {
+        if (string.IsNullOrEmpty(record.Directory) || string.IsNullOrEmpty(record.Filename))
+        {
+            return;
+        }
+
+        string path = Path.Combine(record.Directory, record.Filename);
+        try
+        {
+            File.Delete(path);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            throw new InvalidOperationException(
+                $"Could not delete \"{path}\" to re-download it. Close anything using the file and try again.",
+                ex);
+        }
+    }
+
+    /// <summary>
     /// Pre-flight before fetching (TASK-032): fail fast if the signed URL is already past its expiry, and on
     /// the first run capture the resume validators (ETag/size) so a later renew can confirm identity. A probe
     /// that returns an expiry status is surfaced as <see cref="DownloadExpiredException"/>.
@@ -1105,4 +1170,10 @@ internal sealed partial class DownloadManager : IDownloadManager
         Message = "Download {Id}: mirror {Url} reports size {ActualBytes} bytes, expected {ExpectedBytes}; skipping it.")]
     private static partial void LogMirrorSizeMismatch(
         ILogger logger, long id, Uri url, long expectedBytes, long? actualBytes);
+
+    [LoggerMessage(
+        EventId = 10,
+        Level = LogLevel.Information,
+        Message = "Download {Id} restarted from scratch (was {PreviousStatus}); checkpoint and file discarded.")]
+    private static partial void LogRestarted(ILogger logger, long id, DownloadStatus previousStatus);
 }

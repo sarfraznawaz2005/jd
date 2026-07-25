@@ -146,6 +146,7 @@ internal sealed partial class ExtensionMessageHandler : INativeMessageHandler
                 Referrer = ReadString(root, "referrer"),
                 Cookies = ReadString(root, "cookies"),
                 MediaKind = ReadString(root, "mediaKind"),
+                Extract = ReadBool(root, "extract"),
             },
             cancellationToken).ConfigureAwait(false);
 
@@ -169,6 +170,9 @@ internal sealed partial class ExtensionMessageHandler : INativeMessageHandler
         };
         return JsonSerializer.Serialize(payload, NativeMessagingJsonContext.Default.ExtensionSettingsDto);
     }
+
+    private static bool ReadBool(JsonElement root, string name) =>
+        root.TryGetProperty(name, out JsonElement value) && value.ValueKind == JsonValueKind.True;
 
     private static string? ReadString(JsonElement root, string name) =>
         root.TryGetProperty(name, out JsonElement value) && value.ValueKind == JsonValueKind.String

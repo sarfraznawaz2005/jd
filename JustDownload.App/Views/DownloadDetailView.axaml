@@ -200,20 +200,28 @@
                       IsVisible="{Binding Connections.Count}" MaxHeight="260"
                       CanUserReorderColumns="False" CanUserSortColumns="False" IsReadOnly="True"
                       HeadersVisibility="Column" GridLinesVisibility="None">
+              <!-- Auto, never fixed pixel widths: a column header reserves ~36px of chrome on top of its
+                   text, so hand-picked pixel values clip the header ("Downloaded" → "Downl") and a narrow
+                   "#" loses its digits altogether — which is exactly what the old 40px/100px/70px values
+                   did (user-reported). Auto sizes each column to the wider of its header and its content.
+                   The progress bar carries an explicit width because it would otherwise stretch and inflate
+                   its column; Range takes whatever slack is left. -->
               <DataGrid.Columns>
-                <DataGridTextColumn Header="#" Binding="{Binding DisplayNumber}" Width="40" />
-                <DataGridTextColumn Header="Range" Binding="{Binding RangeDisplay}" Width="*" />
-                <DataGridTextColumn Header="Downloaded" Binding="{Binding DownloadedDisplay}" Width="100" />
-                <DataGridTextColumn Header="Speed" Binding="{Binding SpeedDisplay}" Width="90" />
-                <DataGridTemplateColumn Header="Progress" Width="120">
+                <DataGridTextColumn Header="#" Binding="{Binding DisplayNumber}" Width="Auto" />
+                <DataGridTextColumn Header="Range" Binding="{Binding RangeDisplay}" Width="*" MinWidth="100" />
+                <DataGridTextColumn Header="Downloaded" Binding="{Binding DownloadedDisplay}" Width="Auto" />
+                <DataGridTextColumn Header="Speed" Binding="{Binding SpeedDisplay}" Width="Auto" />
+                <DataGridTemplateColumn Header="Progress" Width="Auto">
                   <DataGridTemplateColumn.CellTemplate>
                     <DataTemplate x:DataType="vm:ConnectionRowViewModel">
+                      <!-- MinWidth="0" because the Fluent ProgressBar template ships a wide default that
+                           would otherwise outrank Width and inflate this column. -->
                       <ProgressBar Classes="Mini" Minimum="0" Maximum="100" Value="{Binding ProgressPercent}"
-                                   VerticalAlignment="Center" />
+                                   Width="64" MinWidth="0" VerticalAlignment="Center" />
                     </DataTemplate>
                   </DataGridTemplateColumn.CellTemplate>
                 </DataGridTemplateColumn>
-                <DataGridTextColumn Header="State" Binding="{Binding StateDisplay}" Width="70" />
+                <DataGridTextColumn Header="State" Binding="{Binding StateDisplay}" Width="Auto" />
               </DataGrid.Columns>
             </DataGrid>
           </Panel>

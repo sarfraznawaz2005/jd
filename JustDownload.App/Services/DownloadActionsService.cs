@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using JustDownload.Core.Data.Models;
 using JustDownload.Core.Data.Repositories;
+using JustDownload.Core.Downloading;
 using JustDownload.Core.Lifecycle;
 using JustDownload.Core.Security;
 using Microsoft.Extensions.Logging;
@@ -39,7 +40,12 @@ public sealed partial class DownloadActionsService : IDownloadActions, IDisposab
     }
 
     /// <inheritdoc />
-    public void Start(long id)
+    public void Start(long id) => Run(id, (manager, token) => manager.StartAsync(id, token));
+
+    /// <inheritdoc />
+    public void Restart(long id) => Run(id, (manager, token) => manager.RestartAsync(id, token));
+
+    private void Run(long id, Func<IDownloadManager, CancellationToken, Task<DownloadResult>> operation)
     {
         var cts = new CancellationTokenSource();
         if (!_running.TryAdd(id, cts))
@@ -49,14 +55,15 @@ public sealed partial class DownloadActionsService : IDownloadActions, IDisposab
             return;
         }
 
-        _ = RunAsync(id, cts);
+        _ = RunAsync(id, cts, operation);
     }
 
-    private async Task RunAsync(long id, CancellationTokenSource cts)
+    private async Task RunAsync(
+        long id, CancellationTokenSource cts, Func<IDownloadManager, CancellationToken, Task<DownloadResult>> operation)
     {
         try
         {
-            await _manager.StartAsync(id, cts.Token).ConfigureAwait(false);
+            await operation(_manager, cts.Token).ConfigureAwait(false);
         }
         catch (Exception ex)
         {

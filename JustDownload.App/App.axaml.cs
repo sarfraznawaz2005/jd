@@ -6,6 +6,9 @@ using Avalonia.Input.Platform;
 using Avalonia.Markup.Xaml;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
+using JustDownload.Core.Abstractions;
+using JustDownload.Core.Categorization;
+using JustDownload.Core.Data.Repositories;
 using JustDownload.App.Services;
 using JustDownload.App.ViewModels;
 using JustDownload.App.Views;
@@ -49,7 +52,15 @@ public partial class App : Application
             .AddSingleton<AutostartController>()
             .AddSingleton<LogLevelController>()
             .AddSingleton<StatusSummaryViewModel>()
-            .AddSingleton<DownloadsListViewModel>()
+            .AddSingleton(sp => new DownloadsListViewModel(
+                sp.GetRequiredService<IDownloadRepository>(),
+                sp.GetRequiredService<IDownloadManager>(),
+                sp.GetRequiredService<IDownloadActions>(),
+                sp.GetRequiredService<IClipboardService>(),
+                sp.GetRequiredService<IFileRevealer>(),
+                sp.GetRequiredService<IFileCategorizer>(),
+                sp.GetRequiredService<IClock>(),
+                ConfirmRedownloadAsync))
             .AddSingleton<DownloadDetailViewModel>()
             .AddSingleton(CreateProgressWindowService)
             .AddSingleton<ITaskbarAttention, TaskbarAttentionService>()
@@ -212,7 +223,7 @@ public partial class App : Application
 
             // A browser-extension hand-off (TASK-091) opens the dialog prefilled and carries the captured
             // referrer/cookies into the download so authenticated/signed links succeed.
-            mainViewModel.DownloadHandoffRequested += (_, handoff) => _ = ShowNewDownloadDialogAsync(window, handoff);
+            mainViewModel.DownloadHandoffRequested += (_, handoff) => _ = ShowHandoffAsync(window, mainViewModel, handoff);
 
             // Opt-in clipboard watcher (TASK-133): a copied supported URL opens the dialog prefilled.
             ClipboardMonitor clipboardMonitor = Services.GetRequiredService<ClipboardMonitor>();
@@ -382,6 +393,16 @@ public partial class App : Application
         await ShowWithoutForcingOwnerVisibleAsync(owner, dialog);
     }
 
+    /// <summary>
+    /// Routes a browser hand-off (TASK-232). A direct media URL opens the New Download dialog as before; a
+    /// page the extension flagged for extraction opens the quality picker instead, since the URL is a watch
+    /// page rather than something the engine could fetch — see <see cref="BrowserLinkHandoff.Extract"/>.
+    /// </summary>
+    private Task ShowHandoffAsync(Window owner, MainWindowViewModel mainViewModel, BrowserLinkHandoff handoff) =>
+        handoff.Extract
+            ? ShowMediaPickerDialogAsync(owner, mainViewModel, handoff.Url)
+            : ShowNewDownloadDialogAsync(owner, handoff);
+
     private async Task ShowNewDownloadDialogAsync(Window owner, BrowserLinkHandoff handoff)
     {
         var viewModel = Services.GetRequiredService<NewDownloadViewModel>();
@@ -405,11 +426,16 @@ public partial class App : Application
         if (owner.IsVisible)
         {
             await dialog.ShowDialog(owner);
+            return;
         }
-        else
-        {
-            dialog.Show();
-        }
+
+        // Show() returns immediately, so await the window's own close before completing — callers act on
+        // what the dialog produced (TASK-232), and the tray path must not report "done" while it is still
+        // open. Existing callers had nothing after the await, so this only adds the guarantee.
+        var closed = new TaskCompletionSource();
+        dialog.Closed += (_, _) => closed.TrySetResult();
+        dialog.Show();
+        await closed.Task;
     }
 
     private static readonly FilePickerFileType DownloadListFileType =
@@ -450,14 +476,27 @@ public partial class App : Application
         }
     }
 
-    private async Task ShowMediaPickerDialogAsync(Window owner, MainWindowViewModel mainViewModel)
+    private async Task ShowMediaPickerDialogAsync(
+        Window owner, MainWindowViewModel mainViewModel, string? prefillUrl = null)
     {
-        var dialog = new MediaVariantPickerWindow
+        var viewModel = Services.GetRequiredService<MediaVariantPickerViewModel>();
+        bool enqueued = false;
+        viewModel.CloseRequested += (_, ok) => enqueued = ok;
+
+        var dialog = new MediaVariantPickerWindow { DataContext = viewModel };
+        if (!string.IsNullOrWhiteSpace(prefillUrl))
         {
-            DataContext = Services.GetRequiredService<MediaVariantPickerViewModel>(),
-        };
-        object? enqueued = await dialog.ShowDialog<object?>(owner);
-        if (enqueued is true)
+            // A hand-off already knows the page, so start extracting straight away rather than making the
+            // user commit a URL they did not type (TASK-232). Deliberately on Opened, not before the show:
+            // extraction can raise the ToS notice, and until this window exists the only owner available is
+            // the main window — which is hidden when the app sits in the tray, exactly where hand-offs
+            // arrive.
+            viewModel.Url = prefillUrl;
+            dialog.Opened += (_, _) => _ = viewModel.DetectAsync();
+        }
+
+        await ShowWithoutForcingOwnerVisibleAsync(owner, dialog);
+        if (enqueued)
         {
             await mainViewModel.Downloads.LoadAsync(); // reflect the newly-queued media download
         }
@@ -623,7 +662,8 @@ public partial class App : Application
         foreach (JustDownload.Core.NativeMessaging.PendingLink link in pending)
         {
             // Carry the captured referrer/cookies through so authenticated/signed hand-offs succeed (TASK-091).
-            mainViewModel.RequestDownloadHandoff(new BrowserLinkHandoff(link.Url, link.Referrer, link.Cookies));
+            mainViewModel.RequestDownloadHandoff(
+                new BrowserLinkHandoff(link.Url, link.Referrer, link.Cookies, link.Extract));
         }
     }
 
@@ -638,27 +678,74 @@ public partial class App : Application
         return null;
     }
 
-    /// <summary>The app's main window, or <c>null</c> before it exists.</summary>
+    /// <summary>
+    /// The best window to own a modal dialog: the most recently opened *visible* one, falling back to the
+    /// main window. Preferring a visible window matters when the app is minimized to tray (TASK-232) —
+    /// <see cref="Window.MainWindow"/> is hidden then, and Avalonia refuses to parent a modal to it
+    /// ("Cannot show window with non-visible owner"), so a dialog opened from a browser hand-off would throw.
+    /// </summary>
     private static Window? GetActiveWindow()
     {
         if (Current?.ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
-            return desktop.MainWindow;
+            return desktop.Windows.LastOrDefault(w => w.IsVisible) ?? desktop.MainWindow;
         }
 
         return null;
     }
 
     /// <summary>
-    /// Shows the one-time ToS/legal notice (TASK-160) modally over the main window and returns the user's
-    /// choice. Wired into <see cref="ITosNoticeGate"/> so <see cref="MediaVariantPickerViewModel"/> stays
-    /// unaware of how the dialog is shown.
+    /// Shows the one-time ToS/legal notice (TASK-160) over the active window and returns the user's choice.
+    /// Wired into <see cref="ITosNoticeGate"/> so <see cref="MediaVariantPickerViewModel"/> stays unaware of
+    /// how the dialog is shown. The result comes from the view-model rather than
+    /// <see cref="Window.ShowDialog{TResult}"/> because the notice can legitimately be shown non-modally when
+    /// no visible owner exists (app minimized to tray, TASK-232) — throwing there stranded a hand-off with an
+    /// empty picker and no explanation.
     /// </summary>
-    private static Task<TosNoticeResult> ShowTosNoticeAsync()
+    private static async Task<TosNoticeResult> ShowTosNoticeAsync()
     {
-        var dialog = new TosNoticeWindow { DataContext = new TosNoticeViewModel() };
-        Window owner = GetActiveWindow()
-            ?? throw new InvalidOperationException("No active window to own the ToS notice dialog.");
-        return dialog.ShowDialog<TosNoticeResult>(owner);
+        var viewModel = new TosNoticeViewModel();
+        TosNoticeResult result = TosNoticeResult.Cancel;
+        viewModel.CloseRequested += (_, chosen) => result = chosen;
+
+        var dialog = new TosNoticeWindow { DataContext = viewModel };
+        Window? owner = GetActiveWindow();
+        if (owner is null)
+        {
+            var closed = new TaskCompletionSource();
+            dialog.Closed += (_, _) => closed.TrySetResult();
+            dialog.Show();
+            await closed.Task;
+            return result;
+        }
+
+        await ShowWithoutForcingOwnerVisibleAsync(owner, dialog);
+        return result;
+    }
+
+    /// <summary>
+    /// Confirms a re-download before the engine discards the file already on disk. Wired into
+    /// <see cref="DownloadsListViewModel"/> so it stays unaware of how the dialog is shown.
+    /// </summary>
+    private static async Task<bool> ConfirmRedownloadAsync(DownloadRowViewModel row)
+    {
+        Window? owner = GetActiveWindow();
+        if (owner is null)
+        {
+            // Nothing to parent a modal to (e.g. started from the tray with no window up). Better to skip the
+            // re-download than to silently delete the user's file with no chance to decline.
+            return false;
+        }
+
+        var dialog = new ConfirmWindow
+        {
+            DataContext = new ConfirmViewModel(
+                "Re-download this file?",
+                $"\"{row.FileName}\" will be downloaded again from the start. The copy already on your "
+                    + "computer will be deleted first and cannot be recovered.",
+                "Re-download"),
+        };
+
+        return await dialog.ShowDialog<bool>(owner).ConfigureAwait(true);
     }
 }

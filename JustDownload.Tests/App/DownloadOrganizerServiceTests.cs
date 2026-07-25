@@ -1,3 +1,4 @@
+using JustDownload.Tests.Fakes;
 using FluentAssertions;
 using JustDownload.App.Services;
 using JustDownload.Core.Categorization;
@@ -19,23 +20,6 @@ namespace JustDownload.Tests.App;
 /// </summary>
 public sealed class DownloadOrganizerServiceTests
 {
-    private sealed class FakeManager : IDownloadManager
-    {
-        public event EventHandler<DownloadStatusChangedEventArgs>? StatusChanged;
-
-#pragma warning disable CS0067
-        public event EventHandler<DownloadProgressChangedEventArgs>? ProgressChanged;
-#pragma warning restore CS0067
-
-        public void Raise(long id, DownloadStatus current) =>
-            StatusChanged?.Invoke(this, new DownloadStatusChangedEventArgs(id, DownloadStatus.Active, current));
-
-        public Task<long> EnqueueAsync(EnqueueDownloadRequest r, CancellationToken ct = default) => throw new NotSupportedException();
-        public Task<DownloadResult> StartAsync(long id, CancellationToken ct = default) => throw new NotSupportedException();
-        public Task<DownloadResult> RenewAsync(long id, Uri u, CancellationToken ct = default) => throw new NotSupportedException();
-        public DownloadProgress? GetProgress(long id) => null;
-        public IReadOnlyList<ConnectionStat> GetConnections(long id) => [];
-    }
 
     private static Download CompletedRecord(string directory, string filename, string? categoryType) => new()
     {
@@ -66,7 +50,7 @@ public sealed class DownloadOrganizerServiceTests
         var organizer = Substitute.For<IDownloadOrganizer>();
         organizer.OrganizeAsync(sourcePath, FileCategory.Video, Arg.Any<CancellationToken>())
             .Returns(Task.FromResult(organizedPath));
-        var manager = new FakeManager();
+        var manager = new FakeDownloadManager();
         using var service = new DownloadOrganizerService(manager, repo, organizer, NullLogger<DownloadOrganizerService>.Instance);
         service.Start();
 
@@ -90,7 +74,7 @@ public sealed class DownloadOrganizerServiceTests
         var organizer = Substitute.For<IDownloadOrganizer>();
         organizer.OrganizeAsync(sourcePath, FileCategory.Video, Arg.Any<CancellationToken>())
             .Returns(Task.FromResult(sourcePath));
-        var manager = new FakeManager();
+        var manager = new FakeDownloadManager();
         using var service = new DownloadOrganizerService(manager, repo, organizer, NullLogger<DownloadOrganizerService>.Instance);
         service.Start();
 
@@ -106,7 +90,7 @@ public sealed class DownloadOrganizerServiceTests
         Download record = CompletedRecord(Path.Combine("downloads"), "movie.mp4", categoryType: null);
         IDownloadRepository repo = RepoFor(record);
         var organizer = Substitute.For<IDownloadOrganizer>();
-        var manager = new FakeManager();
+        var manager = new FakeDownloadManager();
         using var service = new DownloadOrganizerService(manager, repo, organizer, NullLogger<DownloadOrganizerService>.Instance);
         service.Start();
 
@@ -121,7 +105,7 @@ public sealed class DownloadOrganizerServiceTests
     {
         var repo = Substitute.For<IDownloadRepository>();
         var organizer = Substitute.For<IDownloadOrganizer>();
-        var manager = new FakeManager();
+        var manager = new FakeDownloadManager();
         using var service = new DownloadOrganizerService(manager, repo, organizer, NullLogger<DownloadOrganizerService>.Instance);
         service.Start();
 
@@ -139,7 +123,7 @@ public sealed class DownloadOrganizerServiceTests
         var organizer = Substitute.For<IDownloadOrganizer>();
         organizer.OrganizeAsync(Arg.Any<string>(), Arg.Any<FileCategory>(), Arg.Any<CancellationToken>())
             .Returns<Task<string>>(_ => throw new IOException("file in use"));
-        var manager = new FakeManager();
+        var manager = new FakeDownloadManager();
         using var service = new DownloadOrganizerService(manager, repo, organizer, NullLogger<DownloadOrganizerService>.Instance);
         service.Start();
 
@@ -154,7 +138,7 @@ public sealed class DownloadOrganizerServiceTests
     {
         var repo = Substitute.For<IDownloadRepository>();
         var organizer = Substitute.For<IDownloadOrganizer>();
-        var manager = new FakeManager();
+        var manager = new FakeDownloadManager();
         var service = new DownloadOrganizerService(manager, repo, organizer, NullLogger<DownloadOrganizerService>.Instance);
         service.Start();
 

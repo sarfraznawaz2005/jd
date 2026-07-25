@@ -208,6 +208,37 @@ public sealed class ExtensionMessageHandlerTests
     }
 
     [Fact]
+    public async Task DownloadLink_CarriesTheExtractFlag_ForPageHandoffs()
+    {
+        // TASK-232: on SABR/MediaSource sites the extension hands off the *watch page*, not a stream URL, so
+        // the app must know to run the extractor pipeline instead of fetching the URL directly.
+        var inbox = new FakeInbox();
+        ExtensionMessageHandler handler = Build(new InMemoryBlacklist(), inbox);
+
+        await handler.HandleAsync(
+            "{\"type\":\"download_link\",\"url\":\"https://www.youtube.com/watch?v=abc\",\"extract\":true}");
+
+        inbox.Links.Should().ContainSingle();
+        inbox.Links[0].Extract.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task DownloadLink_DefaultsToDirectDownload_WhenExtractIsAbsentOrFalse()
+    {
+        var inbox = new FakeInbox();
+        ExtensionMessageHandler handler = Build(new InMemoryBlacklist(), inbox);
+
+        await handler.HandleAsync("{\"type\":\"download_link\",\"url\":\"https://x/a.zip\"}");
+        await handler.HandleAsync("{\"type\":\"download_link\",\"url\":\"https://x/b.zip\",\"extract\":false}");
+        await handler.HandleAsync("{\"type\":\"download_link\",\"url\":\"https://x/c.zip\",\"extract\":\"true\"}");
+
+        inbox.Links.Should().HaveCount(3);
+        inbox.Links.Should().OnlyContain(
+            l => !l.Extract,
+            "a missing, false, or non-boolean flag must never turn a direct download into an extraction");
+    }
+
+    [Fact]
     public async Task DownloadLink_LogsHostOnly_NeverTheSignedQueryString()
     {
         // TASK-099, §5: a handed-off media URL often carries signed tokens in its query string; they must

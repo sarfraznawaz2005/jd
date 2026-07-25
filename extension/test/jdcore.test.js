@@ -15,6 +15,39 @@ test("classifyMedia detects HLS/DASH/MP4, never audio (TASK-068 AC0, TASK-181)",
   assert.equal(JD.classifyMedia("not a url"), null);
 });
 
+test("classifyMedia detects extension-less streaming endpoints (TASK-232)", () => {
+  const yt =
+    "https://rr3---sn-4g5e6nez.googlevideo.com/videoplayback?expire=1&mime=video%2Fmp4&itag=248";
+  assert.equal(JD.classifyMedia(yt), "video", "YouTube's /videoplayback has no file extension at all");
+  assert.equal(
+    JD.classifyMedia(yt.replace("video%2Fmp4", "audio%2Fwebm")),
+    null,
+    "an audio-only stream stays unclassified — the app has no audio-download feature",
+  );
+  assert.equal(
+    JD.classifyMedia("https://rr3.googlevideo.com/videoplayback?expire=1"),
+    null,
+    "no mime= param means we cannot tell it is video",
+  );
+  assert.equal(
+    JD.classifyMedia("https://x/api/watch?mime=video%2Fmp4"),
+    null,
+    "an unrelated path is not a streaming endpoint just because it mentions a video mime",
+  );
+});
+
+test("normalizeMediaUrl strips per-chunk params so one stream is one entry (TASK-232)", () => {
+  const base = "https://rr3.googlevideo.com/videoplayback?expire=1&mime=video%2Fmp4&itag=248";
+  assert.equal(JD.normalizeMediaUrl(`${base}&range=0-1310719&rn=4&rbuf=0`), base);
+  assert.equal(
+    JD.normalizeMediaUrl(`${base}&range=1310720-2621439&rn=5&rbuf=12`),
+    JD.normalizeMediaUrl(`${base}&range=0-1310719&rn=4&rbuf=0`),
+    "consecutive chunks of the same stream normalize to the same URL",
+  );
+  assert.equal(JD.normalizeMediaUrl("https://x/video.mp4"), "https://x/video.mp4");
+  assert.equal(JD.normalizeMediaUrl("not a url"), "not a url", "unparseable input is returned as-is");
+});
+
 test("isBlacklisted matches host and subdomains (TASK-069 AC0)", () => {
   const list = ["example.com", "videos.test"];
   assert.equal(JD.isBlacklisted("https://example.com/a", list), true);
@@ -154,4 +187,26 @@ test("formatCookieHeader serializes name=value pairs (TASK-067 AC1)", () => {
     { bad: true },
   ]);
   assert.equal(header, "sid=abc; theme=dark");
+});
+
+test("isExtractablePage matches the app's site extractors (TASK-232)", () => {
+  assert.equal(JD.isExtractablePage("https://www.youtube.com/watch?v=abc"), true);
+  assert.equal(JD.isExtractablePage("https://youtube.com/watch?v=abc"), true);
+  assert.equal(JD.isExtractablePage("https://m.youtube.com/watch?v=abc"), true, "subdomains count");
+  assert.equal(JD.isExtractablePage("https://youtu.be/abc"), true);
+  assert.equal(JD.isExtractablePage("https://www.facebook.com/watch/?v=1"), true);
+  assert.equal(JD.isExtractablePage("https://fb.watch/xyz"), true);
+  assert.equal(JD.isExtractablePage("https://example.com/video"), false);
+  assert.equal(JD.isExtractablePage("https://notyoutube.com/x"), false, "no false suffix match");
+  assert.equal(JD.isExtractablePage("not a url"), false);
+});
+
+test("buildDownloadMessage carries the extract flag only when set (TASK-232)", () => {
+  assert.equal(JD.buildDownloadMessage({ url: "https://x/a.mp4" }).extract, false);
+  assert.equal(JD.buildDownloadMessage({ url: "https://x/p", extract: true }).extract, true);
+  assert.equal(
+    JD.buildDownloadMessage({ url: "https://x/p", extract: "yes" }).extract,
+    false,
+    "only a real boolean true turns a direct download into an extraction",
+  );
 });

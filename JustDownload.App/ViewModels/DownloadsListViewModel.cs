@@ -67,10 +67,13 @@ public sealed partial class DownloadsListViewModel : ViewModelBase, IDisposable
     [NotifyCanExecuteChangedFor(nameof(PauseCommand))]
     [NotifyCanExecuteChangedFor(nameof(RemoveCommand))]
     [NotifyCanExecuteChangedFor(nameof(RenewCommand))]
+    [NotifyCanExecuteChangedFor(nameof(RestartCommand))]
     [NotifyCanExecuteChangedFor(nameof(CopyLinkCommand))]
     [NotifyCanExecuteChangedFor(nameof(OpenFileCommand))]
     [NotifyCanExecuteChangedFor(nameof(OpenFolderCommand))]
     private DownloadRowViewModel? _selectedDownload;
+
+    private readonly Func<DownloadRowViewModel, Task<bool>> _confirmRedownload;
 
     public DownloadsListViewModel(
         IDownloadRepository repository,
@@ -79,7 +82,8 @@ public sealed partial class DownloadsListViewModel : ViewModelBase, IDisposable
         IClipboardService clipboard,
         IFileRevealer fileRevealer,
         IFileCategorizer categorizer,
-        IClock clock)
+        IClock clock,
+        Func<DownloadRowViewModel, Task<bool>>? confirmRedownload = null)
     {
         ArgumentNullException.ThrowIfNull(repository);
         ArgumentNullException.ThrowIfNull(manager);
@@ -95,6 +99,11 @@ public sealed partial class DownloadsListViewModel : ViewModelBase, IDisposable
         _fileRevealer = fileRevealer;
         _categorizer = categorizer;
         _clock = clock;
+
+        // Injected rather than constructed here so the discard-confirmation logic stays testable without a
+        // live window (same approach as ITosNoticeGate). Defaults to "yes" for headless tests and any host
+        // that has no dialog to show — the engine still refuses to restart an active download either way.
+        _confirmRedownload = confirmRedownload ?? (_ => Task.FromResult(true));
 
         _manager.StatusChanged += OnStatusChanged;
         _manager.ProgressChanged += OnProgressChanged;
@@ -388,6 +397,7 @@ public sealed partial class DownloadsListViewModel : ViewModelBase, IDisposable
             ResumeCommand.NotifyCanExecuteChanged();
             PauseCommand.NotifyCanExecuteChanged();
             RenewCommand.NotifyCanExecuteChanged();
+            RestartCommand.NotifyCanExecuteChanged();
             OpenFileCommand.NotifyCanExecuteChanged();
         }
 
@@ -404,6 +414,27 @@ public sealed partial class DownloadsListViewModel : ViewModelBase, IDisposable
     private void Pause() => _actions.Pause(SelectedDownload!.Id);
 
     private bool CanPause() => SelectedDownload?.CanPause == true;
+
+    /// <summary>
+    /// Re-downloads the selected entry from scratch (context menu): the engine drops its checkpoint, deletes
+    /// the file already on disk and fetches the same URL again from byte zero into the same destination. This
+    /// is the only way to run a completed download again — Resume cannot, since Completed is terminal.
+    /// <para>
+    /// Confirmed first: discarding an already-downloaded file is destructive and cannot be undone, so the
+    /// user gets one chance to back out before the bytes go.
+    /// </para>
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(CanRestart))]
+    private async Task RestartAsync()
+    {
+        DownloadRowViewModel row = SelectedDownload!;
+        if (await _confirmRedownload(row).ConfigureAwait(true))
+        {
+            _actions.Restart(row.Id);
+        }
+    }
+
+    private bool CanRestart() => SelectedDownload?.CanRestart == true;
 
     /// <summary>
     /// Stops every active download at once (the toolbar's "Stop" / Stop-all, TASK-052). Each active transfer

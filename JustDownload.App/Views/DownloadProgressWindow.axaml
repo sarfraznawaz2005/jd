@@ -5,7 +5,7 @@
         x:Class="JustDownload.App.Views.DownloadProgressWindow"
         x:DataType="vm:DownloadProgressViewModel"
         Title="{Binding Title}"
-        Width="620"
+        Width="700"
         MinWidth="480"
         SizeToContent="Height"
         CanMaximize="False"

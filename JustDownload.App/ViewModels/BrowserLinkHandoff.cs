@@ -9,4 +9,9 @@ namespace JustDownload.App.ViewModels;
 /// <param name="Url">The download URL.</param>
 /// <param name="Referrer">The referring page URL, if any.</param>
 /// <param name="Cookies">The captured cookies as a <c>Cookie</c> header value, if any.</param>
-public sealed record BrowserLinkHandoff(string Url, string? Referrer, string? Cookies);
+/// <param name="Extract">
+/// Whether <paramref name="Url"/> is a page to run the extractor pipeline on rather than a direct media URL
+/// (TASK-232) — set by the extension for MediaSource-backed sites where no fetchable stream URL exists for
+/// it to sniff. Such a hand-off opens the quality picker instead of the New Download dialog.
+/// </param>
+public sealed record BrowserLinkHandoff(string Url, string? Referrer, string? Cookies, bool Extract = false);

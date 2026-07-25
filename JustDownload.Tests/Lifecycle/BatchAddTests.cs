@@ -1,3 +1,4 @@
+using JustDownload.Tests.Fakes;
 using System.Collections.Concurrent;
 using FluentAssertions;
 using JustDownload.Core.Downloading;
@@ -81,26 +82,17 @@ public sealed class BatchAddTests
 
     // --- Enqueuer --------------------------------------------------------------------------------
 
-    private sealed class RecordingManager : IDownloadManager
+    /// <summary>Records what the enqueuer asked for; every other operation stays unsupported.</summary>
+    private sealed class RecordingManager : FakeDownloadManager
     {
         public ConcurrentQueue<EnqueueDownloadRequest> Enqueued { get; } = new();
         private long _next;
 
-        public Task<long> EnqueueAsync(EnqueueDownloadRequest request, CancellationToken ct = default)
+        public override Task<long> EnqueueAsync(EnqueueDownloadRequest request, CancellationToken ct = default)
         {
             Enqueued.Enqueue(request);
             return Task.FromResult(Interlocked.Increment(ref _next));
         }
-
-#pragma warning disable CS0067
-        public event EventHandler<DownloadStatusChangedEventArgs>? StatusChanged;
-        public event EventHandler<DownloadProgressChangedEventArgs>? ProgressChanged;
-#pragma warning restore CS0067
-
-        public Task<DownloadResult> StartAsync(long id, CancellationToken ct = default) => throw new NotSupportedException();
-        public Task<DownloadResult> RenewAsync(long id, Uri newUrl, CancellationToken ct = default) => throw new NotSupportedException();
-        public DownloadProgress? GetProgress(long id) => null;
-        public IReadOnlyList<ConnectionStat> GetConnections(long id) => [];
     }
 
     private static BatchEnqueuer Build(RecordingManager manager) =>

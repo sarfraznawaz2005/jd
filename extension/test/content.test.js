@@ -29,8 +29,17 @@ function makeMediaElement(tag, src) {
 function makeIconElement() {
   return {
     style: {},
+    /** Captured click handlers, so a test can drive the icon the way a user would. */
+    listeners: [],
     setAttribute() {},
-    addEventListener() {},
+    addEventListener(type, handler) {
+      this.listeners.push({ type, handler });
+    },
+    click() {
+      for (const l of this.listeners.filter((x) => x.type === "click")) {
+        l.handler({ preventDefault() {}, stopPropagation() {} });
+      }
+    },
     remove() {},
     set innerHTML(_v) {},
     set type(_v) {},
@@ -96,7 +105,7 @@ function makeSandbox(elements, options = {}) {
     URL,
     document: documentStub,
     window: windowStub,
-    location: { href: "https://example.com/page" },
+    location: { href: options.href ?? "https://example.com/page" },
     browser: api,
     MutationObserver: class {
       observe() {}
@@ -177,4 +186,57 @@ test("a blob: src video with nothing sniffed yet is retried, not given up on imm
 
   assert.equal(appended.length, 0, "nothing to attach to yet");
   assert.equal(intervalCallbacks.length, 1, "a retry timer was started rather than giving up permanently");
+});
+
+// --- Page-URL hand-off on extractor sites (TASK-232) -------------------------------------------------
+
+const WATCH_URL = "https://www.youtube.com/watch?v=kap7lC0lI7s";
+
+test("a blob:-backed video on an extractor site gets an icon targeting the page (TASK-232)", async () => {
+  // YouTube's player is MediaSource-backed and now serves everything over SABR, so neither the element's
+  // own src nor the network sniffer can ever yield a fetchable URL — before this the page got no icon at all.
+  const video = makeMediaElement("video", "blob:https://www.youtube.com/abc-123");
+  const { appended, sentMessages } = await runContentScript([video], { href: WATCH_URL });
+
+  assert.equal(appended.length, 1, "the watch page gets exactly one icon");
+  assert.equal(
+    sentMessages.some((m) => m.type === "MEDIA_DETECTED"),
+    false,
+    "a page URL is not reported to the sniffer's media store",
+  );
+
+  appended[0].click();
+  const sent = sentMessages.find((m) => m.type === "DOWNLOAD_LINK");
+  assert.ok(sent, "clicking the icon hands the page off");
+  assert.equal(sent.url, WATCH_URL, "the hand-off carries the page URL, not a guessed stream URL");
+  assert.equal(sent.extract, true, "and flags it for the app's extractor pipeline");
+});
+
+test("only one page-level icon appears however many players the page has (TASK-232)", async () => {
+  // A watch page spawns extra preview players on hover; they all share the same page URL.
+  const players = [
+    makeMediaElement("video", "blob:https://www.youtube.com/main"),
+    makeMediaElement("video", "blob:https://www.youtube.com/preview-1"),
+    makeMediaElement("video", "blob:https://www.youtube.com/preview-2"),
+  ];
+  const { appended } = await runContentScript(players, { href: WATCH_URL });
+  assert.equal(appended.length, 1, "the page URL is the same for all of them — one icon is enough");
+});
+
+test("a directly-resolvable video still wins over the page hand-off (TASK-232)", async () => {
+  const video = makeMediaElement("video", "https://www.facebook.com/real-clip.mp4");
+  const { appended, sentMessages } = await runContentScript([video], {
+    href: "https://www.facebook.com/watch/?v=123",
+  });
+
+  appended[0].click();
+  const sent = sentMessages.find((m) => m.type === "DOWNLOAD_LINK");
+  assert.equal(sent.url, "https://www.facebook.com/real-clip.mp4", "an exact URL beats extraction");
+  assert.equal(sent.extract, false);
+});
+
+test("an ordinary site with an unresolvable video gets no page hand-off (TASK-232)", async () => {
+  const video = makeMediaElement("video", "blob:https://example.com/abc");
+  const { appended } = await runContentScript([video], { href: "https://example.com/page" });
+  assert.equal(appended.length, 0, "we only hand off pages the app actually has an extractor for");
 });

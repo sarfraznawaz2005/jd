@@ -1,3 +1,4 @@
+using JustDownload.Tests.Fakes;
 using System.Collections.Concurrent;
 using FluentAssertions;
 using JustDownload.Core;
@@ -61,7 +62,7 @@ public sealed class DownloadQueueServiceTests : IDisposable
     }
 
     /// <summary>A manager that advances repo status like the real one and lets the test release each run.</summary>
-    private sealed class GatedManager : IDownloadManager
+    private sealed class GatedManager : FakeDownloadManager
     {
         private readonly IDownloadRepository _repo;
         private readonly object _gate = new();
@@ -69,18 +70,11 @@ public sealed class DownloadQueueServiceTests : IDisposable
 
         public GatedManager(IDownloadRepository repo) => _repo = repo;
 
-        public event EventHandler<DownloadStatusChangedEventArgs>? StatusChanged;
-
-        // Required by the interface but unused by the queue under test.
-#pragma warning disable CS0067
-        public event EventHandler<DownloadProgressChangedEventArgs>? ProgressChanged;
-#pragma warning restore CS0067
-
         public ConcurrentDictionary<long, TaskCompletionSource> Gates { get; } = new();
         public ConcurrentQueue<long> StartOrder { get; } = new();
         public int PeakConcurrency { get; private set; }
 
-        public async Task<DownloadResult> StartAsync(long id, CancellationToken cancellationToken = default)
+        public override async Task<DownloadResult> StartAsync(long id, CancellationToken cancellationToken = default)
         {
             StartOrder.Enqueue(id);
             lock (_gate)
@@ -142,18 +136,13 @@ public sealed class DownloadQueueServiceTests : IDisposable
                 await _repo.UpdateAsync(d with { Status = code }).ConfigureAwait(false);
             }
 
-            StatusChanged?.Invoke(this, new DownloadStatusChangedEventArgs(id, prev, next));
+            Raise(id, next, prev);
         }
 
-        public Task<long> EnqueueAsync(EnqueueDownloadRequest request, CancellationToken ct = default) =>
-            throw new NotSupportedException();
 
-        public Task<DownloadResult> RenewAsync(long id, Uri newUrl, CancellationToken ct = default) =>
-            throw new NotSupportedException();
 
-        public DownloadProgress? GetProgress(long id) => null;
 
-        public IReadOnlyList<ConnectionStat> GetConnections(long id) => [];
+
     }
 
     private DownloadQueueService BuildQueue(GatedManager manager, int max) =>

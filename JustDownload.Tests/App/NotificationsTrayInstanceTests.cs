@@ -1,3 +1,4 @@
+using JustDownload.Tests.Fakes;
 using Avalonia.Controls;
 using FluentAssertions;
 using JustDownload.App.Services;
@@ -25,23 +26,6 @@ public sealed class NotificationsTrayInstanceTests
         public void Notify(AppNotification notification) => Shown.Add(notification);
     }
 
-    private sealed class FakeManager : IDownloadManager
-    {
-        public event EventHandler<DownloadStatusChangedEventArgs>? StatusChanged;
-
-#pragma warning disable CS0067
-        public event EventHandler<DownloadProgressChangedEventArgs>? ProgressChanged;
-#pragma warning restore CS0067
-
-        public void Raise(long id, DownloadStatus current) =>
-            StatusChanged?.Invoke(this, new DownloadStatusChangedEventArgs(id, DownloadStatus.Active, current));
-
-        public Task<long> EnqueueAsync(EnqueueDownloadRequest r, CancellationToken ct = default) => throw new NotSupportedException();
-        public Task<DownloadResult> StartAsync(long id, CancellationToken ct = default) => throw new NotSupportedException();
-        public Task<DownloadResult> RenewAsync(long id, Uri u, CancellationToken ct = default) => throw new NotSupportedException();
-        public DownloadProgress? GetProgress(long id) => null;
-        public IReadOnlyList<ConnectionStat> GetConnections(long id) => [];
-    }
 
     private static IDownloadRepository RepoWithFilename(string filename)
     {
@@ -63,7 +47,7 @@ public sealed class NotificationsTrayInstanceTests
     [Fact]
     public async Task Notifier_ShowsSuccess_OnComplete()
     {
-        var manager = new FakeManager();
+        var manager = new FakeDownloadManager();
         var notifications = new RecordingNotifications();
         using var notifier = new DownloadNotifier(manager, RepoWithFilename("movie.mp4"), notifications, Settings());
         notifier.Start();
@@ -79,7 +63,7 @@ public sealed class NotificationsTrayInstanceTests
     [Fact]
     public async Task Notifier_ShowsError_OnFailure()
     {
-        var manager = new FakeManager();
+        var manager = new FakeDownloadManager();
         var notifications = new RecordingNotifications();
         using var notifier = new DownloadNotifier(manager, RepoWithFilename("iso.img"), notifications, Settings());
         notifier.Start();
@@ -93,7 +77,7 @@ public sealed class NotificationsTrayInstanceTests
     [Fact]
     public async Task Notifier_Ignores_NonTerminalTransitions()
     {
-        var manager = new FakeManager();
+        var manager = new FakeDownloadManager();
         var notifications = new RecordingNotifications();
         using var notifier = new DownloadNotifier(manager, RepoWithFilename("x"), notifications, Settings());
         notifier.Start();
@@ -108,7 +92,7 @@ public sealed class NotificationsTrayInstanceTests
     [Fact]
     public async Task Notifier_DoesNotNotify_WhenNotificationsDisabled()
     {
-        var manager = new FakeManager();
+        var manager = new FakeDownloadManager();
         var notifications = new RecordingNotifications();
         using var notifier = new DownloadNotifier(
             manager, RepoWithFilename("x.bin"), notifications, Settings(notificationsEnabled: false));

@@ -18,6 +18,14 @@ public interface IDownloadActions
     /// <summary>Pauses a running download by cancelling its transfer; no-op if it is not running.</summary>
     void Pause(long id);
 
+    /// <summary>
+    /// Re-downloads the entry from scratch in the background: its checkpoint and the file on disk are
+    /// discarded and the same URL is fetched again from byte zero. No-op if it is already running — pause it
+    /// first. Like <see cref="Start"/>, failures are surfaced through the engine and the global error handler
+    /// rather than thrown here.
+    /// </summary>
+    void Restart(long id);
+
     /// <summary>Whether a transfer for the given download is currently active in this session.</summary>
     bool IsRunning(long id);
 

@@ -52,6 +52,8 @@
   const inFlight = new Set();
   let blacklisted = false;
   let videoCaptureOff = false;
+  /** Whether this frame already shows a page-level (extractor hand-off) icon (TASK-232). */
+  let pageIconAttached = false;
   let rescanTimer = null;
   let repositionTimer = null;
   let pendingRetryTimer = null;
@@ -66,7 +68,7 @@
     );
   }
 
-  function createIcon(url, kind) {
+  function createIcon(url, kind, extract) {
     const icon = document.createElement("button");
     icon.type = "button";
     icon.className = ICON_CLASS;
@@ -94,7 +96,7 @@
       event.preventDefault();
       event.stopPropagation();
       api.runtime
-        .sendMessage({ type: "DOWNLOAD_LINK", url, pageUrl: location.href, mediaKind: kind })
+        .sendMessage({ type: "DOWNLOAD_LINK", url, pageUrl: location.href, mediaKind: kind, extract })
         .catch(() => {});
     });
     document.body.appendChild(icon);
@@ -148,6 +150,17 @@
     try {
       let url = resolveElementUrl(el);
       let kind = "video";
+      let extract = false;
+
+      // On a site the app has an extractor for, hand off the page URL rather than waiting on the sniffer
+      // (TASK-232): there is no fetchable media URL to find on these (see EXTRACTABLE_HOSTS in jdcore.js),
+      // so waiting would only delay an icon that must appear anyway. A directly-resolvable element src
+      // still wins above — it is an exact answer, and some pages on these hosts do serve plain files.
+      if (!url && JD.isExtractablePage(location.href) && !pageIconAttached) {
+        url = location.href;
+        extract = true;
+      }
+
       if (!url) {
         const sniffed = await sniffedVideoUrl();
         if (sniffed) {
@@ -168,10 +181,19 @@
       }
 
       pending.delete(el);
-      const icon = createIcon(url, kind);
-      tracked.set(el, { icon, url });
+      const icon = createIcon(url, kind, extract);
+      tracked.set(el, { icon, url, extract });
+      if (extract) {
+        // One page-level icon per frame: the page URL is the same for every <video> here, and a watch page
+        // spawns extra preview players on hover that would otherwise each sprout an identical icon.
+        pageIconAttached = true;
+      }
       positionIcon(el, icon);
-      api.runtime.sendMessage({ type: "MEDIA_DETECTED", url }).catch(() => {});
+      if (!extract) {
+        // Only report real media URLs to the sniffer's store: a page URL is not something GET_TAB_MEDIA
+        // should later hand back to another element as a downloadable stream (TASK-232).
+        api.runtime.sendMessage({ type: "MEDIA_DETECTED", url }).catch(() => {});
+      }
       ensureRepositionTimer();
     } finally {
       inFlight.delete(el);
@@ -220,6 +242,21 @@
       if (!document.body.contains(el)) {
         entry.icon.remove();
         tracked.delete(el);
+        if (entry.extract) {
+          // Its <video> is gone (e.g. the hover preview it landed on), so let the next scan place a fresh
+          // page-level icon rather than leaving the page with none (TASK-232).
+          pageIconAttached = false;
+        }
+        continue;
+      }
+      if (entry.extract && entry.url !== location.href) {
+        // These hosts are SPAs: navigating between watch pages swaps the video in place without reloading
+        // the frame, so a page-level icon would keep pointing at the previously watched URL (TASK-232).
+        // Drop it and let the next scan attach one carrying the current page.
+        entry.icon.remove();
+        tracked.delete(el);
+        pageIconAttached = false;
+        scheduleRescan();
         continue;
       }
       positionIcon(el, entry.icon);

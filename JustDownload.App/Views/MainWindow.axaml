@@ -19,6 +19,10 @@
     <StreamGeometry x:Key="IconPlay">M5,3.5 L12.5,8 L5,12.5 Z</StreamGeometry>
     <StreamGeometry x:Key="IconPause">M4.5,3.5 H6.5 V12.5 H4.5 Z M9.5,3.5 H11.5 V12.5 H9.5 Z</StreamGeometry>
     <StreamGeometry x:Key="IconStop">M4.5,4.5 H11.5 V11.5 H4.5 Z</StreamGeometry>
+    <!-- Re-download: a clockwise ring broken at the top-right with an arrowhead. Reads lighter than the solid
+         Play/Pause/Stop silhouettes above because a refresh glyph only works as an open loop; the 1.8-unit
+         ring thickness is the heaviest it can be before the counter closes up at 12px. -->
+    <StreamGeometry x:Key="IconRefresh">M8,2.5 A5.5,5.5 0 1 0 13.5,8 H11.7 A3.7,3.7 0 1 1 8,4.3 Z M7.4,1 H12 V5.6 Z</StreamGeometry>
     <!-- Second pass (first: d9ce38f): the lid/handle strips were still only 1.5 units thick against the
          7-9 unit solid blocks of Play/Pause/Stop, reading "slimmer" despite similar overall silhouette size
          (user-reported). Thickened both strips (1.5 → ~2) to close that visual-weight gap. -->
@@ -249,6 +253,9 @@
                 </MenuItem>
                 <MenuItem Header="Pause" Command="{Binding Downloads.PauseCommand}">
                   <MenuItem.Icon><PathIcon Data="{StaticResource IconPause}" Width="12" Height="12" /></MenuItem.Icon>
+                </MenuItem>
+                <MenuItem Header="Re-download" Command="{Binding Downloads.RestartCommand}">
+                  <MenuItem.Icon><PathIcon Data="{StaticResource IconRefresh}" Width="12" Height="12" /></MenuItem.Icon>
                 </MenuItem>
                 <MenuItem Header="Renew expired link…" Command="{Binding Downloads.RenewCommand}" />
                 <Separator />

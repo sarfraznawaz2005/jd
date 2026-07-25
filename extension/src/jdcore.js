@@ -80,18 +80,36 @@
     return blacklist.filter((entry) => normalizeHost(entry) !== host);
   }
 
-  /** Classifies a URL as media by extension; returns the kind or null. */
+  // Extension-less streaming endpoints (TASK-232). Big MSE sites serve media from a path that carries no
+  // file extension at all — YouTube's is `/videoplayback?…&mime=video%2Fmp4&itag=248&range=0-…` — so the
+  // extension-only rule above classified *every* request on a YouTube watch page as "not media", the
+  // network sniffer's store stayed empty, and the content script's blob:-URL fallback (TASK-181) therefore
+  // never had a URL to attach an icon to. Matched on path + a `mime=video/...` query param rather than on
+  // hostname, so it holds for any CDN using the same shape and never fires on a `mime=audio/...` stream.
+  const EXTENSIONLESS_MEDIA_PATHS = ["/videoplayback"];
+
+  /** The `mime` query parameter's top-level type ("video", "audio", ...), or null. */
+  function mimeTypeOf(parsed) {
+    const mime = parsed.searchParams.get("mime");
+    return mime ? mime.split("/")[0].toLowerCase() : null;
+  }
+
+  /** Classifies a URL as media by extension, or by a known extension-less streaming path; kind or null. */
   function classifyMedia(url) {
-    let pathname;
+    let parsed;
     try {
-      pathname = new URL(url).pathname.toLowerCase();
+      parsed = new URL(url);
     } catch {
       return null;
     }
+    const pathname = parsed.pathname.toLowerCase();
     for (const { kind, ext } of MEDIA_KINDS) {
       if (ext.some((e) => pathname.endsWith(e))) {
         return kind;
       }
+    }
+    if (EXTENSIONLESS_MEDIA_PATHS.includes(pathname) && mimeTypeOf(parsed) === "video") {
+      return "video";
     }
     return null;
   }
@@ -99,6 +117,46 @@
   /** Whether a URL points at downloadable media. */
   function isMediaUrl(url) {
     return classifyMedia(url) !== null;
+  }
+
+  // Per-chunk parameters an MSE player adds to each segment request (TASK-232). The sniffer sees the
+  // player's own chunk fetches, so the captured URL addresses one slice ("range=0-1310719"), not the
+  // stream — handing that to the engine downloads a fragment. Stripping them restores the whole-stream
+  // URL the engine can then Range-request itself.
+  const CHUNK_PARAMS = ["range", "rn", "rbuf"];
+
+  // Sites the desktop app has a dedicated extractor for (TASK-232), mirroring Core's YouTubeMediaExtractor
+  // and FacebookMediaExtractor host rules. On these the extension deliberately does NOT try to guess a
+  // media URL: they stream via MediaSource, and YouTube in particular now serves everything over SABR — a
+  // POST to /videoplayback whose format and byte range live in a UMP protobuf body, with no mime, itag or
+  // range anywhere in the URL. There is simply no fetchable address for the sniffer to find, so the icon
+  // hands the *page* URL to the app and lets the extractor pipeline (and, if the user enabled it, the
+  // yt-dlp fallback — D3) resolve the real streams and mux audio. Per D3 this is best-effort: the app
+  // reports a clear failure when no extractor can handle the page.
+  const EXTRACTABLE_HOSTS = ["youtube.com", "youtu.be", "facebook.com", "fb.watch"];
+
+  /** Whether the desktop app has a site extractor for this page's host, so the page URL is worth handing off. */
+  function isExtractablePage(url) {
+    const host = hostnameOf(url);
+    if (!host) {
+      return false;
+    }
+    const bare = host.replace(/^www\./, "");
+    return EXTRACTABLE_HOSTS.some((h) => bare === h || bare.endsWith("." + h));
+  }
+
+  /** Strips per-chunk parameters from a sniffed media URL so it addresses the whole stream. */
+  function normalizeMediaUrl(url) {
+    let parsed;
+    try {
+      parsed = new URL(url);
+    } catch {
+      return url;
+    }
+    for (const param of CHUNK_PARAMS) {
+      parsed.searchParams.delete(param);
+    }
+    return parsed.href;
   }
 
   /**
@@ -126,6 +184,8 @@
       cookies: typeof o.cookies === "string" ? o.cookies : null,
       headers: o.headers && typeof o.headers === "object" ? o.headers : {},
       mediaKind: o.mediaKind || null,
+      // Whether `url` is a page to run the extractor pipeline on rather than a direct media URL (TASK-232).
+      extract: o.extract === true,
     };
   }
 
@@ -259,6 +319,8 @@
     removeFromBlacklist,
     classifyMedia,
     isMediaUrl,
+    normalizeMediaUrl,
+    isExtractablePage,
     pickContextUrl,
     buildDownloadMessage,
     formatCookieHeader,
