@@ -95,8 +95,15 @@
 
         <Grid Grid.Row="1" ColumnDefinitions="*,Auto" ColumnSpacing="10">
           <ProgressBar Grid.Column="0" Classes="Mini" Minimum="0" Maximum="100"
-                       Value="{Binding Row.ProgressPercent}" VerticalAlignment="Center" />
+                       Value="{Binding Row.ProgressPercent}"
+                       IsIndeterminate="{Binding Row.IsProgressIndeterminate}" VerticalAlignment="Center" />
+          <!-- No percentage exists for an unknown-size source, so its label carries the bytes fetched so far
+               ("Downloading · 106.9 MB") rather than a permanent 0%. -->
           <TextBlock Grid.Column="1" Text="{Binding Row.ProgressPercent, StringFormat='{}{0:0}%'}"
+                     IsVisible="{Binding !Row.IsProgressIndeterminate}"
+                     FontSize="12" VerticalAlignment="Center" Foreground="{DynamicResource TextDimBrush}" />
+          <TextBlock Grid.Column="1" Text="{Binding Row.StatusLabel}"
+                     IsVisible="{Binding Row.IsProgressIndeterminate}"
                      FontSize="12" VerticalAlignment="Center" Foreground="{DynamicResource TextDimBrush}" />
         </Grid>
 

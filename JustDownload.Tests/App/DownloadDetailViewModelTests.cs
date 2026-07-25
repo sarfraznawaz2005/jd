@@ -20,7 +20,8 @@ public sealed class DownloadDetailViewModelTests
 {
     private static readonly DateTimeOffset Now = new(2026, 6, 28, 12, 0, 0, TimeSpan.Zero);
 
-    private static DownloadRowViewModel Row(long id = 1, string status = DownloadStatusCodes.Active) =>
+    private static DownloadRowViewModel Row(
+        long id = 1, string status = DownloadStatusCodes.Active, long? total = 4_000_000) =>
         new(
             new Download
             {
@@ -28,7 +29,7 @@ public sealed class DownloadDetailViewModelTests
                 Url = "https://host.example/big.iso",
                 Filename = "big.iso",
                 Directory = @"C:\Downloads\Compressed",
-                TotalBytes = 4_000_000,
+                TotalBytes = total,
                 Status = status,
                 CreatedAt = Now,
             },
@@ -291,6 +292,47 @@ public sealed class DownloadDetailViewModelTests
         // completed download's Download tab said "Waiting for connections…").
         vm.Select(Row(status: DownloadStatusCodes.Completed));
         vm.ShowWaitingForConnections.Should().BeFalse("the download is complete, not waiting on anything");
+    }
+
+    [AvaloniaFact]
+    public void ShowWaitingForConnections_FalseOnceBytesArrive_EvenWithNoPerConnectionDetail()
+    {
+        // The media path reports bytes but never per-connection stats, so "no connections" alone would leave
+        // the hint up for the whole transfer (user-reported: 106.9 MB fetched, still "Waiting for
+        // connections…"). Bytes on the wire are proof the connections happened.
+        var manager = Substitute.For<IDownloadManager>();
+        manager.GetConnections(Arg.Any<long>()).Returns([]);
+        manager.GetProgress(1).Returns(DownloadProgress.Create(
+            DownloadStatus.Active, 112_114_345, totalBytes: null, 442_000, resumable: false, connections: 1));
+        var vm = new DownloadDetailViewModel(manager, Substitute.For<IDownloadActions>());
+
+        vm.Select(Row(status: DownloadStatusCodes.Active, total: null));
+
+        vm.ShowWaitingForConnections.Should().BeFalse();
+    }
+
+    [AvaloniaFact]
+    public void TotalSize_WhileUnknown_SaysUnknownAndAdoptsTheEngineTotalOnceResolved()
+    {
+        var manager = Substitute.For<IDownloadManager>();
+        manager.GetConnections(Arg.Any<long>()).Returns([]);
+        manager.GetProgress(1).Returns(DownloadProgress.Create(
+            DownloadStatus.Active, 50_000_000, totalBytes: null, 442_000, resumable: false, connections: 1));
+        var vm = new DownloadDetailViewModel(manager, Substitute.For<IDownloadActions>());
+
+        vm.Select(Row(status: DownloadStatusCodes.Active, total: null));
+        vm.TotalSizeDisplay.Should().Be("Unknown", "a bare — reads as a missing value, not an unknowable one");
+
+        // The size only exists once the transfer ends; the row was built before that, so the display has to
+        // follow the engine's snapshot rather than the row's persisted total.
+        DownloadProgress done = DownloadProgress.Create(
+            DownloadStatus.Completed, 112_114_345, 112_114_345, 0, resumable: false, connections: 1);
+        manager.GetProgress(1).Returns(done);
+        manager.ProgressChanged += Raise.Event<EventHandler<DownloadProgressChangedEventArgs>>(
+            manager, new DownloadProgressChangedEventArgs(1, done));
+        Dispatcher.UIThread.RunJobs();
+
+        vm.TotalSizeDisplay.Should().Be("106.9 MB");
     }
 
     private static void RaiseProgress(IDownloadManager manager, long id) =>

@@ -46,6 +46,16 @@ internal sealed partial class DownloadManager : IDownloadManager
     private readonly ConcurrentDictionary<long, ConnectionTracker> _connections = new();
     private readonly ProgressEmitThrottle _progressThrottle = new(ProgressEmitInterval);
 
+    /// <summary>
+    /// Downloads whose current run has already reached a terminal state. Not every progress source delivers
+    /// synchronously on the transferring thread (the media path's <see cref="Progress{T}"/> hands its
+    /// callback to a captured <see cref="SynchronizationContext"/>), so an in-flight report can arrive after
+    /// the terminal snapshot and would otherwise resurrect a finished download as Active — the user-reported
+    /// "completed download stuck on Downloading, with Pause/Cancel still offered". Entries are cleared when a
+    /// download goes Active again, so a restart or resume reports normally.
+    /// </summary>
+    private readonly ConcurrentDictionary<long, byte> _finishedRuns = new();
+
     public DownloadManager(
         IDownloadRepository repository,
         ISegmentRepository segments,
@@ -194,6 +204,10 @@ internal sealed partial class DownloadManager : IDownloadManager
 
         Download active = record with { Status = DownloadStatusCodes.Active, Error = null };
         await _repository.UpdateAsync(active, cancellationToken).ConfigureAwait(false);
+
+        // Re-open progress reporting for this run before anything can report: a previous run's terminal state
+        // must not silence the new one.
+        _finishedRuns.TryRemove(id, out _);
         RaiseStatus(id, from, DownloadStatus.Active);
 
         // A media-variant download (HLS today, TASK-154) takes the segments->concat path instead of plain
@@ -402,7 +416,7 @@ internal sealed partial class DownloadManager : IDownloadManager
         DownloadProgress done = DownloadProgress.Create(
             DownloadStatus.Completed, result.TotalBytes, result.TotalBytes, 0, !result.SingleConnection,
             result.SingleConnection ? 1 : result.InitialSegments);
-        _latest[id] = done;
+        TryPublishProgress(id, done);
         ProgressChanged?.Invoke(this, new DownloadProgressChangedEventArgs(id, done));
 
         LogCompleted(_logger, id, result.TotalBytes);
@@ -433,9 +447,12 @@ internal sealed partial class DownloadManager : IDownloadManager
 
         // The download is no longer running — drop its live per-connection stats so the detail view's
         // Connections tab clears rather than showing a frozen last frame, and its progress-throttle state so
-        // the dictionary stays bounded.
+        // the dictionary stays bounded. Closing the run also fences off any progress report still in flight
+        // from an asynchronous source, which would otherwise land after this and re-report the download as
+        // Active.
         _connections.TryRemove(id, out _);
         _progressThrottle.Forget(id);
+        _finishedRuns[id] = 0;
         RaiseStatus(id, fromStatus, to);
     }
 
@@ -781,21 +798,10 @@ internal sealed partial class DownloadManager : IDownloadManager
         ProxyConfiguration? proxyOverride = await BuildProxyOverrideAsync(active, cancellationToken)
             .ConfigureAwait(false);
 
-        var progress = new Progress<MediaDownloadProgress>(p =>
-        {
-            var snapshot = new DownloadProgress
-            {
-                Status = DownloadStatus.Active,
-                DownloadedBytes = p.DownloadedBytes,
-                TotalBytes = null, // media segment/stream sizes aren't known up front
-                BytesPerSecond = 0,
-                Fraction = p.Fraction > 0 ? p.Fraction : null, // 0 = indeterminate (e.g. separate streams)
-                Resumable = false,
-                Connections = 1,
-            };
-            _latest[id] = snapshot;
-            ProgressChanged?.Invoke(this, new DownloadProgressChangedEventArgs(id, snapshot));
-        });
+        // Media sizes aren't known up front, so the snapshot carries no total (and hence no fraction for the
+        // separate-stream case) — but the speed is still measurable and is the only live signal an
+        // unknown-size download has, so it is estimated here exactly as the HTTP path does.
+        var progress = new MediaProgressSink(this, id, new SpeedEstimator());
 
         try
         {
@@ -824,7 +830,7 @@ internal sealed partial class DownloadManager : IDownloadManager
 
             var done = DownloadProgress.Create(
                 DownloadStatus.Completed, outcome.TotalBytes, outcome.TotalBytes, 0, resumable: false, connections: 1);
-            _latest[id] = done;
+            TryPublishProgress(id, done);
             ProgressChanged?.Invoke(this, new DownloadProgressChangedEventArgs(id, done));
             LogCompleted(_logger, id, outcome.TotalBytes);
 
@@ -971,6 +977,23 @@ internal sealed partial class DownloadManager : IDownloadManager
     private void RaiseStatus(long id, DownloadStatus? previous, DownloadStatus current) =>
         StatusChanged?.Invoke(this, new DownloadStatusChangedEventArgs(id, previous, current));
 
+    /// <summary>
+    /// Publishes a progress snapshot as the download's latest, and returns whether it was accepted. A
+    /// non-terminal snapshot for a run that has already finished is dropped (see <see cref="_finishedRuns"/>):
+    /// it is a stale report that raced past the terminal one, and letting it through would put the UI back
+    /// into a downloading state the engine has already left.
+    /// </summary>
+    private bool TryPublishProgress(long id, DownloadProgress snapshot)
+    {
+        if (snapshot.Status == DownloadStatus.Active && _finishedRuns.ContainsKey(id))
+        {
+            return false;
+        }
+
+        _latest[id] = snapshot;
+        return true;
+    }
+
     private void OnBytes(
         long id, SpeedEstimator estimator, long? total, bool resumable, int connections, long cumulativeBytes)
     {
@@ -981,7 +1004,41 @@ internal sealed partial class DownloadManager : IDownloadManager
 
         // Keep the latest snapshot current for GetProgress and the explicit terminal emit, but only notify the
         // UI at a bounded rate so a fast transfer's per-chunk reports don't flood the UI thread (TASK-104).
-        _latest[id] = snapshot;
+        if (!TryPublishProgress(id, snapshot))
+        {
+            return;
+        }
+
+        if (_progressThrottle.ShouldEmit(id, now))
+        {
+            ProgressChanged?.Invoke(this, new DownloadProgressChangedEventArgs(id, snapshot));
+        }
+    }
+
+    /// <summary>
+    /// Folds one media progress report into a snapshot. A media source advertises no total, so the snapshot
+    /// carries the coordinator's own fraction where it has one (HLS counts segments) and nothing but bytes
+    /// and speed where it does not (separate video+audio streams).
+    /// </summary>
+    private void OnMediaBytes(long id, SpeedEstimator estimator, MediaDownloadProgress report)
+    {
+        DateTimeOffset now = _clock.UtcNow;
+        var snapshot = new DownloadProgress
+        {
+            Status = DownloadStatus.Active,
+            DownloadedBytes = report.DownloadedBytes,
+            TotalBytes = null, // media segment/stream sizes aren't known up front
+            BytesPerSecond = estimator.Sample(now, report.DownloadedBytes),
+            Fraction = report.Fraction > 0 ? report.Fraction : null, // 0 = indeterminate (e.g. separate streams)
+            Resumable = false,
+            Connections = 1,
+        };
+
+        if (!TryPublishProgress(id, snapshot))
+        {
+            return;
+        }
+
         if (_progressThrottle.ShouldEmit(id, now))
         {
             ProgressChanged?.Invoke(this, new DownloadProgressChangedEventArgs(id, snapshot));
@@ -990,6 +1047,29 @@ internal sealed partial class DownloadManager : IDownloadManager
 
     private void OnConnectionProgress(long id, ConnectionProgress progress) =>
         _connections.GetOrAdd(id, static _ => new ConnectionTracker()).Update(_clock, progress);
+
+    /// <summary>
+    /// The media coordinator's counterpart to <see cref="ProgressSink"/> (TASK-154). Synchronous for the same
+    /// reason, and for one more: <see cref="Progress{T}"/> hands the callback to a captured
+    /// <see cref="SynchronizationContext"/>, so a report raised while the transfer was still running could be
+    /// delivered after it had already completed — republishing the download as Active and leaving the UI
+    /// permanently "Downloading" on a finished file (user-reported).
+    /// </summary>
+    private sealed class MediaProgressSink : IProgress<MediaDownloadProgress>
+    {
+        private readonly DownloadManager _owner;
+        private readonly long _id;
+        private readonly SpeedEstimator _estimator;
+
+        public MediaProgressSink(DownloadManager owner, long id, SpeedEstimator estimator)
+        {
+            _owner = owner;
+            _id = id;
+            _estimator = estimator;
+        }
+
+        public void Report(MediaDownloadProgress value) => _owner.OnMediaBytes(_id, _estimator, value);
+    }
 
     /// <summary>
     /// A synchronous <see cref="IProgress{T}"/> bridge: the segmented downloader reports cumulative bytes

@@ -40,11 +40,26 @@ public sealed partial class DownloadRowViewModel : ViewModelBase
     [ObservableProperty]
     private bool _showProgressBar;
 
+    /// <summary>
+    /// Whether the bar should run as a marquee instead of filling to <see cref="ProgressPercent"/>. Set for a
+    /// source that never advertises its size (a media stream, a range-less server): there is no percentage to
+    /// fill, and a determinate bar frozen at 0% reads as "stuck" rather than "size unknown" (user-reported).
+    /// </summary>
+    [ObservableProperty]
+    private bool _isProgressIndeterminate;
+
     [ObservableProperty]
     private string _speedDisplay = "—";
 
     [ObservableProperty]
     private string _etaDisplay = "—";
+
+    /// <summary>The formatted size column (e.g. <c>52.5 MB</c>) or <c>—</c> while the size is unknown.</summary>
+    [ObservableProperty]
+    private string _sizeDisplay = "—";
+
+    /// <summary>Bytes fetched so far, so a bare status change can keep showing the unknown-size measure.</summary>
+    private long _downloadedBytes;
 
     public DownloadRowViewModel(Download download, DateTimeOffset now, FileCategory category)
     {
@@ -56,7 +71,7 @@ public sealed partial class DownloadRowViewModel : ViewModelBase
         FileName = string.IsNullOrWhiteSpace(download.Filename) ? DeriveNameFromUrl(download.Url) : download.Filename!;
         SubLine = BuildSubLine(download);
         TotalBytes = download.TotalBytes;
-        SizeDisplay = download.TotalBytes is > 0 ? ByteFormatter.FormatSize(download.TotalBytes.Value) : "—";
+        SizeDisplay = FormatSize(download.TotalBytes);
         AddedDisplay = TimeFormatter.FormatRelative(download.CreatedAt, now);
         AddedSortKey = download.CreatedAt;
 
@@ -82,11 +97,13 @@ public sealed partial class DownloadRowViewModel : ViewModelBase
     /// <summary>The secondary line under the name (host and any extra context).</summary>
     public string SubLine { get; }
 
-    /// <summary>Total size in bytes when known, used as the sort key for the size column.</summary>
-    public long? TotalBytes { get; }
+    /// <summary>
+    /// Total size in bytes when known, used as the sort key for the size column. Unknown-size sources only
+    /// learn their total once the transfer ends, so this tracks the engine's snapshots rather than staying at
+    /// the (null) value the record was created with.
+    /// </summary>
+    public long? TotalBytes { get; private set; }
 
-    /// <summary>The formatted size column (e.g. <c>52.5 MB</c>) or <c>—</c> when unknown.</summary>
-    public string SizeDisplay { get; }
 
     /// <summary>The formatted "Added" column (e.g. <c>2h ago</c>).</summary>
     public string AddedDisplay { get; }
@@ -130,11 +147,21 @@ public sealed partial class DownloadRowViewModel : ViewModelBase
     {
         ArgumentNullException.ThrowIfNull(progress);
         Status = progress.Status;
-        StatusLabel = BuildLabel(progress.Status, progress.Fraction);
-        ShowProgressBar = HasBar(progress.Status) && progress.Fraction is not null;
+        _downloadedBytes = progress.DownloadedBytes;
+        StatusLabel = BuildLabel(progress.Status, progress.Fraction, progress.DownloadedBytes);
+        IsProgressIndeterminate = IsIndeterminate(progress.Status, progress.Fraction);
+        ShowProgressBar = HasBar(progress.Status) && (progress.Fraction is not null || IsProgressIndeterminate);
         ProgressPercent = progress.Fraction is { } f ? Math.Clamp(f * 100, 0, 100) : 0;
         SpeedDisplay = progress.Status == DownloadStatus.Active ? ByteFormatter.FormatSpeed(progress.BytesPerSecond) : "—";
         EtaDisplay = progress.Status == DownloadStatus.Active ? TimeFormatter.FormatEta(progress.Eta) : "—";
+
+        // An unknown-size source only reveals its total when the transfer ends; adopt it so the size column
+        // stops reading "—" for a file that is now sitting complete on disk.
+        if (progress.TotalBytes is > 0)
+        {
+            TotalBytes = progress.TotalBytes;
+            SizeDisplay = FormatSize(progress.TotalBytes);
+        }
     }
 
     /// <summary>
@@ -145,8 +172,9 @@ public sealed partial class DownloadRowViewModel : ViewModelBase
     {
         Status = status;
         double? fraction = ProgressPercent > 0 ? ProgressPercent / 100 : null;
-        StatusLabel = BuildLabel(status, fraction);
-        ShowProgressBar = HasBar(status) && fraction is not null;
+        StatusLabel = BuildLabel(status, fraction, _downloadedBytes);
+        IsProgressIndeterminate = IsIndeterminate(status, fraction);
+        ShowProgressBar = HasBar(status) && (fraction is not null || IsProgressIndeterminate);
         if (status != DownloadStatus.Active)
         {
             SpeedDisplay = "—";
@@ -155,19 +183,21 @@ public sealed partial class DownloadRowViewModel : ViewModelBase
     }
 
     /// <summary>
-    /// Builds the status cell's label, pairing the state with its percentage where one applies
-    /// (e.g. <c>Downloading · 33%</c>, <c>Paused · 74%</c>, <c>Expired — needs renew</c>). Pure.
+    /// Builds the status cell's label, pairing the state with the best measure of how far it has got:
+    /// a percentage when the total size is known (<c>Downloading · 33%</c>, <c>Paused · 74%</c>), otherwise
+    /// the bytes fetched so far (<c>Downloading · 106.9 MB</c>) so an unknown-size download still shows it is
+    /// making headway. Pure.
     /// </summary>
-    public static string BuildLabel(DownloadStatus status, double? fraction)
+    public static string BuildLabel(DownloadStatus status, double? fraction, long downloadedBytes = 0)
     {
-        string? percent = fraction is { } f
+        string? measure = fraction is { } f
             ? Math.Round(Math.Clamp(f, 0, 1) * 100).ToString("0", CultureInfo.InvariantCulture) + "%"
-            : null;
+            : downloadedBytes > 0 ? ByteFormatter.FormatSize(downloadedBytes) : null;
 
         return status switch
         {
-            DownloadStatus.Active => percent is null ? "Downloading" : $"Downloading · {percent}",
-            DownloadStatus.Paused => percent is null ? "Paused" : $"Paused · {percent}",
+            DownloadStatus.Active => measure is null ? "Downloading" : $"Downloading · {measure}",
+            DownloadStatus.Paused => measure is null ? "Paused" : $"Paused · {measure}",
             DownloadStatus.Queued => "Queued",
             DownloadStatus.Completed => "Complete",
             DownloadStatus.Failed => "Failed",
@@ -178,6 +208,16 @@ public sealed partial class DownloadRowViewModel : ViewModelBase
 
     private static bool HasBar(DownloadStatus status) =>
         status is DownloadStatus.Active or DownloadStatus.Paused;
+
+    /// <summary>
+    /// A marquee is only honest while bytes are actually moving: a paused unknown-size download keeps no bar
+    /// at all rather than animating as though it were still transferring.
+    /// </summary>
+    private static bool IsIndeterminate(DownloadStatus status, double? fraction) =>
+        status == DownloadStatus.Active && fraction is null;
+
+    private static string FormatSize(long? totalBytes) =>
+        totalBytes is > 0 ? ByteFormatter.FormatSize(totalBytes.Value) : "—";
 
     private static string BuildSubLine(Download download)
     {

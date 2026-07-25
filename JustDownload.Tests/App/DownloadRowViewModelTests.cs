@@ -42,6 +42,67 @@ public sealed class DownloadRowViewModelTests
     public void BuildLabel_ActiveWithoutFraction_OmitsPercent() =>
         DownloadRowViewModel.BuildLabel(DownloadStatus.Active, null).Should().Be("Downloading");
 
+    [Theory]
+    [InlineData(DownloadStatus.Active, "Downloading · 106.9 MB")]
+    [InlineData(DownloadStatus.Paused, "Paused · 106.9 MB")]
+    public void BuildLabel_WithoutFraction_FallsBackToBytesFetched(DownloadStatus status, string expected) =>
+        DownloadRowViewModel.BuildLabel(status, fraction: null, downloadedBytes: 112_114_345)
+            .Should().Be(expected);
+
+    [Fact]
+    public void ApplyProgress_WithUnknownTotal_RunsTheBarIndeterminate()
+    {
+        var row = new DownloadRowViewModel(Record(total: null), Now, FileCategory.Video);
+
+        row.ApplyProgress(DownloadProgress.Create(
+            DownloadStatus.Active, 112_114_345, totalBytes: null, 442_000, resumable: false, connections: 1));
+
+        row.StatusLabel.Should().Be("Downloading · 106.9 MB");
+        row.ShowProgressBar.Should().BeTrue();
+        row.IsProgressIndeterminate.Should().BeTrue();
+        row.ProgressPercent.Should().Be(0);
+        row.SpeedDisplay.Should().Contain("KB/s");
+    }
+
+    [Fact]
+    public void ApplyProgress_WithKnownTotal_KeepsTheBarDeterminate()
+    {
+        var row = new DownloadRowViewModel(Record(), Now, FileCategory.Video);
+
+        row.ApplyProgress(DownloadProgress.Create(
+            DownloadStatus.Active, 18_350_080, 55_050_240, 442_000, resumable: true, connections: 8));
+
+        row.IsProgressIndeterminate.Should().BeFalse();
+    }
+
+    [Fact]
+    public void ApplyStatus_PausingAnUnknownSizeDownload_StopsTheMarquee()
+    {
+        var row = new DownloadRowViewModel(Record(total: null), Now, FileCategory.Video);
+        row.ApplyProgress(DownloadProgress.Create(
+            DownloadStatus.Active, 112_114_345, totalBytes: null, 442_000, resumable: false, connections: 1));
+
+        row.ApplyStatus(DownloadStatus.Paused);
+
+        // A marquee on a paused transfer would animate as though bytes were still moving.
+        row.IsProgressIndeterminate.Should().BeFalse();
+        row.ShowProgressBar.Should().BeFalse();
+        row.StatusLabel.Should().Be("Paused · 106.9 MB");
+    }
+
+    [Fact]
+    public void ApplyProgress_WhenTheTotalIsFinallyRevealed_AdoptsItIntoTheSizeColumn()
+    {
+        var row = new DownloadRowViewModel(Record(total: null), Now, FileCategory.Video);
+        row.SizeDisplay.Should().Be("—");
+
+        row.ApplyProgress(DownloadProgress.Create(
+            DownloadStatus.Completed, 112_114_345, 112_114_345, 0, resumable: false, connections: 1));
+
+        row.SizeDisplay.Should().Be("106.9 MB");
+        row.TotalBytes.Should().Be(112_114_345);
+    }
+
     [Fact]
     public void Constructor_DerivesStaticColumns()
     {

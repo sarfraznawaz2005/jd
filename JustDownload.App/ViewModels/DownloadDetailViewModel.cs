@@ -24,6 +24,7 @@ public sealed partial class DownloadDetailViewModel : ViewModelBase, IDisposable
     private readonly Dictionary<int, ConnectionRowViewModel> _connectionsById = [];
     private Avalonia.Threading.DispatcherTimer? _sampler;
     private long _latestSpeed;
+    private long _downloadedBytes;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasSelection))]
@@ -109,11 +110,14 @@ public sealed partial class DownloadDetailViewModel : ViewModelBase, IDisposable
 
     /// <summary>
     /// Whether the "Waiting for connections…" hint should show. Only while actively downloading with no
-    /// connections reported yet — a terminal state (completed/failed/paused) also has zero connections (its
-    /// tracker is cleared on completion) and must not be mistaken for "still waiting" (user-reported: a
-    /// completed download's Download tab said "Waiting for connections…").
+    /// connections reported yet <em>and</em> nothing fetched — a terminal state (completed/failed/paused) also
+    /// has zero connections (its tracker is cleared on completion) and must not be mistaken for "still
+    /// waiting" (user-reported: a completed download's Download tab said "Waiting for connections…"), and
+    /// neither must a transfer that reports no per-connection detail at all, like the media path: bytes
+    /// arriving are proof the connections happened (user-reported: 106.9 MB in, still "waiting").
     /// </summary>
-    public bool ShowWaitingForConnections => Selected?.IsDownloading == true && Connections.Count == 0;
+    public bool ShowWaitingForConnections =>
+        Selected?.IsDownloading == true && Connections.Count == 0 && _downloadedBytes == 0;
 
     /// <summary>
     /// Whether the "Speed (recent)" sparkline should show. Only while actively downloading — once a download
@@ -228,15 +232,36 @@ public sealed partial class DownloadDetailViewModel : ViewModelBase, IDisposable
             TotalSizeDisplay = "—";
             DownloadedDisplay = "—";
             SegmentsDisplay = "—";
+            SetDownloadedBytes(0);
             return;
         }
 
         DownloadProgress? progress = _manager.GetProgress(Selected.Id);
-        TotalSizeDisplay = Selected.TotalBytes is > 0 ? ByteFormatter.FormatSize(Selected.TotalBytes.Value) : "—";
+        SetDownloadedBytes(progress?.DownloadedBytes ?? 0);
+
+        // Prefer the engine's live total over the row's persisted one: a source that never advertised a size
+        // (a media stream, a range-less server) only resolves it when the transfer ends, and the row was
+        // built before that. While it stays unknown, say so — a bare "—" reads as a missing value rather
+        // than an unknowable one (user-reported).
+        long? total = progress?.TotalBytes ?? Selected.TotalBytes;
+        TotalSizeDisplay = total is > 0
+            ? ByteFormatter.FormatSize(total.Value)
+            : Selected.IsDownloading ? "Unknown" : "—";
         DownloadedDisplay = progress is not null ? ByteFormatter.FormatSize(progress.DownloadedBytes) : "—";
         SegmentsDisplay = progress is { Connections: > 0 }
             ? progress.Connections.ToString(System.Globalization.CultureInfo.InvariantCulture)
             : "—";
+    }
+
+    private void SetDownloadedBytes(long value)
+    {
+        if (_downloadedBytes == value)
+        {
+            return;
+        }
+
+        _downloadedBytes = value;
+        OnPropertyChanged(nameof(ShowWaitingForConnections));
     }
 
     private void RefreshConnections()

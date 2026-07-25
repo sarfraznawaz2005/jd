@@ -65,7 +65,10 @@
               <StackPanel Spacing="8">
                 <TextBlock Text="{Binding Selected.StatusLabel}" FontSize="13"
                            Foreground="{DynamicResource TextDimBrush}" />
-                <ProgressBar Classes="Mini" Minimum="0" Maximum="100" Value="{Binding Selected.ProgressPercent}" />
+                <!-- Indeterminate for a source that never advertised its size: a determinate bar pinned at 0%
+                     for the whole transfer reads as a stalled download rather than an unmeasurable one. -->
+                <ProgressBar Classes="Mini" Minimum="0" Maximum="100" Value="{Binding Selected.ProgressPercent}"
+                             IsIndeterminate="{Binding Selected.IsProgressIndeterminate}" />
               </StackPanel>
 
               <Grid ColumnDefinitions="*,*" RowDefinitions="Auto,Auto" >
