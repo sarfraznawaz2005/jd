@@ -68,37 +68,71 @@ public sealed partial class DownloadRowViewModel : ViewModelBase
     {
         ArgumentNullException.ThrowIfNull(download);
         Id = download.Id;
+        ApplyRecord(download, now, category);
+        Status = DownloadStatusCodes.Parse(download.Status);
+        StatusLabel = BuildLabel(Status, fraction: null);
+    }
+
+    /// <summary>
+    /// Re-reads the persisted record into this row, keeping the instance. A reload must not swap the row
+    /// object out: the detail pane and any open progress window hold a reference to the row they are
+    /// following, and a replacement orphans them from every later progress and status event — the download
+    /// then runs to completion while their copy stays frozen on whatever it last saw (user-reported: a
+    /// finished download's window stuck on "Downloading" with Pause/Cancel still offered).
+    /// </summary>
+    public void Refresh(Download download, DateTimeOffset now, FileCategory category)
+    {
+        ArgumentNullException.ThrowIfNull(download);
+        if (download.Id != Id)
+        {
+            throw new ArgumentException($"Record {download.Id} cannot refresh row {Id}.", nameof(download));
+        }
+
+        ApplyRecord(download, now, category);
+    }
+
+    private void ApplyRecord(Download download, DateTimeOffset now, FileCategory category)
+    {
         Url = download.Url;
         FilePath = ResolveFilePath(download);
         Category = category;
         FileName = string.IsNullOrWhiteSpace(download.Filename) ? DeriveNameFromUrl(download.Url) : download.Filename!;
         SubLine = BuildSubLine(download);
-        TotalBytes = download.TotalBytes;
-        SizeDisplay = FormatSize(download.TotalBytes);
         AddedDisplay = TimeFormatter.FormatRelative(download.CreatedAt, now);
         AddedSortKey = download.CreatedAt;
 
-        Status = DownloadStatusCodes.Parse(download.Status);
-        StatusLabel = BuildLabel(Status, fraction: null);
+        // A live snapshot's total outranks the record's, so a resolved size is never rolled back to the
+        // (null) value an unknown-size download was persisted with.
+        if (TotalBytes is not > 0)
+        {
+            TotalBytes = download.TotalBytes;
+            SizeDisplay = FormatSize(download.TotalBytes);
+        }
     }
 
     /// <summary>The download's primary key — the identity the action commands operate on.</summary>
     public long Id { get; }
 
     /// <summary>The source URL (used by the "copy link" action and renew flows).</summary>
-    public string Url { get; }
+    [ObservableProperty]
+    private string _url = string.Empty;
 
     /// <summary>The absolute destination path when both directory and name are known; otherwise <c>null</c>.</summary>
-    public string? FilePath { get; }
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanOpenFile))]
+    private string? _filePath;
 
     /// <summary>The file-type category that selects the row's icon and tint.</summary>
-    public FileCategory Category { get; }
+    [ObservableProperty]
+    private FileCategory _category;
 
     /// <summary>The display file name (the primary line of the name cell).</summary>
-    public string FileName { get; }
+    [ObservableProperty]
+    private string _fileName = string.Empty;
 
     /// <summary>The secondary line under the name (host and any extra context).</summary>
-    public string SubLine { get; }
+    [ObservableProperty]
+    private string _subLine = string.Empty;
 
     /// <summary>
     /// Total size in bytes when known, used as the sort key for the size column. Unknown-size sources only
@@ -109,10 +143,11 @@ public sealed partial class DownloadRowViewModel : ViewModelBase
 
 
     /// <summary>The formatted "Added" column (e.g. <c>2h ago</c>).</summary>
-    public string AddedDisplay { get; }
+    [ObservableProperty]
+    private string _addedDisplay = "—";
 
     /// <summary>The creation timestamp, used as the sort key for the "Added" column.</summary>
-    public DateTimeOffset AddedSortKey { get; }
+    public DateTimeOffset AddedSortKey { get; private set; }
 
     /// <summary>The numeric progress used as the sort key for the status column (0 when not measurable).</summary>
     public double ProgressSortKey => ProgressPercent;

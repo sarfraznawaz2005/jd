@@ -488,4 +488,91 @@ public sealed class DownloadsListViewModelTests
         vm.Counts.Completed.Should().Be(1, "the one still present is the now-completed #2");
         vm.Counts.Incomplete.Should().Be(0);
     }
+
+    [AvaloniaFact]
+    public async Task LoadAsync_KeepsTheSameRowInstanceForADownloadAlreadyOnScreen()
+    {
+        var h = new Harness();
+        h.Repository.GetAllAsync(Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<Download>>(new[] { Record(1), Record(2) }));
+        var vm = h.Build();
+        await vm.LoadAsync();
+        DownloadRowViewModel first = vm.Downloads.First(r => r.Id == 1);
+
+        await vm.LoadAsync();
+
+        vm.Downloads.First(r => r.Id == 1).Should().BeSameAs(first);
+    }
+
+    [AvaloniaFact]
+    public async Task RowHeldAcrossAReload_StillFollowsTheDownloadToCompletion()
+    {
+        // The exact shape of the field failure: a progress window opens holding a row, a reload runs (the
+        // media picker and New Download dialog both reload after enqueuing), and the download then finishes.
+        // Replacing the row left that window frozen on "Downloading" with Pause/Cancel live but inert.
+        var h = new Harness();
+        h.Repository.GetAllAsync(Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<Download>>(new[] { Record(1, DownloadStatusCodes.Active) }));
+        var vm = h.Build();
+        await vm.LoadAsync();
+
+        DownloadRowViewModel watched = vm.Downloads.Single(r => r.Id == 1); // what the window captured
+        await vm.LoadAsync();
+
+        h.Manager.ProgressChanged += Raise.Event<EventHandler<DownloadProgressChangedEventArgs>>(
+            h.Manager,
+            new DownloadProgressChangedEventArgs(1, DownloadProgress.Create(
+                DownloadStatus.Completed, 22_351_748, 22_351_748, 0, resumable: false, connections: 1)));
+        Dispatcher.UIThread.RunJobs();
+
+        watched.Status.Should().Be(DownloadStatus.Completed);
+        watched.StatusLabel.Should().Be("Complete");
+        watched.IsProgressIndeterminate.Should().BeFalse();
+        watched.CanPause.Should().BeFalse("a finished download must not keep offering Pause");
+    }
+
+    [AvaloniaFact]
+    public async Task LoadAsync_AnnouncesRowsItCreated_ButNotOnesItKept()
+    {
+        var h = new Harness();
+        h.Repository.GetAllAsync(Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<Download>>(new[] { Record(1) }));
+        var vm = h.Build();
+        var announced = new List<long>();
+        vm.RowAdded += (_, row) => announced.Add(row.Id);
+
+        await vm.LoadAsync();
+        announced.Should().Equal(1);
+
+        // A second load that brings in a new download announces only that one — a reload must not re-announce
+        // rows that were already on screen.
+        h.Repository.GetAllAsync(Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<Download>>(new[] { Record(1), Record(2) }));
+        await vm.LoadAsync();
+
+        announced.Should().Equal(1, 2);
+    }
+
+    [AvaloniaFact]
+    public async Task LoadAsync_RefreshesAKeptRowFromItsRecord()
+    {
+        var h = new Harness();
+        h.Repository.GetAllAsync(Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<Download>>(new[] { Record(1) }));
+        var vm = h.Build();
+        await vm.LoadAsync();
+        DownloadRowViewModel row = vm.Downloads.Single();
+
+        // The engine resolved a real filename after the transfer started (Content-Disposition / a media
+        // extractor): keeping the instance must not mean keeping stale data.
+        h.Repository.GetAllAsync(Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<Download>>(new[]
+            {
+                Record(1) with { Filename = "resolved-name.mkv" },
+            }));
+        await vm.LoadAsync();
+
+        vm.Downloads.Single().Should().BeSameAs(row);
+        row.FileName.Should().Be("resolved-name.mkv");
+    }
 }

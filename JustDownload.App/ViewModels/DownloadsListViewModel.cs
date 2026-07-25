@@ -244,12 +244,32 @@ public sealed partial class DownloadsListViewModel : ViewModelBase, IDisposable
             IReadOnlyList<Download> records = await _repository.GetAllAsync(cancellationToken).ConfigureAwait(true);
             DateTimeOffset now = _clock.UtcNow;
 
+            // Rows already on screen are refreshed in place, never replaced. The detail pane and each open
+            // progress window follow a row *instance*; swapping it out leaves them holding an orphan that
+            // is no longer in _byId and so never sees another progress or status event, while the download
+            // itself runs on to completion (user-reported: a finished download's window stayed on
+            // "Downloading" with Pause/Cancel live and doing nothing). A reload is a data refresh, not a
+            // reason to change identity.
+            var existing = new Dictionary<long, DownloadRowViewModel>(_byId);
+            var created = new List<DownloadRowViewModel>();
+
             Downloads.Clear();
             _byId.Clear();
             _allRows.Clear();
             foreach (Download record in records)
             {
-                DownloadRowViewModel row = CreateRow(record, now);
+                DownloadRowViewModel row;
+                if (existing.TryGetValue(record.Id, out DownloadRowViewModel? kept))
+                {
+                    row = kept;
+                    row.Refresh(record, now, Categorize(record));
+                }
+                else
+                {
+                    row = CreateRow(record, now);
+                    created.Add(row);
+                }
+
                 if (_manager.GetProgress(record.Id) is { } progress)
                 {
                     row.ApplyProgress(progress);
@@ -262,6 +282,15 @@ public sealed partial class DownloadsListViewModel : ViewModelBase, IDisposable
             RecomputeCounts();
             RebuildVisible();
             RaiseCounts();
+
+            // A reload can beat AddNewlyEnqueuedAsync to a just-enqueued download, which then bails on the
+            // duplicate check and never announces the row. Anyone waiting for it — the progress-window
+            // service holds the download id until its row exists — would wait forever, so announce the rows
+            // this load brought into being.
+            foreach (DownloadRowViewModel row in created)
+            {
+                RowAdded?.Invoke(this, row);
+            }
 
             // Auto-select the most recent download so the detail pane has something to show on startup —
             // otherwise "Toggle details" looked broken (it only affects the pane once something is
@@ -285,11 +314,10 @@ public sealed partial class DownloadsListViewModel : ViewModelBase, IDisposable
     [RelayCommand]
     private async Task RetryLoadAsync() => await LoadAsync().ConfigureAwait(true);
 
-    private DownloadRowViewModel CreateRow(Download record, DateTimeOffset now)
-    {
-        FileCategory category = _categorizer.Categorize(record.Filename, contentType: null);
-        return new DownloadRowViewModel(record, now, category);
-    }
+    private FileCategory Categorize(Download record) => _categorizer.Categorize(record.Filename, contentType: null);
+
+    private DownloadRowViewModel CreateRow(Download record, DateTimeOffset now) =>
+        new(record, now, Categorize(record));
 
     private void OnStatusChanged(object? sender, DownloadStatusChangedEventArgs e)
     {
