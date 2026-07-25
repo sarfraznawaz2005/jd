@@ -88,8 +88,9 @@
                 </StackPanel>
               </Grid>
 
-              <!-- Recent speed sparkline (TASK-137) -->
-              <StackPanel Spacing="6">
+              <!-- Recent speed sparkline (TASK-137): only while actively downloading — hidden (and cleared)
+                   the moment the download stops, so it doesn't sit there frozen or keep animating. -->
+              <StackPanel Spacing="6" IsVisible="{Binding ShowSpeedHistory}">
                 <TextBlock Text="Speed (recent)" Classes="StatKey" />
                 <!-- Fixed to its max width (60 bars * 3px + 59 * 1px spacing) so the card doesn't keep
                      growing wider for the sparkline's first 60 seconds — an ItemsControl otherwise sizes to

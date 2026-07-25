@@ -140,6 +140,40 @@ public sealed class DownloadDetailViewModelTests
     }
 
     [AvaloniaFact]
+    public void SampleNow_DoesNotRecord_WhileSelectedRowIsNotDownloading()
+    {
+        // Regression: the sparkline kept scrolling/animating for up to a minute after a download stopped,
+        // because SampleNow() kept appending samples regardless of status (user-reported).
+        var manager = Substitute.For<IDownloadManager>();
+        manager.GetConnections(Arg.Any<long>()).Returns([]);
+        var vm = new DownloadDetailViewModel(manager, Substitute.For<IDownloadActions>());
+        vm.Select(Row(status: DownloadStatusCodes.Completed));
+
+        RaiseProgress(manager, 1);
+        Dispatcher.UIThread.RunJobs();
+
+        vm.SampleNow();
+        vm.SpeedHistory.Count.Should().Be(0, "the selected download is not actively transferring");
+    }
+
+    [AvaloniaFact]
+    public void ShowSpeedHistory_TrueOnlyWhileActive()
+    {
+        var manager = Substitute.For<IDownloadManager>();
+        manager.GetConnections(Arg.Any<long>()).Returns([]);
+        var vm = new DownloadDetailViewModel(manager, Substitute.For<IDownloadActions>());
+
+        vm.Select(Row(status: DownloadStatusCodes.Active));
+        vm.ShowSpeedHistory.Should().BeTrue();
+
+        vm.Select(Row(status: DownloadStatusCodes.Completed));
+        vm.ShowSpeedHistory.Should().BeFalse("the graph must not keep showing/animating once the download is done");
+
+        vm.Select(Row(status: DownloadStatusCodes.Paused));
+        vm.ShowSpeedHistory.Should().BeFalse();
+    }
+
+    [AvaloniaFact]
     public void ProgressTick_RenotifiesCanExecute_ForResumePauseCancel()
     {
         // Regression: a brand-new download can auto-select before its own Queued→Active StatusChanged event

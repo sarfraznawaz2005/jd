@@ -35,6 +35,7 @@ public sealed partial class DownloadDetailViewModel : ViewModelBase, IDisposable
     [NotifyCanExecuteChangedFor(nameof(CancelCommand))]
     [NotifyCanExecuteChangedFor(nameof(VerifyChecksumCommand))]
     [NotifyPropertyChangedFor(nameof(ShowWaitingForConnections))]
+    [NotifyPropertyChangedFor(nameof(ShowSpeedHistory))]
     private DownloadRowViewModel? _selected;
 
     /// <summary>The user-entered MD5/SHA-256 hash to verify the completed file against (Options tab, TASK-132).</summary>
@@ -78,7 +79,7 @@ public sealed partial class DownloadDetailViewModel : ViewModelBase, IDisposable
     /// <summary>Records the selected download's latest speed into the history. Called on a timer; public for tests.</summary>
     public void SampleNow()
     {
-        if (Selected is not null)
+        if (Selected?.IsDownloading == true)
         {
             SpeedHistory.Add(Interlocked.Read(ref _latestSpeed));
         }
@@ -113,6 +114,13 @@ public sealed partial class DownloadDetailViewModel : ViewModelBase, IDisposable
     /// completed download's Download tab said "Waiting for connections…").
     /// </summary>
     public bool ShowWaitingForConnections => Selected?.IsDownloading == true && Connections.Count == 0;
+
+    /// <summary>
+    /// Whether the "Speed (recent)" sparkline should show. Only while actively downloading — once a download
+    /// completes, pauses, or fails, its speed is no longer meaningful and the graph must not keep animating
+    /// (user-reported: it "still shows" scrolling/updating well after the transfer had already stopped).
+    /// </summary>
+    public bool ShowSpeedHistory => Selected?.IsDownloading == true;
 
     /// <summary>The destination folder (Options tab).</summary>
     public string SaveToDisplay =>
@@ -193,6 +201,11 @@ public sealed partial class DownloadDetailViewModel : ViewModelBase, IDisposable
             // last observed speed — without this the sparkline keeps sampling a stale non-zero value forever
             // after Complete/Failed/Paused (user-reported: the graph "still shows" after a download finishes).
             Interlocked.Exchange(ref _latestSpeed, 0);
+
+            // SampleNow() already stops appending once IsDownloading is false, but the bars already drawn from
+            // while it was active would otherwise sit there frozen instead of disappearing — clear them so the
+            // graph is fully gone the moment it hides, and a later resume starts from an empty graph again.
+            SpeedHistory.Clear();
         }
 
         Dispatcher.UIThread.Post(() =>
@@ -204,6 +217,7 @@ public sealed partial class DownloadDetailViewModel : ViewModelBase, IDisposable
             RefreshConnections();
             UpdateSegmentVisualization();
             OnPropertyChanged(nameof(ShowWaitingForConnections)); // Selected.IsDownloading just flipped
+            OnPropertyChanged(nameof(ShowSpeedHistory));
         });
     }
 
