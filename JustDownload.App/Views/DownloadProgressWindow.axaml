@@ -5,8 +5,9 @@
         x:Class="JustDownload.App.Views.DownloadProgressWindow"
         x:DataType="vm:DownloadProgressViewModel"
         Title="{Binding Title}"
-        Width="620" Height="580"
-        MinWidth="480" MinHeight="420"
+        Width="620"
+        MinWidth="480"
+        SizeToContent="Height"
         CanMaximize="False"
         WindowStartupLocation="CenterScreen"
         Background="{DynamicResource CardBrush}">

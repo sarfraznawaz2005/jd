@@ -31,11 +31,14 @@
                  TextWrapping="Wrap" TextAlignment="Center" Foreground="{DynamicResource TextFaintBrush}" />
     </StackPanel>
 
-    <!-- Detail content -->
-    <DockPanel IsVisible="{Binding HasSelection}" Margin="16">
+    <!-- Detail content. Auto-sized rows, deliberately not a DockPanel: the tab body used to be the fill child
+         and stretched to the whole pane height while its content stayed top-aligned, leaving a large dead gap
+         above the Resume/Pause/Cancel row (user-reported). Rows 0–2 now pack tight to the top, so the buttons
+         sit immediately under the tab content whatever that content currently is. -->
+    <Grid IsVisible="{Binding HasSelection}" Margin="16" RowDefinitions="Auto,Auto,Auto">
 
       <!-- Header -->
-      <Grid DockPanel.Dock="Top" ColumnDefinitions="Auto,*" Margin="0,0,0,14">
+      <Grid Grid.Row="0" ColumnDefinitions="Auto,*" Margin="0,0,0,14">
         <Border Grid.Column="0" Width="40" Height="40" CornerRadius="{StaticResource RadiusSm}" Margin="0,0,12,0"
                 Background="{Binding Selected.Category, Converter={x:Static conv:CategoryResourceConverter.Instance}, ConverterParameter=background}">
           <PathIcon Width="21" Height="21"
@@ -49,15 +52,11 @@
         </StackPanel>
       </Grid>
 
-      <!-- Per-item actions -->
-      <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Spacing="8" Margin="0,14,0,0">
-        <Button Classes="App" Command="{Binding ResumeCommand}" Content="Resume" />
-        <Button Classes="App" Command="{Binding PauseCommand}" Content="Pause" />
-        <Button Classes="App Danger" Command="{Binding CancelCommand}" Content="Cancel" />
-      </StackPanel>
-
-      <!-- Tabs -->
-      <TabControl SelectedIndex="{Binding ActiveTabIndex, Mode=TwoWay}">
+      <!-- Tabs. Height is intentionally left to the content: any fixed height re-creates the very gap this
+           layout removes as soon as a tab is shorter than it (a finished download drops the sparkline and
+           segment strip, for instance). The one thing that could grow without bound is the Connections grid,
+           which is capped below and scrolls internally like any DataGrid. -->
+      <TabControl Grid.Row="1" SelectedIndex="{Binding ActiveTabIndex, Mode=TwoWay}">
 
         <!-- Download -->
         <TabItem Header="Download">
@@ -195,8 +194,10 @@
             <TextBlock Text="No active connections." IsVisible="{Binding !Connections.Count}"
                        Foreground="{DynamicResource TextFaintBrush}" FontSize="12"
                        HorizontalAlignment="Center" VerticalAlignment="Center" />
+            <!-- Capped so a 32-connection download can't stretch the pane/window without bound; the DataGrid
+                 scrolls its own rows past that, which is its native behaviour rather than an added wrapper. -->
             <DataGrid Name="ConnectionsGrid" ItemsSource="{Binding Connections}"
-                      IsVisible="{Binding Connections.Count}"
+                      IsVisible="{Binding Connections.Count}" MaxHeight="260"
                       CanUserReorderColumns="False" CanUserSortColumns="False" IsReadOnly="True"
                       HeadersVisibility="Column" GridLinesVisibility="None">
               <DataGrid.Columns>
@@ -218,6 +219,13 @@
           </Panel>
         </TabItem>
       </TabControl>
-    </DockPanel>
+
+      <!-- Per-item actions -->
+      <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="8" Margin="0,14,0,0">
+        <Button Classes="App" Command="{Binding ResumeCommand}" Content="Resume" />
+        <Button Classes="App" Command="{Binding PauseCommand}" Content="Pause" />
+        <Button Classes="App Danger" Command="{Binding CancelCommand}" Content="Cancel" />
+      </StackPanel>
+    </Grid>
   </Panel>
 </UserControl>

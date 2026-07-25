@@ -261,19 +261,27 @@ public sealed class DownloadProgressWindowTests
         var window = new JustDownload.App.Views.DownloadProgressWindow { DataContext = vm };
         window.Show();
 
-        double fullHeight = window.Height;
+        // Height is computed from the content (SizeToContent), not set, so the rendered size is what matters.
+        Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+        double fullHeight = window.ClientSize.Height;
         window.CanResize.Should().BeTrue();
 
         vm.ToggleCompactCommand.Execute(null);
+        Avalonia.Threading.Dispatcher.UIThread.RunJobs();
 
         window.SizeToContent.Should().Be(Avalonia.Controls.SizeToContent.Height,
             "the compact bar dictates its own height rather than keeping the full view's fixed size");
         window.CanResize.Should().BeFalse("there is nothing to resize into in the compact bar");
+        window.ClientSize.Height.Should().BeLessThan(
+            fullHeight, "the compact bar is much shorter than the full view");
 
         vm.ToggleCompactCommand.Execute(null);
+        Avalonia.Threading.Dispatcher.UIThread.RunJobs();
 
-        window.SizeToContent.Should().Be(Avalonia.Controls.SizeToContent.Manual);
-        window.Height.Should().Be(fullHeight, "expanding snaps back to the standard full-view size");
+        // Both modes size to content: the full view's parts are all fixed-height, so fitting the window to
+        // them exactly is what keeps dead space from opening up under the actions row (user-reported).
+        window.SizeToContent.Should().Be(Avalonia.Controls.SizeToContent.Height);
+        window.ClientSize.Height.Should().Be(fullHeight, "expanding snaps back to the same full-view size");
         window.CanResize.Should().BeTrue();
 
         window.Close();

@@ -1,10 +1,15 @@
+using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Presenters;
 using Avalonia.Headless.XUnit;
+using Avalonia.Threading;
 using Avalonia.VisualTree;
 using FluentAssertions;
 using JustDownload.App.Services;
 using JustDownload.App.ViewModels;
 using JustDownload.App.Views;
+using JustDownload.Core.Categorization;
+using JustDownload.Core.Data.Models;
 using JustDownload.Core.Lifecycle;
 using NSubstitute;
 using Xunit;
@@ -32,4 +37,78 @@ public sealed class DownloadDetailViewTests
         string[] headers = tabs.Items.OfType<TabItem>().Select(t => t.Header?.ToString()).ToArray()!;
         headers.Should().Equal("Download", "Options", "Connections");
     }
+
+    /// <summary>
+    /// Regression (user-reported): the tab body used to be a DockPanel fill child, so it stretched to the
+    /// whole pane while its content stayed top-aligned — leaving a large band of dead space between the last
+    /// visible control and the Resume/Pause/Cancel row. The actions row must sit directly under the tab
+    /// content (its own 14px margin and nothing more), in every state, without anything needing to scroll.
+    /// </summary>
+    [AvaloniaTheory]
+    [InlineData(DownloadStatusCodes.Active, true)]
+    [InlineData(DownloadStatusCodes.Completed, false)]
+    public void ActionsRow_SitsDirectlyBelowTabContent_LeavingNoDeadSpace(string status, bool hasConnections)
+    {
+        var manager = Substitute.For<IDownloadManager>();
+        manager.GetConnections(Arg.Any<long>()).Returns(hasConnections ? [Stat()] : []);
+        manager.GetProgress(Arg.Any<long>()).Returns(
+            DownloadProgress.Create(DownloadStatus.Active, 50, 100, 1000, resumable: true, connections: 1));
+
+        var vm = new DownloadDetailViewModel(manager, Substitute.For<IDownloadActions>());
+        vm.Select(Row(status));
+        vm.SampleNow(); // the sparkline is at its tallest with samples in it
+
+        var view = new DownloadDetailView { DataContext = vm };
+        // Deliberately far taller than the content: the old fill-child layout absorbed all of it as a gap.
+        var host = new Window { Content = view, Width = 420, Height = 900 };
+        host.Show();
+        Dispatcher.UIThread.RunJobs();
+        host.Measure(new Size(420, 900));
+        host.Arrange(new Rect(0, 0, 420, 900));
+
+        ContentPresenter body = view.GetVisualDescendants().OfType<ContentPresenter>()
+            .Single(p => p.Name == "PART_SelectedContentHost");
+        Control actions = view.GetVisualDescendants().OfType<Button>()
+            .Single(b => (b.Content as string) == "Resume");
+
+        double contentBottom = body.Bounds.Height + body.TranslatePoint(default, view)!.Value.Y;
+        double actionsTop = actions.TranslatePoint(default, view)!.Value.Y;
+
+        (actionsTop - contentBottom).Should().BeLessThanOrEqualTo(
+            16, "the actions row carries a 14px top margin and nothing else should separate it from the tab body");
+
+        if (body.Child is Control tabContent)
+        {
+            tabContent.Measure(new Size(body.Bounds.Width, double.PositiveInfinity));
+            tabContent.DesiredSize.Height.Should().BeLessThanOrEqualTo(
+                body.Bounds.Height + 1, "the tab body sizes to its content, so nothing needs to scroll");
+        }
+    }
+
+    private static ConnectionStat Stat() => new()
+    {
+        ConnectionId = 1,
+        SegmentIndex = 0,
+        Start = 0,
+        End = 999,
+        DownloadedBytes = 500,
+        TotalBytes = 1000,
+        BytesPerSecond = 1000,
+        IsActive = true,
+    };
+
+    private static DownloadRowViewModel Row(string status) =>
+        new(
+            new Download
+            {
+                Id = 1,
+                Url = "https://host.example/big.iso",
+                Filename = "big.iso",
+                Directory = @"C:\Downloads",
+                TotalBytes = 4_000_000,
+                Status = status,
+                CreatedAt = new DateTimeOffset(2026, 7, 25, 12, 0, 0, TimeSpan.Zero),
+            },
+            new DateTimeOffset(2026, 7, 25, 12, 0, 0, TimeSpan.Zero),
+            FileCategory.Compressed);
 }

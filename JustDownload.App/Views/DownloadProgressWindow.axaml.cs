@@ -14,9 +14,6 @@ namespace JustDownload.App.Views;
 /// </summary>
 public partial class DownloadProgressWindow : Window
 {
-    private const double FullHeight = 580;
-    private const double FullMinHeight = 420;
-
     public DownloadProgressWindow()
     {
         InitializeComponent();
@@ -47,25 +44,15 @@ public partial class DownloadProgressWindow : Window
     }
 
     /// <summary>
-    /// Snaps the window to fit whichever view is now showing. Compact lets the content dictate its own
-    /// (small) height and locks resizing — there is nothing to resize into; expanding restores the standard
-    /// fixed size rather than whatever the user had last dragged it to, keeping the snap deterministic.
+    /// Snaps the window to fit whichever view is now showing. Both modes size to their content: every part of
+    /// the detail surface is fixed-height, so letting the window fit exactly is what stops dead space opening
+    /// up under the actions row (user-reported) without needing a scrollbar. Only the compact bar locks
+    /// resizing outright; the full view still allows a width drag for long file names and URLs.
     /// </summary>
     private void ApplyLayoutMode(bool isCompact)
     {
-        if (isCompact)
-        {
-            CanResize = false;
-            MinHeight = 0;
-            SizeToContent = SizeToContent.Height;
-        }
-        else
-        {
-            SizeToContent = SizeToContent.Manual;
-            MinHeight = FullMinHeight;
-            Height = FullHeight;
-            CanResize = true;
-        }
+        SizeToContent = SizeToContent.Height;
+        CanResize = !isCompact;
     }
 
     private void OnClosed(object? sender, EventArgs e)
