@@ -1,6 +1,9 @@
 using FluentAssertions;
+using JustDownload.Core;
+using JustDownload.Core.Abstractions;
 using JustDownload.Core.Throttling;
 using JustDownload.Tests.Fakes;
+using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
 namespace JustDownload.Tests.Throttling;
@@ -15,7 +18,7 @@ public sealed class TokenBucketTests
     public void Unlimited_GrantsImmediately()
     {
         // AC2: rate 0 = unlimited → never waits, never depletes.
-        var bucket = new TokenBucket(new TestClock(), bytesPerSecond: 0);
+        var bucket = new TokenBucket(new TestMonotonicClock(), bytesPerSecond: 0);
 
         bucket.Reserve(1_000_000).Should().Be(TimeSpan.Zero);
         bucket.Reserve(1_000_000).Should().Be(TimeSpan.Zero);
@@ -24,7 +27,7 @@ public sealed class TokenBucketTests
     [Fact]
     public void Reserve_WaitsForDeficit_ThenGrantsAfterRefill()
     {
-        var clock = new TestClock();
+        var clock = new TestMonotonicClock();
         var bucket = new TokenBucket(clock, bytesPerSecond: 1000);
 
         // Starts empty: 500 bytes need 500/1000 = 0.5s, and nothing is consumed yet.
@@ -40,7 +43,7 @@ public sealed class TokenBucketTests
     [Fact]
     public void Refill_IsCappedAtOneSecondBurst()
     {
-        var clock = new TestClock();
+        var clock = new TestMonotonicClock();
         var bucket = new TokenBucket(clock, bytesPerSecond: 1000);
 
         clock.Advance(TimeSpan.FromSeconds(100)); // would be 100_000 tokens, but capacity caps it
@@ -54,7 +57,7 @@ public sealed class TokenBucketTests
     public void SetRate_TakesEffectImmediately()
     {
         // AC1: changing the cap changes the very next reservation, no restart.
-        var clock = new TestClock();
+        var clock = new TestMonotonicClock();
         var bucket = new TokenBucket(clock, bytesPerSecond: 1000);
 
         bucket.Reserve(2000).Should().Be(TimeSpan.FromSeconds(2)); // 2000 @ 1000 B/s
@@ -67,7 +70,7 @@ public sealed class TokenBucketTests
     public void SetRate_ToUnlimited_StopsThrottling()
     {
         // AC2: setting 0 mid-flight removes throttling.
-        var bucket = new TokenBucket(new TestClock(), bytesPerSecond: 1000);
+        var bucket = new TokenBucket(new TestMonotonicClock(), bytesPerSecond: 1000);
         bucket.Reserve(5000).Should().BeGreaterThan(TimeSpan.Zero);
 
         bucket.BytesPerSecond = 0;
@@ -77,7 +80,7 @@ public sealed class TokenBucketTests
     [Fact]
     public void BytesPerSecond_Negative_Throws()
     {
-        var bucket = new TokenBucket(new TestClock());
+        var bucket = new TokenBucket(new TestMonotonicClock());
         Action act = () => bucket.BytesPerSecond = -1;
         act.Should().Throw<ArgumentOutOfRangeException>();
     }
@@ -85,7 +88,7 @@ public sealed class TokenBucketTests
     [Fact]
     public async Task AcquireAsync_NonPositive_ReturnsImmediately()
     {
-        var bucket = new TokenBucket(new TestClock(), bytesPerSecond: 1);
+        var bucket = new TokenBucket(new TestMonotonicClock(), bytesPerSecond: 1);
         await bucket.AcquireAsync(0);
         await bucket.AcquireAsync(-5);
     }
@@ -93,8 +96,8 @@ public sealed class TokenBucketTests
     [Fact]
     public void Composite_ReportsTightestCap_AndPropagatesSet()
     {
-        var a = new TokenBucket(new TestClock(), 1000);
-        var b = new TokenBucket(new TestClock(), 500);
+        var a = new TokenBucket(new TestMonotonicClock(), 1000);
+        var b = new TokenBucket(new TestMonotonicClock(), 500);
         var composite = new CompositeRateLimiter(a, b);
 
         composite.BytesPerSecond.Should().Be(500); // tightest non-unlimited
@@ -108,8 +111,45 @@ public sealed class TokenBucketTests
     public void Composite_AllUnlimited_ReportsZero()
     {
         var composite = new CompositeRateLimiter(
-            new TokenBucket(new TestClock(), 0), new TokenBucket(new TestClock(), 0));
+            new TokenBucket(new TestMonotonicClock(), 0), new TokenBucket(new TestMonotonicClock(), 0));
 
         composite.BytesPerSecond.Should().Be(0);
+    }
+
+    [Fact]
+    public void WallClockJump_DoesNotMintTokens()
+    {
+        // Regression: the shared limiter must measure elapsed time monotonically. Refill used to read
+        // IClock.UtcNow, so an NTP correction or VM host time-sync step handed the bucket a full capacity's
+        // worth of tokens it had not earned, letting a download briefly run over its cap. Resolved through
+        // the real composition root so the *wiring* is covered, not just the class.
+        var wallClock = new TestClock();
+        var services = new ServiceCollection();
+        services.AddSingleton<IClock>(wallClock);
+        services.AddLogging();
+        services.AddJustDownloadTransport();
+        services.AddJustDownloadDownloading();
+        using ServiceProvider provider = services.BuildServiceProvider();
+
+        var bucket = (TokenBucket)provider.GetRequiredService<IRateLimiter>();
+        bucket.BytesPerSecond = 1000; // capacity = max(rate, 64 KiB) = 65536
+
+        wallClock.Advance(TimeSpan.FromHours(1));
+
+        bucket.Reserve(65536).Should().BeGreaterThan(
+            TimeSpan.Zero, "a wall-clock jump is not elapsed transfer time, so it must not fill the bucket");
+    }
+
+    [Fact]
+    public void MonotonicClock_OnlyEverAdvances()
+    {
+        var clock = new MonotonicClock();
+
+        TimeSpan first = clock.Elapsed;
+        Thread.Sleep(20);
+        TimeSpan second = clock.Elapsed;
+
+        second.Should().BeGreaterThan(first);
+        (second - first).Should().BeGreaterThan(TimeSpan.Zero).And.BeLessThan(TimeSpan.FromSeconds(10));
     }
 }

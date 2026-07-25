@@ -5,28 +5,34 @@ namespace JustDownload.Core.Throttling;
 /// <summary>
 /// A token-bucket <see cref="IRateLimiter"/> (TASK-030, CLAUDE.md §3). Tokens (one per byte) accrue at
 /// <see cref="BytesPerSecond"/> up to a one-second burst capacity; acquiring waits until enough have
-/// accrued. Refill timing uses the injected <see cref="IClock"/>, so the reservation maths
+/// accrued. Refill timing uses the injected <see cref="IMonotonicClock"/>, so the reservation maths
 /// (<see cref="Reserve"/>) is deterministic and unit-testable without real delays. Thread-safe: many
 /// segment connections share one bucket (the global cap) and acquire from it concurrently.
+/// <para>
+/// The time source is deliberately monotonic rather than wall-clock: refill is a measurement of *elapsed*
+/// time, and a wall clock can be stepped or slewed by NTP / VM host time-sync. A forward correction would
+/// mint tokens the transfer never earned (letting a download briefly exceed its cap), and a backward one
+/// would stall every acquire until the clock caught up.
+/// </para>
 /// </summary>
 public sealed class TokenBucket : IRateLimiter
 {
     /// <summary>Burst floor so a single download chunk can always be acquired even at very low rates.</summary>
     public const long MinimumCapacity = 64 * 1024;
 
-    private readonly IClock _clock;
+    private readonly IMonotonicClock _clock;
     private readonly object _gate = new();
     private long _bytesPerSecond;
     private long _capacity;
     private double _tokens;
-    private DateTimeOffset _lastRefill;
+    private TimeSpan _lastRefill;
 
-    public TokenBucket(IClock clock, long bytesPerSecond = 0)
+    public TokenBucket(IMonotonicClock clock, long bytesPerSecond = 0)
     {
         ArgumentNullException.ThrowIfNull(clock);
         ArgumentOutOfRangeException.ThrowIfNegative(bytesPerSecond);
         _clock = clock;
-        _lastRefill = clock.UtcNow;
+        _lastRefill = clock.Elapsed;
         SetRate(bytesPerSecond);
     }
 
@@ -108,7 +114,7 @@ public sealed class TokenBucket : IRateLimiter
 
     private void Refill()
     {
-        DateTimeOffset now = _clock.UtcNow;
+        TimeSpan now = _clock.Elapsed;
         double elapsedSeconds = (now - _lastRefill).TotalSeconds;
         if (elapsedSeconds <= 0)
         {

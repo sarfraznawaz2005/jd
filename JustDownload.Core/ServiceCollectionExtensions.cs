@@ -325,9 +325,11 @@ public static class ServiceCollectionExtensions
         ArgumentNullException.ThrowIfNull(services);
 
         // The engine needs a clock and the shared global bandwidth cap (TASK-030); TryAdd so the full
-        // composition root (which registers IClock) and a host's own global limiter still win.
+        // composition root (which registers IClock) and a host's own global limiter still win. The limiter
+        // takes the monotonic clock, not the wall clock — see the note on TokenBucket.
         services.TryAddSingleton<IClock, SystemClock>();
-        services.TryAddSingleton<IRateLimiter>(sp => new TokenBucket(sp.GetRequiredService<IClock>()));
+        services.TryAddSingleton<IMonotonicClock, MonotonicClock>();
+        services.TryAddSingleton<IRateLimiter>(sp => new TokenBucket(sp.GetRequiredService<IMonotonicClock>()));
 
         services.TryAddSingleton(new SegmentationOptions());
         services.TryAddSingleton<ISegmentedDownloader, SegmentedDownloader>();

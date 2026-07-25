@@ -34,7 +34,7 @@ public sealed class GlobalSpeedLimitControllerTests
     public void ApplyCurrent_AppliesLoadedLimit_ToRateLimiter()
     {
         var settings = new FakeSettings { Current = new AppSettings { GlobalSpeedLimitBytesPerSecond = 256 * 1024 } };
-        var limiter = new TokenBucket(new TestClock());
+        var limiter = new TokenBucket(new TestMonotonicClock());
         using var controller = new GlobalSpeedLimitController(settings, limiter, new TestClock());
 
         controller.ApplyCurrent();
@@ -46,7 +46,7 @@ public sealed class GlobalSpeedLimitControllerTests
     public void SettingsChange_UpdatesRateLimiter_Live()
     {
         var settings = new FakeSettings();
-        var limiter = new TokenBucket(new TestClock());
+        var limiter = new TokenBucket(new TestMonotonicClock());
         using var controller = new GlobalSpeedLimitController(settings, limiter, new TestClock());
         controller.ApplyCurrent();
         limiter.BytesPerSecond.Should().Be(0, "no limit was loaded");
@@ -60,7 +60,7 @@ public sealed class GlobalSpeedLimitControllerTests
     public void Dispose_StopsTrackingFurtherChanges()
     {
         var settings = new FakeSettings();
-        var limiter = new TokenBucket(new TestClock());
+        var limiter = new TokenBucket(new TestMonotonicClock());
         var controller = new GlobalSpeedLimitController(settings, limiter, new TestClock());
 
         controller.Dispose();
@@ -81,7 +81,7 @@ public sealed class GlobalSpeedLimitControllerTests
                 BandwidthSchedule = "00:00-00:00=512000",
             },
         };
-        var limiter = new TokenBucket(new TestClock());
+        var limiter = new TokenBucket(new TestMonotonicClock());
         using var controller = new GlobalSpeedLimitController(settings, limiter, new TestClock());
 
         controller.ApplyCurrent();

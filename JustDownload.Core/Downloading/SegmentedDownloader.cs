@@ -22,7 +22,7 @@ internal sealed partial class SegmentedDownloader : ISegmentedDownloader
     private readonly ITransport _transport;
     private readonly IResourceProbe _probe;
     private readonly SegmentationOptions _options;
-    private readonly IClock _clock;
+    private readonly IMonotonicClock _clock;
     private readonly IRateLimiter _globalRateLimiter;
     private readonly IProxyService _proxy;
     private readonly ICredentialContext _credentials;
@@ -32,7 +32,7 @@ internal sealed partial class SegmentedDownloader : ISegmentedDownloader
         ITransport transport,
         IResourceProbe probe,
         SegmentationOptions options,
-        IClock clock,
+        IMonotonicClock clock,
         IRateLimiter globalRateLimiter,
         IProxyService proxy,
         ICredentialContext credentials,
