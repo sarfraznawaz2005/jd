@@ -1,4 +1,24 @@
+# One line ending everywhere: LF, in the repository AND in every working tree.
+#
+# Without this, git checks text files out with the platform's native ending (CRLF on Windows) while
+# .editorconfig/dotnet format decide theirs separately — so an editor or tool that writes LF into an
+# otherwise-CRLF file produces whitespace errors that `dotnet format --verify-no-changes` fails on but
+# `git diff` hides, because git normalizes endings when it diffs. That is invisible in review and only
+# surfaces in CI (it broke the 1.0.7 release). Pinning both sides to LF removes the mismatch and makes
+# the format check give the same verdict on Windows, macOS and Linux. .editorconfig sets the matching
+# end_of_line = lf; the two must agree.
+#
+# Every blob here is already stored with LF, so this changes no committed content — only what lands in
+# a Windows working tree.
+* text=auto eol=lf
+
 # Shell scripts must keep LF line endings on every platform (a CRLF shebang/case-statement breaks
 # on Linux) — needed for JustDownload.Tests/Fixtures/fake-secret-tool.sh (TASK-113), which a Linux
-# CI runner executes directly via its shebang.
+# CI runner executes directly via its shebang. Covered by the rule above; kept explicit so it survives
+# any later change to it.
 *.sh text eol=lf
+
+# Batch files are the exception: cmd.exe has long-standing parsing quirks with LF-only files (labels
+# and multi-line blocks), and these only ever run on Windows.
+*.bat text eol=crlf
+*.cmd text eol=crlf

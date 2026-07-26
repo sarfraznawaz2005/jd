@@ -3,9 +3,9 @@
 # JustDownload interactive release script (TASK-177).
 #
 # Shows the current version (Directory.Build.props, the single source of truth per TASK-159), asks for the
-# new version, then walks the whole release process end to end: bump -> sanity build -> commit -> push ->
-# wait for ci.yml to go green -> tag -> push the tag -> wait for release.yml to build/sign/publish -> print
-# the finished release. Pauses for an explicit Y/n before push and before tagging (both wide-impact,
+# new version, then walks the whole release process end to end: format check + build -> bump -> commit ->
+# push -> wait for ci.yml to go green -> tag -> push the tag -> wait for release.yml to build/sign/publish
+# -> print the finished release. Pauses for an explicit Y/n before push and before tagging (both wide-impact,
 # public-facing actions) so nothing irreversible happens without the person running this confirming it in
 # the moment; answering "n" at either point leaves things in a safe, resumable state and tells you the
 # manual command to finish later.
@@ -82,6 +82,20 @@ try {
         $dirty | ForEach-Object { Write-Host "  $_" }
     }
 
+    # Pre-flight: run the same gates CI does, BEFORE anything is written, committed or pushed. A version
+    # number is a one-way door -- once the bump commit is on master it cannot be reused, so a tree that CI
+    # would reject must never get that far. (1.0.7 burned exactly this way: the format check failed after
+    # the bump had already been pushed.) Both gates are cheap next to the release they guard.
+    Write-Host '==> pre-flight: format check (dotnet format --verify-no-changes)' -ForegroundColor Cyan
+    dotnet format JustDownload.sln --verify-no-changes | Out-Host
+    if ($LASTEXITCODE -ne 0) {
+        throw "Format check failed -- nothing was changed. Run 'dotnet format JustDownload.sln', review the diff, commit it, then re-run this script."
+    }
+
+    Write-Host '==> pre-flight: build (dotnet build -c Release)' -ForegroundColor Cyan
+    dotnet build -c Release | Out-Host
+    if ($LASTEXITCODE -ne 0) { throw 'Build failed -- nothing was changed. Fix it, then re-run this script.' }
+
     $current = Read-CurrentVersion
     $parts = $current -split '\.'
     $suggested = "$($parts[0]).$($parts[1]).$([int]$parts[2] + 1)"
@@ -103,10 +117,6 @@ try {
         Write-Host 'Left the file edited but uncommitted -- commit it yourself when ready.'
         exit 0
     }
-
-    Write-Host '==> sanity build (dotnet build -c Release)' -ForegroundColor Cyan
-    dotnet build -c Release | Out-Host
-    if ($LASTEXITCODE -ne 0) { throw 'Build failed -- not committing. Fix it, then re-run this script.' }
 
     git add $propsPath
     git commit -m "chore: bump version to $newVersion"
