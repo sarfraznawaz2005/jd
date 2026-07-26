@@ -185,9 +185,9 @@ public sealed class MediaProgressTests : IDisposable
 
         // The gate that silences a finished run must reopen for the next one, or a re-download would show
         // no progress at all.
-        await _provider.GetRequiredService<IDownloadRepository>().UpdateAsync(
-            (await _provider.GetRequiredService<IDownloadRepository>().GetAsync(id))!
-                with { Status = DownloadStatusCodes.Paused, CompletedAt = null });
+        var repository = _provider.GetRequiredService<IDownloadRepository>();
+        Download finished = (await repository.GetAsync(id))!;
+        await repository.UpdateAsync(finished with { Status = DownloadStatusCodes.Paused, CompletedAt = null });
 
         var seen = new List<DownloadProgress>();
         Manager.ProgressChanged += (_, e) => seen.Add(e.Progress);
