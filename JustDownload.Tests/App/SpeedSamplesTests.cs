@@ -1,3 +1,4 @@
+using System.Collections.Specialized;
 using FluentAssertions;
 using JustDownload.App.ViewModels;
 using Xunit;
@@ -83,6 +84,77 @@ public sealed class SpeedSamplesTests
         series.Add(-5);
 
         series.Peak.Should().Be(0);
+    }
+
+    /// <summary>
+    /// A full window re-points its existing bars rather than replacing the collection (D9). Clearing and
+    /// refilling raised a Reset plus one Add per bar every second, and an ItemsControl answers a Reset by
+    /// destroying and rebuilding every container — 120 of them per second per open chart at the progress
+    /// window's resolution.
+    /// </summary>
+    [Fact]
+    public void Add_OnAFullWindow_MutatesTheBarsInPlace_WithNoCollectionChange()
+    {
+        var series = new SpeedSamples(capacity: 3, barHeight: 30);
+        series.Add(10);
+        series.Add(20);
+        series.Add(30);
+
+        SpeedBar[] before = [.. series.Bars];
+        int collectionChanges = 0;
+        series.Bars.CollectionChanged += (_, _) => collectionChanges++;
+        List<string> heightChanges = [];
+        foreach (SpeedBar bar in series.Bars)
+        {
+            bar.PropertyChanged += (_, e) => heightChanges.Add(e.PropertyName!);
+        }
+
+        series.Add(40); // window becomes [20,30,40]
+
+        collectionChanges.Should().Be(0, "the collection's contents did not change, only the bars' heights");
+        series.Bars.Should().Equal(before, "the same bar instances are reused, so no container is rebuilt");
+        series.Bars.Select(b => b.Height).Should().Equal(15, 22.5, 30);
+        heightChanges.Should().OnlyContain(name => name == nameof(SpeedBar.Height));
+    }
+
+    /// <summary>Only bars whose height actually moved notify — an unchanged bar must not invalidate layout.</summary>
+    [Fact]
+    public void Add_DoesNotNotify_ForBarsWhoseHeightIsUnchanged()
+    {
+        var series = new SpeedSamples(capacity: 3, barHeight: 30);
+        series.Add(30);
+        series.Add(30);
+        series.Add(30);
+
+        int notifications = 0;
+        foreach (SpeedBar bar in series.Bars)
+        {
+            bar.PropertyChanged += (_, _) => notifications++;
+        }
+
+        series.Add(30); // the window is flat, so every bar stays at full scale
+
+        notifications.Should().Be(0);
+    }
+
+    /// <summary>While the window is still filling, each sample appends exactly one bar.</summary>
+    [Fact]
+    public void Add_BelowCapacity_AppendsOneBar()
+    {
+        var series = new SpeedSamples(capacity: 5);
+        series.Add(10);
+
+        int adds = 0;
+        series.Bars.CollectionChanged += (_, e) =>
+        {
+            e.Action.Should().Be(NotifyCollectionChangedAction.Add);
+            adds++;
+        };
+
+        series.Add(20);
+
+        adds.Should().Be(1);
+        series.Bars.Should().HaveCount(2);
     }
 
     [Fact]

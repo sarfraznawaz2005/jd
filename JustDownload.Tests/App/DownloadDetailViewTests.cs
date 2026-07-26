@@ -2,6 +2,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Presenters;
 using Avalonia.Controls.Primitives;
+using Avalonia.Controls.Shapes;
 using Avalonia.Headless.XUnit;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
@@ -164,6 +165,53 @@ public sealed class DownloadDetailViewTests
             .Single(g => g.Name == "SpeedChartSlots");
         slots.Columns.Should().Be(vm.SpeedHistory.Capacity);
         vm.SpeedHistory.Count.Should().Be(1, "only one sample has been taken");
+    }
+
+    /// <summary>
+    /// The series re-points its bars in place instead of refilling the collection (D9: no per-second
+    /// container churn), which only works if the rendered rectangle is listening to the bar it was given.
+    /// A sample that halves the peak must resize the very same rectangle, not replace it.
+    /// </summary>
+    [AvaloniaFact]
+    public void SpeedChart_ResizesItsExistingBars_WhenTheSeriesShifts()
+    {
+        var manager = Substitute.For<IDownloadManager>();
+        manager.GetConnections(Arg.Any<long>()).Returns([]);
+
+        var vm = new DownloadDetailViewModel(manager, Substitute.For<IDownloadActions>());
+        vm.Select(Row(DownloadStatusCodes.Active));
+
+        var view = new DownloadDetailView { DataContext = vm, IsWide = true };
+        var host = new Window { Content = view, Width = 700, Height = 900 };
+        host.Show();
+
+        void Sample(long bytesPerSecond)
+        {
+            manager.ProgressChanged += Raise.Event<EventHandler<DownloadProgressChangedEventArgs>>(
+                manager,
+                new DownloadProgressChangedEventArgs(1, DownloadProgress.Create(
+                    DownloadStatus.Active, 50, 100, bytesPerSecond, resumable: true, connections: 1)));
+            Dispatcher.UIThread.RunJobs();
+            vm.SampleNow();
+            Dispatcher.UIThread.RunJobs();
+            host.Measure(new Size(700, 900));
+            host.Arrange(new Rect(0, 0, 700, 900));
+        }
+
+        Rectangle FirstBar() => view.GetVisualDescendants().OfType<Rectangle>()
+            .First(r => r.GetVisualAncestors().OfType<UniformGrid>().Any(g => g.Name == "SpeedChartSlots"));
+
+        Sample(1_000_000);
+        Rectangle bar = FirstBar();
+        bar.Bounds.Height.Should().Be(vm.SpeedHistory.BarHeight, "the only sample is the peak");
+
+        // A faster second sample makes the first sample half the peak.
+        Sample(2_000_000);
+
+        FirstBar().Should().BeSameAs(bar, "the bar was re-pointed, so its rectangle was never rebuilt");
+        bar.Bounds.Height.Should().Be(vm.SpeedHistory.BarHeight / 2);
+
+        host.Close();
     }
 
     [AvaloniaFact]

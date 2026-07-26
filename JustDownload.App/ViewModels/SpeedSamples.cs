@@ -1,9 +1,20 @@
 using System.Collections.ObjectModel;
+using CommunityToolkit.Mvvm.ComponentModel;
 
 namespace JustDownload.App.ViewModels;
 
-/// <summary>One bar in a speed sparkline (TASK-137): its height in device-independent pixels (0–<see cref="SpeedSamples.BarHeight"/>).</summary>
-public sealed record SpeedBar(double Height);
+/// <summary>
+/// One bar in a speed sparkline (TASK-137): its height in device-independent pixels
+/// (0–<see cref="SpeedSamples.BarHeight"/>). Mutable and observable rather than an immutable record so a
+/// tick can re-point an existing bar instead of replacing the collection — see <see cref="SpeedSamples"/>.
+/// </summary>
+public sealed partial class SpeedBar : ObservableObject
+{
+    [ObservableProperty]
+    private double _height;
+
+    public SpeedBar(double height) => _height = height;
+}
 
 /// <summary>
 /// A fixed-length rolling history of speed samples (bytes/sec) backing a sparkline (TASK-137). Appending past
@@ -43,7 +54,7 @@ public sealed class SpeedSamples
     /// <summary>The bars for binding, oldest-to-newest, as normalized pixel heights against the window peak.</summary>
     public ObservableCollection<SpeedBar> Bars { get; } = new();
 
-    /// <summary>Appends a sample (clamped at 0), dropping the oldest when full, and rebuilds the bars.</summary>
+    /// <summary>Appends a sample (clamped at 0), dropping the oldest when full, and refreshes the bars.</summary>
     public void Add(long bytesPerSecond)
     {
         long sample = Math.Max(0, bytesPerSecond);
@@ -70,6 +81,13 @@ public sealed class SpeedSamples
         Bars.Clear();
     }
 
+    /// <summary>
+    /// Re-points the existing bars in place, appending only while the window is still filling. Clearing and
+    /// refilling the collection instead would raise a Reset plus <see cref="Count"/> Adds every tick, and an
+    /// ItemsControl answers that by tearing down and rebuilding every container — up to 120 of them per
+    /// second per open chart, which the "light on slow systems" promise (D9) cannot afford. In steady state
+    /// this raises no collection change at all: only the heights that actually moved notify.
+    /// </summary>
     private void Rebuild()
     {
         long peak = 0;
@@ -79,12 +97,18 @@ public sealed class SpeedSamples
         }
 
         Peak = peak;
-        Bars.Clear();
         for (int i = 0; i < _count; i++)
         {
             long value = _samples[(_head + i) % _samples.Length];
             double height = peak == 0 ? 0 : (double)value / peak * BarHeight;
-            Bars.Add(new SpeedBar(height));
+            if (i < Bars.Count)
+            {
+                Bars[i].Height = height; // ObservableProperty already suppresses a no-op assignment
+            }
+            else
+            {
+                Bars.Add(new SpeedBar(height));
+            }
         }
     }
 }
