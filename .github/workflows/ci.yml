@@ -1,7 +1,7 @@
 name: CI
 
-# Build, format-check, and test on a Windows/macOS/Linux matrix (TASK-013). The build runs with
-# warnings-as-errors and analyzers (Directory.Build.props), so a warning fails CI just like locally.
+# Build and test on a Windows/macOS/Linux matrix (TASK-013), plus a single format check. The build runs
+# with warnings-as-errors and analyzers (Directory.Build.props), so a warning fails CI just like locally.
 on:
   push:
     branches: [main, master]
@@ -17,6 +17,29 @@ permissions:
   contents: read
 
 jobs:
+  # Formatting is platform-independent by construction: .gitattributes pins LF in every working tree and
+  # .editorconfig's end_of_line matches it, so all three matrix legs would return the same verdict. Running
+  # it once, in its own job, makes a whitespace nit fail in well under a minute instead of behind three
+  # parallel restores, and leaves no ambiguity about which platform "decided". Deliberately not a `needs:`
+  # of build-test — a formatting slip should not withhold the test results.
+  format:
+    name: format check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Restore
+        run: dotnet restore JustDownload.sln
+
+      - name: Format check
+        run: dotnet format JustDownload.sln --verify-no-changes --no-restore
+
   build-test:
     name: build & test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
@@ -44,9 +67,6 @@ jobs:
 
       - name: Restore
         run: dotnet restore JustDownload.sln
-
-      - name: Format check
-        run: dotnet format JustDownload.sln --verify-no-changes --no-restore
 
       - name: Build (Release, warnings as errors)
         run: dotnet build JustDownload.sln -c Release --no-restore
