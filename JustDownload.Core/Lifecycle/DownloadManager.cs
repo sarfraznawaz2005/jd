@@ -441,12 +441,20 @@ internal sealed partial class DownloadManager : IDownloadManager
         DownloadStatus fromStatus = DownloadStatusCodes.Parse(current.Status);
         DownloadStateMachine.EnsureCanTransition(fromStatus, to);
 
+        // Captured cookies exist only to authenticate a transfer (BuildHeadersAsync resolves them on every
+        // start and resume). A completed download can never need them again, so the keychain entry goes now
+        // rather than living as long as the record — a browser session cookie must not outlive its purpose
+        // (§5). Paused/Failed/Expired keep theirs: every one of those is resumable.
+        bool cookiesPurged = to == DownloadStatus.Completed
+            && await TryPurgeCookiesAsync(id, current.CookieSecretRef).ConfigureAwait(false);
+
         Download updated = current with
         {
             Status = DownloadStatusCodes.ToCode(to),
             Error = error,
             CompletedAt = completedAt,
             CategoryStatus = to == DownloadStatus.Completed ? "Complete" : current.CategoryStatus,
+            CookieSecretRef = cookiesPurged ? null : current.CookieSecretRef,
         };
 
         // Persist on the same token-free path even when the caller's token was cancelled (a pause must
@@ -462,6 +470,30 @@ internal sealed partial class DownloadManager : IDownloadManager
         _progressThrottle.Forget(id);
         _finishedRuns[id] = 0;
         RaiseStatus(id, fromStatus, to);
+    }
+
+    /// <summary>
+    /// Deletes a completed download's cookie secret from the keychain, reporting whether the reference can now
+    /// be cleared. A keychain failure must never take the completion down with it — the download itself
+    /// finished — so it is logged and the reference kept, leaving the credential revocable from Settings.
+    /// </summary>
+    private async Task<bool> TryPurgeCookiesAsync(long id, string? cookieSecretRef)
+    {
+        if (cookieSecretRef is not { Length: > 0 })
+        {
+            return false;
+        }
+
+        try
+        {
+            await _secretStore.DeleteAsync(cookieSecretRef, CancellationToken.None).ConfigureAwait(false);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            LogCookiePurgeFailed(_logger, id, ex);
+            return false;
+        }
     }
 
     public async Task<DownloadResult> RenewAsync(long id, Uri newUrl, CancellationToken cancellationToken = default)
@@ -1270,4 +1302,11 @@ internal sealed partial class DownloadManager : IDownloadManager
         Level = LogLevel.Information,
         Message = "Download {Id} restarted from scratch (was {PreviousStatus}); checkpoint and file discarded.")]
     private static partial void LogRestarted(ILogger logger, long id, DownloadStatus previousStatus);
+
+    [LoggerMessage(
+        EventId = 11,
+        Level = LogLevel.Warning,
+        Message = "Download {Id} completed but its saved cookies could not be deleted from the keychain; "
+            + "the credential is kept and can still be revoked from Settings > Authentication.")]
+    private static partial void LogCookiePurgeFailed(ILogger logger, long id, Exception exception);
 }

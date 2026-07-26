@@ -333,6 +333,8 @@
                    Classes="SettingsHint" TextWrapping="Wrap" />
         <TextBlock Text="No saved credentials." Classes="SettingsHint"
                    IsVisible="{Binding HasNoSavedCredentials}" />
+        <Button Classes="App Danger" Content="{Binding RemoveAllLabel}" HorizontalAlignment="Left"
+                Command="{Binding RemoveAllCommand}" IsVisible="{Binding CanRemoveAll}" />
         <ItemsControl ItemsSource="{Binding Credentials}">
           <ItemsControl.ItemTemplate>
             <DataTemplate x:DataType="vm:SavedCredentialRow">

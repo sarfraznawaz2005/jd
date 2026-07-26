@@ -164,6 +164,99 @@ public sealed class DownloadCookieAuthTests : IDisposable
             "the referrer is resent as a Referer header");
     }
 
+    /// <summary>
+    /// Captured cookies must not outlive the download they authenticate (§5). A completed download can never
+    /// need them again — resume is impossible — so the keychain entry is deleted and the reference cleared.
+    /// Before this, a browser session cookie stayed in the OS keychain for the life of the record
+    /// (user-reported: 18 finished downloads still holding cookies in Settings > Authentication).
+    /// </summary>
+    [Fact]
+    public async Task Complete_DeletesTheCookiesFromTheKeychain_AndClearsTheRef()
+    {
+        byte[] body = Bytes(80 * 1024);
+        await using var server = new LoopbackHttpServer { Body = body, SupportRanges = true };
+
+        long id = await Manager.EnqueueAsync(new EnqueueDownloadRequest
+        {
+            Url = server.Url("file.bin"),
+            DestinationDirectory = _tempDir,
+            FileName = "done.bin",
+            MaxConnections = 1,
+            Cookies = "session=abc123",
+        });
+
+        string reference = (await Repository.GetAsync(id))!.CookieSecretRef!;
+        _secrets.Values.Should().ContainKey(reference);
+
+        await Manager.StartAsync(id);
+
+        Download? saved = await Repository.GetAsync(id);
+        saved!.Status.Should().Be(DownloadStatusCodes.Completed);
+        saved.CookieSecretRef.Should().BeNull("a completed download no longer references any cookies");
+        _secrets.Values.Should().NotContainKey(reference, "the keychain entry itself is gone, not just the ref");
+    }
+
+    /// <summary>
+    /// The flip side: every non-completed terminal state is resumable, and resume re-sends the Cookie header
+    /// from the keychain — so a pause must keep the credential. Purging on any terminal state (rather than
+    /// only completion) would silently break resuming a cookie-gated link.
+    /// </summary>
+    [Fact]
+    public async Task Pause_KeepsTheCookies_SoResumeStillAuthenticates()
+    {
+        const int fileSize = 512 * 1024;
+        byte[] body = Bytes(fileSize);
+        await using var server = new LoopbackHttpServer
+        {
+            Body = body,
+            SupportRanges = true,
+            SlowTailFrom = 128 * 1024,
+            SlowTailDelay = TimeSpan.FromMilliseconds(600),
+        };
+
+        long id = await Manager.EnqueueAsync(new EnqueueDownloadRequest
+        {
+            Url = server.Url("file.bin"),
+            DestinationDirectory = _tempDir,
+            FileName = "paused.bin",
+            MaxConnections = 4,
+            Cookies = "session=abc123",
+        });
+
+        string reference = (await Repository.GetAsync(id))!.CookieSecretRef!;
+
+        using var pauseCts = new CancellationTokenSource();
+        int cancelled = 0;
+        Manager.ProgressChanged += (_, e) =>
+        {
+            if (e.DownloadId == id && e.Progress.DownloadedBytes >= 64 * 1024 &&
+                Interlocked.Exchange(ref cancelled, 1) == 0)
+            {
+                pauseCts.Cancel();
+            }
+        };
+
+        Func<Task> paused = async () => await Manager.StartAsync(id, pauseCts.Token);
+        await paused.Should().ThrowAsync<OperationCanceledException>();
+
+        Download? afterPause = await Repository.GetAsync(id);
+        afterPause!.Status.Should().Be(DownloadStatusCodes.Paused);
+        afterPause.CookieSecretRef.Should().Be(reference, "a paused download can still be resumed");
+        _secrets.Values.Should().ContainKey(reference);
+
+        server.ClearReceivedHeaderLines();
+        await Manager.StartAsync(id);
+
+        server.ReceivedHeaderLines.Should().Contain(
+            l => l.StartsWith("Cookie:", StringComparison.OrdinalIgnoreCase) && l.Contains("session=abc123"),
+            "the resume re-sends the retained cookies");
+        (await File.ReadAllBytesAsync(Path.Combine(_tempDir, "paused.bin"))).Should().Equal(body);
+
+        // …and now that it has completed, they go.
+        (await Repository.GetAsync(id))!.CookieSecretRef.Should().BeNull();
+        _secrets.Values.Should().NotContainKey(reference);
+    }
+
     [Fact]
     public async Task Repository_RoundTrips_CookieSecretRef()
     {

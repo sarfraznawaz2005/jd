@@ -32,6 +32,12 @@ public sealed partial class AuthenticationSettingsViewModel : ViewModelBase
     /// <summary>Whether to show the "nothing saved" empty state (after a load that found none).</summary>
     public bool HasNoSavedCredentials => Loaded && Credentials.Count == 0;
 
+    /// <summary>Offered only once revoking one at a time is tedious — a single credential needs no bulk action.</summary>
+    public bool CanRemoveAll => Credentials.Count > 1;
+
+    /// <summary>The bulk action's label, carrying the count so the click is never ambiguous about its scope.</summary>
+    public string RemoveAllLabel => $"Remove all {Credentials.Count}";
+
     /// <summary>(Re)loads the saved-credential list from the engine.</summary>
     public async Task LoadAsync()
     {
@@ -44,6 +50,8 @@ public sealed partial class AuthenticationSettingsViewModel : ViewModelBase
 
         Loaded = true;
         OnPropertyChanged(nameof(HasNoSavedCredentials));
+        OnPropertyChanged(nameof(CanRemoveAll));
+        OnPropertyChanged(nameof(RemoveAllLabel));
     }
 
     [RelayCommand]
@@ -55,6 +63,21 @@ public sealed partial class AuthenticationSettingsViewModel : ViewModelBase
         }
 
         await _credentials.RemoveAsync(row.Model).ConfigureAwait(true);
+        await LoadAsync().ConfigureAwait(true);
+    }
+
+    /// <summary>
+    /// Revokes every listed credential. Snapshotted first because <see cref="LoadAsync"/> rebuilds the bound
+    /// collection, and one reload at the end rather than one per credential.
+    /// </summary>
+    [RelayCommand]
+    private async Task RemoveAllAsync()
+    {
+        foreach (SavedCredentialRow row in Credentials.ToArray())
+        {
+            await _credentials.RemoveAsync(row.Model).ConfigureAwait(true);
+        }
+
         await LoadAsync().ConfigureAwait(true);
     }
 }

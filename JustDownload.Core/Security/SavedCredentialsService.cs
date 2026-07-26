@@ -1,5 +1,6 @@
 using JustDownload.Core.Data.Models;
 using JustDownload.Core.Data.Repositories;
+using JustDownload.Core.Lifecycle;
 using JustDownload.Core.Logging;
 using JustDownload.Core.Settings;
 
@@ -35,6 +36,13 @@ public interface ISavedCredentialsService
     Task<IReadOnlyList<SavedCredential>> ListAsync(CancellationToken cancellationToken = default);
 
     Task RemoveAsync(SavedCredential credential, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Deletes the cookie secrets of downloads that have already completed, returning how many went. The
+    /// engine now drops them as each download finishes; this clears the ones saved before it did, which
+    /// would otherwise sit in the keychain for the life of the record. Idempotent — a second run finds none.
+    /// </summary>
+    Task<int> PurgeCompletedDownloadCookiesAsync(CancellationToken cancellationToken = default);
 }
 
 internal sealed class SavedCredentialsService : ISavedCredentialsService
@@ -69,21 +77,53 @@ internal sealed class SavedCredentialsService : ISavedCredentialsService
         IReadOnlyList<Download> downloads = await _downloads.GetAllAsync(cancellationToken).ConfigureAwait(false);
         foreach (Download download in downloads)
         {
-            string label = SafeLogUrl.Of(download.Url);
+            string label = Describe(download);
             if (!string.IsNullOrEmpty(download.ProxyPasswordSecretRef))
             {
                 result.Add(new SavedCredential(
-                    SavedCredentialKind.DownloadProxyPassword, $"Proxy password for download {label}", download.Id));
+                    SavedCredentialKind.DownloadProxyPassword, $"Proxy password for {label}", download.Id));
             }
 
             if (!string.IsNullOrEmpty(download.CookieSecretRef))
             {
                 result.Add(new SavedCredential(
-                    SavedCredentialKind.DownloadCookies, $"Cookies for download {label}", download.Id));
+                    SavedCredentialKind.DownloadCookies, $"Cookies for {label}", download.Id));
             }
         }
 
         return result;
+    }
+
+    /// <summary>
+    /// Names a download in a way the user can act on: its file name plus the log-safe origin. The host alone
+    /// is not enough to choose what to revoke — every download from one site reads identically, which is
+    /// exactly what this panel showed before (user-reported: fifteen indistinguishable "github.com" rows).
+    /// The file name is already non-secret (it is the list's primary label); the URL still goes through
+    /// <see cref="SafeLogUrl"/>, so no query string, token or userinfo reaches the description (§5).
+    /// </summary>
+    private static string Describe(Download download) =>
+        string.IsNullOrWhiteSpace(download.Filename)
+            ? $"download {SafeLogUrl.Of(download.Url)}"
+            : $"{download.Filename} — {SafeLogUrl.Of(download.Url)}";
+
+    public async Task<int> PurgeCompletedDownloadCookiesAsync(CancellationToken cancellationToken = default)
+    {
+        IReadOnlyList<Download> downloads = await _downloads.GetAllAsync(cancellationToken).ConfigureAwait(false);
+        int purged = 0;
+        foreach (Download download in downloads)
+        {
+            if (download.Status != DownloadStatusCodes.Completed || download.CookieSecretRef is not { Length: > 0 })
+            {
+                continue;
+            }
+
+            await DeleteSecretAsync(download.CookieSecretRef, cancellationToken).ConfigureAwait(false);
+            await _downloads.UpdateAsync(download with { CookieSecretRef = null }, cancellationToken)
+                .ConfigureAwait(false);
+            purged++;
+        }
+
+        return purged;
     }
 
     public async Task RemoveAsync(SavedCredential credential, CancellationToken cancellationToken = default)

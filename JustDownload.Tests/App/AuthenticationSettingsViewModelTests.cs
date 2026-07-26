@@ -60,4 +60,50 @@ public sealed class AuthenticationSettingsViewModelTests
         await service.Received(1).RemoveAsync(credential, Arg.Any<CancellationToken>());
         vm.Credentials.Should().BeEmpty("the list refreshes after removal");
     }
+
+    /// <summary>
+    /// Revoking one at a time is unworkable once a handful of downloads have each saved cookies
+    /// (user-reported: 19 rows, 19 clicks), so the panel offers a single bulk revoke.
+    /// </summary>
+    [Fact]
+    public async Task RemoveAll_RevokesEveryCredential_ThenReloads()
+    {
+        SavedCredential[] saved =
+        [
+            new(SavedCredentialKind.GlobalProxyPassword, "Proxy password", null),
+            new(SavedCredentialKind.DownloadCookies, "Cookies for a.bin — https://site", 1),
+            new(SavedCredentialKind.DownloadCookies, "Cookies for b.bin — https://site", 2),
+        ];
+        var service = Substitute.For<ISavedCredentialsService>();
+        service.ListAsync(Arg.Any<CancellationToken>()).Returns(saved);
+        var vm = new AuthenticationSettingsViewModel(service);
+        await vm.LoadAsync();
+        vm.CanRemoveAll.Should().BeTrue();
+        vm.RemoveAllLabel.Should().Be("Remove all 3", "the count makes the click's scope unambiguous");
+
+        service.ListAsync(Arg.Any<CancellationToken>()).Returns([]);
+        await vm.RemoveAllCommand.ExecuteAsync(null);
+
+        foreach (SavedCredential credential in saved)
+        {
+            await service.Received(1).RemoveAsync(credential, Arg.Any<CancellationToken>());
+        }
+
+        vm.Credentials.Should().BeEmpty();
+        vm.CanRemoveAll.Should().BeFalse();
+        vm.HasNoSavedCredentials.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task RemoveAll_IsNotOffered_ForASingleCredential()
+    {
+        var service = Substitute.For<ISavedCredentialsService>();
+        service.ListAsync(Arg.Any<CancellationToken>())
+            .Returns([new SavedCredential(SavedCredentialKind.GlobalProxyPassword, "Proxy password", null)]);
+        var vm = new AuthenticationSettingsViewModel(service);
+
+        await vm.LoadAsync();
+
+        vm.CanRemoveAll.Should().BeFalse("a lone credential already has its own Remove button");
+    }
 }

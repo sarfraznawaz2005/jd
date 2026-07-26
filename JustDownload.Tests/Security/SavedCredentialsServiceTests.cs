@@ -1,6 +1,7 @@
 using FluentAssertions;
 using JustDownload.Core.Data.Models;
 using JustDownload.Core.Data.Repositories;
+using JustDownload.Core.Lifecycle;
 using JustDownload.Core.Security;
 using JustDownload.Core.Settings;
 using NSubstitute;
@@ -47,6 +48,100 @@ public sealed class SavedCredentialsServiceTests
         list.Should().Contain(c => c.Kind == SavedCredentialKind.DownloadCookies && c.DownloadId == 7);
         list.Should().NotContain(c => c.Description.Contains("ref-", StringComparison.Ordinal),
             "descriptions never leak the secret reference or value");
+    }
+
+    /// <summary>
+    /// A description has to identify which download it belongs to. Host-only labels made every credential
+    /// from one site read identically (user-reported: fifteen indistinguishable "github.com" rows), leaving
+    /// no way to choose what to revoke. The file name supplies the identity; the URL still goes through
+    /// SafeLogUrl, so the path, query string and any token stay out of it (§5).
+    /// </summary>
+    [Fact]
+    public async Task ListAsync_NamesTheDownloadByFileName_WithoutLeakingTheUrlsQueryString()
+    {
+        _settings.Current.Returns(new AppSettings());
+        _downloads.GetAllAsync(Arg.Any<CancellationToken>()).Returns(new[]
+        {
+            new Download
+            {
+                Id = 1, Url = "https://github.com/o/r/releases/download/v1/Setup.exe?token=SECRET&sig=ABC",
+                Filename = "Setup.exe", Status = "complete", CookieSecretRef = "ref-a",
+            },
+            new Download
+            {
+                Id = 2, Url = "https://github.com/o/r/releases/download/v2/Other.msi?token=SECRET",
+                Filename = "Other.msi", Status = "complete", CookieSecretRef = "ref-b",
+            },
+        });
+
+        IReadOnlyList<SavedCredential> list = await Service().ListAsync();
+
+        list.Select(c => c.Description).Should().Equal(
+            "Cookies for Setup.exe — https://github.com",
+            "Cookies for Other.msi — https://github.com");
+        list.Should().OnlyContain(c => !c.Description.Contains("SECRET", StringComparison.Ordinal)
+            && !c.Description.Contains("sig=", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task ListAsync_FallsBackToTheOrigin_WhenTheDownloadHasNoFileNameYet()
+    {
+        _settings.Current.Returns(new AppSettings());
+        _downloads.GetAllAsync(Arg.Any<CancellationToken>()).Returns(new[]
+        {
+            new Download { Id = 1, Url = "https://site.example/a", Status = "queued", CookieSecretRef = "ref-a" },
+        });
+
+        IReadOnlyList<SavedCredential> list = await Service().ListAsync();
+
+        list.Single().Description.Should().Be("Cookies for download https://site.example");
+    }
+
+    /// <summary>
+    /// Cookies captured for a download that has already finished are dead weight in the keychain — the
+    /// engine now deletes them at completion, and this clears the ones saved before it did. Unfinished
+    /// downloads keep theirs: every non-completed state is resumable and resume re-sends the Cookie header.
+    /// </summary>
+    [Fact]
+    public async Task PurgeCompletedDownloadCookies_DeletesOnlyFinishedDownloadsCookies()
+    {
+        var completed = new Download
+        {
+            Id = 1,
+            Url = "https://s/a",
+            Status = DownloadStatusCodes.Completed,
+            CookieSecretRef = "ref-done",
+        };
+        _downloads.GetAllAsync(Arg.Any<CancellationToken>()).Returns(new[]
+        {
+            completed,
+            new Download { Id = 2, Url = "https://s/b", Status = DownloadStatusCodes.Paused, CookieSecretRef = "ref-paused" },
+            new Download { Id = 3, Url = "https://s/c", Status = DownloadStatusCodes.Failed, CookieSecretRef = "ref-failed" },
+            new Download { Id = 4, Url = "https://s/d", Status = DownloadStatusCodes.Completed }, // no cookies
+        });
+
+        int purged = await Service().PurgeCompletedDownloadCookiesAsync();
+
+        purged.Should().Be(1);
+        await _secrets.Received(1).DeleteAsync("ref-done", Arg.Any<CancellationToken>());
+        await _secrets.DidNotReceive().DeleteAsync("ref-paused", Arg.Any<CancellationToken>());
+        await _secrets.DidNotReceive().DeleteAsync("ref-failed", Arg.Any<CancellationToken>());
+        await _downloads.Received(1).UpdateAsync(
+            Arg.Is<Download>(d => d.Id == 1 && d.CookieSecretRef == null), Arg.Any<CancellationToken>());
+        await _downloads.DidNotReceive().UpdateAsync(
+            Arg.Is<Download>(d => d.Id != 1), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task PurgeCompletedDownloadCookies_IsIdempotent()
+    {
+        _downloads.GetAllAsync(Arg.Any<CancellationToken>()).Returns(new[]
+        {
+            new Download { Id = 1, Url = "https://s/a", Status = DownloadStatusCodes.Completed },
+        });
+
+        (await Service().PurgeCompletedDownloadCookiesAsync()).Should().Be(0);
+        await _secrets.DidNotReceive().DeleteAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]

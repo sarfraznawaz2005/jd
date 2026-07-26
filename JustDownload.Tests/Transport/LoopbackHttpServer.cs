@@ -126,6 +126,15 @@ internal sealed class LoopbackHttpServer : IAsyncDisposable
         }
     }
 
+    /// <summary>Resets the request-header log, so an assertion can attribute a header to the resume alone.</summary>
+    public void ClearReceivedHeaderLines()
+    {
+        lock (_servedGate)
+        {
+            _receivedHeaderLines.Clear();
+        }
+    }
+
     /// <summary>Every request header line (<c>Name: value</c>) seen across all requests, in arrival order.</summary>
     public IReadOnlyList<string> ReceivedHeaderLines
     {

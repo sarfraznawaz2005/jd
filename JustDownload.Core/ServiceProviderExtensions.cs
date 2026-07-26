@@ -1,6 +1,7 @@
 using JustDownload.Core.Categorization;
 using JustDownload.Core.Data.Migrations;
 using JustDownload.Core.Lifecycle;
+using JustDownload.Core.Security;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace JustDownload.Core;
@@ -43,6 +44,15 @@ public static class ServiceProviderExtensions
         if (provider.GetService<IDownloadRecovery>() is { } recovery)
         {
             await recovery.RecoverInterruptedAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        // Cookie sweep: the engine deletes a download's captured cookies the moment it completes, but records
+        // finished before that behaviour existed still hold theirs in the keychain. Clear them once here so no
+        // browser session cookie survives the download it was captured for (§5). Optional and idempotent, same
+        // as the recovery scan above.
+        if (provider.GetService<ISavedCredentialsService>() is { } credentials)
+        {
+            await credentials.PurgeCompletedDownloadCookiesAsync(cancellationToken).ConfigureAwait(false);
         }
     }
 }
