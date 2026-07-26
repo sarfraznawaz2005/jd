@@ -60,14 +60,22 @@ public sealed partial class DownloadDetailViewModel : ViewModelBase, IDisposable
     [ObservableProperty]
     private int _activeTabIndex;
 
+    /// <param name="speedHistory">
+    /// The sparkline's backing series. Supplied by the host so a wide surface can ask for a longer, taller
+    /// chart than the docked pane's card; defaults to the pane's resolution.
+    /// </param>
     public DownloadDetailViewModel(
-        IDownloadManager manager, IDownloadActions actions, IChecksumVerifier? checksums = null)
+        IDownloadManager manager,
+        IDownloadActions actions,
+        IChecksumVerifier? checksums = null,
+        SpeedSamples? speedHistory = null)
     {
         ArgumentNullException.ThrowIfNull(manager);
         ArgumentNullException.ThrowIfNull(actions);
         _manager = manager;
         _actions = actions;
         _checksums = checksums ?? new ChecksumVerifier();
+        SpeedHistory = speedHistory ?? new SpeedSamples();
         Segments = new SegmentVisualizationViewModel(BuildStreamSnapshots);
         Connections.CollectionChanged += (_, _) => OnPropertyChanged(nameof(ShowWaitingForConnections));
         _manager.ProgressChanged += OnProgressChanged;
@@ -75,7 +83,7 @@ public sealed partial class DownloadDetailViewModel : ViewModelBase, IDisposable
     }
 
     /// <summary>The recent speed history for the selected download's sparkline (TASK-137).</summary>
-    public SpeedSamples SpeedHistory { get; } = new();
+    public SpeedSamples SpeedHistory { get; }
 
     /// <summary>Records the selected download's latest speed into the history. Called on a timer; public for tests.</summary>
     public void SampleNow()

@@ -95,7 +95,11 @@ public partial class App : Application
             services.GetRequiredService<DownloadsListViewModel>(),
             row => new DownloadProgressViewModel(
                 row,
-                ActivatorUtilities.CreateInstance<DownloadDetailViewModel>(services),
+                // The window's chart spans its full width (DownloadDetailView's IsWide layout), so it carries
+                // twice the docked pane's samples and taller bars — at pane resolution a full-width strip is
+                // a coarse minute of 4px-pitch bars stretched flat.
+                ActivatorUtilities.CreateInstance<DownloadDetailViewModel>(
+                    services, new SpeedSamples(capacity: 120, barHeight: 40)),
                 services.GetRequiredService<IFileRevealer>(),
                 services.GetRequiredService<ISettingsService>()),
             PresentProgressWindow);

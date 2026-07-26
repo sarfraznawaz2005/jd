@@ -1,3 +1,4 @@
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
 using Avalonia.Threading;
@@ -163,6 +164,39 @@ public sealed class DownloadProgressWindowTests
         detail.IsWide.Should().BeTrue();
         detail.GetVisualDescendants().OfType<Grid>().Single(g => g.Name == "WideStats")
             .IsVisible.Should().BeTrue();
+
+        window.Close();
+    }
+
+    /// <summary>
+    /// Four stat columns need more floor than two did, so the window's MinWidth has to keep every stat
+    /// readable when the user drags it as narrow as it goes. The binding constraint is the keys
+    /// ("Downloaded", "Total size"), not the values — they are wider than any figure that appears under them.
+    /// </summary>
+    [AvaloniaFact]
+    public void Window_AtItsMinimumWidth_ClipsNoStat()
+    {
+        var harness = new Harness();
+        harness.Manager.GetProgress(Arg.Any<long>()).Returns(DownloadProgress.Create(
+            DownloadStatus.Active, 1_099_500_000_000, 1_099_511_627_776, 1_100_000,
+            resumable: true, connections: 8));
+
+        var window = new DownloadProgressWindow { DataContext = harness.BuildViewModel(Row()) };
+        double min = window.MinWidth;
+        window.Width = min;
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+        window.Measure(new Size(min, 900));
+        window.Arrange(new Rect(0, 0, min, 900));
+
+        Grid stats = window.GetVisualDescendants().OfType<Grid>().Single(g => g.Name == "WideStats");
+        foreach (TextBlock text in stats.GetVisualDescendants().OfType<TextBlock>())
+        {
+            double arranged = text.Bounds.Width;
+            text.Measure(Size.Infinity); // its natural width, unconstrained by the column
+            arranged.Should().BeGreaterThanOrEqualTo(
+                text.DesiredSize.Width, $"'{text.Text}' must fit its column at the window's minimum width");
+        }
 
         window.Close();
     }

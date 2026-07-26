@@ -1,6 +1,7 @@
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Presenters;
+using Avalonia.Controls.Primitives;
 using Avalonia.Headless.XUnit;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
@@ -127,6 +128,42 @@ public sealed class DownloadDetailViewTests
         {
             chart.Bounds.Width.Should().Be(251, "the docked pane keeps its fixed-width chart card");
         }
+    }
+
+    /// <summary>
+    /// The chart card takes its height from the series' full-scale bar height (plus its 6px padding), so a
+    /// host that asks for taller bars gets a proportionally taller card and the peak bar still reaches the
+    /// top. A card sized independently would leave the bars hugging the bottom of a half-empty box.
+    /// </summary>
+    [AvaloniaTheory]
+    [InlineData(24)]
+    [InlineData(40)]
+    public void SpeedChartCard_SizesToTheSeriesBarHeight(double barHeight)
+    {
+        var manager = Substitute.For<IDownloadManager>();
+        manager.GetConnections(Arg.Any<long>()).Returns([]);
+
+        var vm = new DownloadDetailViewModel(
+            manager, Substitute.For<IDownloadActions>(), speedHistory: new SpeedSamples(barHeight: barHeight));
+        vm.Select(Row(DownloadStatusCodes.Active));
+        vm.SampleNow();
+
+        var view = new DownloadDetailView { DataContext = vm, IsWide = true };
+        var host = new Window { Content = view, Width = 700, Height = 900 };
+        host.Show();
+        Dispatcher.UIThread.RunJobs();
+        host.Measure(new Size(700, 900));
+        host.Arrange(new Rect(0, 0, 700, 900));
+
+        Border chart = view.GetVisualDescendants().OfType<Border>().Single(b => b.Name == "SpeedChart");
+        chart.Bounds.Height.Should().Be(barHeight + 12);
+
+        // Slots come from the series' capacity, never the current bar count — one sample must not become one
+        // full-width bar that then shrinks on every tick.
+        UniformGrid slots = view.GetVisualDescendants().OfType<UniformGrid>()
+            .Single(g => g.Name == "SpeedChartSlots");
+        slots.Columns.Should().Be(vm.SpeedHistory.Capacity);
+        vm.SpeedHistory.Count.Should().Be(1, "only one sample has been taken");
     }
 
     [AvaloniaFact]

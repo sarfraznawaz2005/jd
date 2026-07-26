@@ -130,13 +130,15 @@
                      growing for the sparkline's first 60 seconds, unset in a wide host so it fills the row.
                      Columns is pinned to the history's capacity — not the current bar count — so a bar keeps
                      its width as samples accumulate and the series grows left-to-right instead of rescaling
-                     on every tick. -->
-                <Border Name="SpeedChart" Background="{DynamicResource CardBrush}" CornerRadius="4"
-                        Padding="6" Height="36">
-                  <ItemsControl ItemsSource="{Binding SpeedHistory.Bars}" VerticalAlignment="Bottom">
+                     on every tick. Height is the series' full-scale bar height plus the card's padding: the
+                     one number lives on the series, so a host that asks for taller bars gets a taller card
+                     with the peak still touching the top, and neither side can drift from the other. -->
+                <Border Name="SpeedChart" Background="{DynamicResource CardBrush}" CornerRadius="4" Padding="6">
+                  <ItemsControl ItemsSource="{Binding SpeedHistory.Bars}"
+                                Height="{Binding SpeedHistory.BarHeight}">
                     <ItemsControl.ItemsPanel>
                       <ItemsPanelTemplate>
-                        <UniformGrid Rows="1" Columns="{Binding SpeedHistory.Capacity}" VerticalAlignment="Bottom" />
+                        <UniformGrid Name="SpeedChartSlots" Rows="1" Columns="{Binding SpeedHistory.Capacity}" />
                       </ItemsPanelTemplate>
                     </ItemsControl.ItemsPanel>
                     <ItemsControl.ItemTemplate>

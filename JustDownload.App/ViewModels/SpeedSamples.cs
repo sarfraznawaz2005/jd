@@ -13,18 +13,25 @@ public sealed record SpeedBar(double Height);
 /// </summary>
 public sealed class SpeedSamples
 {
-    /// <summary>The pixel height a full-scale (peak) bar renders at.</summary>
-    public const double BarHeight = 24;
-
     private readonly long[] _samples;
     private int _count;
     private int _head; // index of the oldest sample
 
-    public SpeedSamples(int capacity = 60)
+    /// <param name="capacity">How many samples the window holds — also how many slots the chart divides.</param>
+    /// <param name="barHeight">
+    /// The pixel height a full-scale (peak) bar renders at. Per-instance rather than a constant because the
+    /// detached progress window draws a taller, wider chart than the docked pane's card.
+    /// </param>
+    public SpeedSamples(int capacity = 60, double barHeight = 24)
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(capacity, 1);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(barHeight);
         _samples = new long[capacity];
+        BarHeight = barHeight;
     }
+
+    /// <summary>The pixel height a full-scale (peak) bar renders at; the chart card sizes itself to it.</summary>
+    public double BarHeight { get; }
 
     public int Capacity => _samples.Length;
 

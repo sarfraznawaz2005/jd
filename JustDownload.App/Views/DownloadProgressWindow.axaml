@@ -6,11 +6,15 @@
         x:DataType="vm:DownloadProgressViewModel"
         Title="{Binding Title}"
         Width="700"
-        MinWidth="480"
+        MinWidth="560"
         SizeToContent="Height"
         CanMaximize="False"
         WindowStartupLocation="CenterScreen"
         Background="{DynamicResource CardBrush}">
+
+  <!-- MinWidth exists for the wide stat row: at four columns the widest thing in a column is its *key*
+       ("Downloaded", "Total size"), not the figure under it, and those start clipping under ~490. 560 keeps
+       a margin over the metric the headless layout test measures. -->
 
   <Window.Resources>
     <StreamGeometry x:Key="IconFolderOpen">M2,3.5 H6.5 L8,5 H14 V12.5 H2 Z</StreamGeometry>

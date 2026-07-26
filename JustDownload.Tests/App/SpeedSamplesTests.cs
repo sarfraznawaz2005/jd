@@ -18,8 +18,33 @@ public sealed class SpeedSamplesTests
         series.Count.Should().Be(2);
         series.Peak.Should().Be(100);
         series.Bars.Should().HaveCount(2);
-        series.Bars[0].Height.Should().Be(SpeedSamples.BarHeight, "the peak sample is full height");
-        series.Bars[1].Height.Should().Be(SpeedSamples.BarHeight / 2, "half the peak is half height");
+        series.Bars[0].Height.Should().Be(series.BarHeight, "the peak sample is full height");
+        series.Bars[1].Height.Should().Be(series.BarHeight / 2, "half the peak is half height");
+    }
+
+    /// <summary>
+    /// The bar height is per-series so a wide host (the detached progress window) can draw a taller chart;
+    /// the peak still reaches full scale, whatever that scale is.
+    /// </summary>
+    [Fact]
+    public void BarHeight_ScalesTheSeries_ToTheRequestedFullScale()
+    {
+        var series = new SpeedSamples(capacity: 5, barHeight: 40);
+
+        series.Add(100);
+        series.Add(25);
+
+        series.BarHeight.Should().Be(40);
+        series.Bars[0].Height.Should().Be(40);
+        series.Bars[1].Height.Should().Be(10);
+    }
+
+    [Fact]
+    public void BarHeight_MustBePositive()
+    {
+        Action zero = () => _ = new SpeedSamples(barHeight: 0);
+
+        zero.Should().Throw<ArgumentOutOfRangeException>();
     }
 
     [Fact]
