@@ -46,13 +46,13 @@ public static class ServiceProviderExtensions
             await recovery.RecoverInterruptedAsync(cancellationToken).ConfigureAwait(false);
         }
 
-        // Cookie sweep: the engine deletes a download's captured cookies the moment it completes, but records
-        // finished before that behaviour existed still hold theirs in the keychain. Clear them once here so no
-        // browser session cookie survives the download it was captured for (§5). Optional and idempotent, same
-        // as the recovery scan above.
+        // Cookie sweep: the engine deletes a download's captured cookies the moment it completes, but that
+        // leaves records finished before the behaviour existed, and downloads that simply never finish — a
+        // queued item nobody ever started would otherwise hold its cookies forever. Clear both here so no
+        // captured cookie outlives its usefulness (§5). Optional and idempotent, same as the scan above.
         if (provider.GetService<ISavedCredentialsService>() is { } credentials)
         {
-            await credentials.PurgeCompletedDownloadCookiesAsync(cancellationToken).ConfigureAwait(false);
+            await credentials.PurgeStaleDownloadCookiesAsync(cancellationToken).ConfigureAwait(false);
         }
     }
 }

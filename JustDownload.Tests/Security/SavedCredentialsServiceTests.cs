@@ -1,4 +1,5 @@
 using FluentAssertions;
+using JustDownload.Core.Abstractions;
 using JustDownload.Core.Data.Models;
 using JustDownload.Core.Data.Repositories;
 using JustDownload.Core.Lifecycle;
@@ -16,11 +17,18 @@ namespace JustDownload.Tests.Security;
 /// </summary>
 public sealed class SavedCredentialsServiceTests
 {
+    private static readonly DateTimeOffset Now = new(2026, 7, 26, 12, 0, 0, TimeSpan.Zero);
+
     private readonly ISettingsService _settings = Substitute.For<ISettingsService>();
     private readonly IDownloadRepository _downloads = Substitute.For<IDownloadRepository>();
     private readonly ISecretStore _secrets = Substitute.For<ISecretStore>();
+    private readonly IClock _clock = Substitute.For<IClock>();
 
-    private SavedCredentialsService Service() => new(_settings, _downloads, _secrets);
+    private SavedCredentialsService Service()
+    {
+        _clock.UtcNow.Returns(Now);
+        return new SavedCredentialsService(_settings, _downloads, _secrets, _clock);
+    }
 
     [Fact]
     public async Task ListAsync_ReturnsGlobalProxyAndPerDownloadSecrets()
@@ -97,30 +105,33 @@ public sealed class SavedCredentialsServiceTests
         list.Single().Description.Should().Be("Cookies for download https://site.example");
     }
 
+    private static Download Recent(long id, string status, string? cookieRef, TimeSpan? age = null) => new()
+    {
+        Id = id,
+        Url = $"https://s/{id}",
+        Status = status,
+        CookieSecretRef = cookieRef,
+        CreatedAt = Now - (age ?? TimeSpan.Zero),
+    };
+
     /// <summary>
     /// Cookies captured for a download that has already finished are dead weight in the keychain — the
-    /// engine now deletes them at completion, and this clears the ones saved before it did. Unfinished
-    /// downloads keep theirs: every non-completed state is resumable and resume re-sends the Cookie header.
+    /// engine now deletes them at completion, and this clears the ones saved before it did. A recent
+    /// unfinished download keeps its own: every non-completed state is resumable and resume re-sends the
+    /// Cookie header.
     /// </summary>
     [Fact]
-    public async Task PurgeCompletedDownloadCookies_DeletesOnlyFinishedDownloadsCookies()
+    public async Task PurgeStaleDownloadCookies_DeletesFinishedDownloadsCookies_AndKeepsResumableOnes()
     {
-        var completed = new Download
-        {
-            Id = 1,
-            Url = "https://s/a",
-            Status = DownloadStatusCodes.Completed,
-            CookieSecretRef = "ref-done",
-        };
         _downloads.GetAllAsync(Arg.Any<CancellationToken>()).Returns(new[]
         {
-            completed,
-            new Download { Id = 2, Url = "https://s/b", Status = DownloadStatusCodes.Paused, CookieSecretRef = "ref-paused" },
-            new Download { Id = 3, Url = "https://s/c", Status = DownloadStatusCodes.Failed, CookieSecretRef = "ref-failed" },
-            new Download { Id = 4, Url = "https://s/d", Status = DownloadStatusCodes.Completed }, // no cookies
+            Recent(1, DownloadStatusCodes.Completed, "ref-done"),
+            Recent(2, DownloadStatusCodes.Paused, "ref-paused"),
+            Recent(3, DownloadStatusCodes.Failed, "ref-failed"),
+            Recent(4, DownloadStatusCodes.Completed, cookieRef: null), // no cookies
         });
 
-        int purged = await Service().PurgeCompletedDownloadCookiesAsync();
+        int purged = await Service().PurgeStaleDownloadCookiesAsync();
 
         purged.Should().Be(1);
         await _secrets.Received(1).DeleteAsync("ref-done", Arg.Any<CancellationToken>());
@@ -132,15 +143,53 @@ public sealed class SavedCredentialsServiceTests
             Arg.Is<Download>(d => d.Id != 1), Arg.Any<CancellationToken>());
     }
 
-    [Fact]
-    public async Task PurgeCompletedDownloadCookies_IsIdempotent()
+    /// <summary>
+    /// Completion is not the only way cookies stop being useful: a download that is never started, never
+    /// resumed and never deleted would hold its cookies forever (user-reported: a queued item months old
+    /// still listed in Settings > Authentication). Cookies are captured once at enqueue and never refreshed,
+    /// so the record's age is the cookies' age — past the max age they go, whatever state the download is in.
+    /// </summary>
+    [Theory]
+    [InlineData(DownloadStatusCodes.Queued)]
+    [InlineData(DownloadStatusCodes.Paused)]
+    [InlineData(DownloadStatusCodes.Failed)]
+    [InlineData(DownloadStatusCodes.Expired)]
+    public async Task PurgeStaleDownloadCookies_DropsCookiesOlderThanTheMaxAge_InAnyState(string status)
     {
         _downloads.GetAllAsync(Arg.Any<CancellationToken>()).Returns(new[]
         {
-            new Download { Id = 1, Url = "https://s/a", Status = DownloadStatusCodes.Completed },
+            Recent(1, status, "ref-old", SavedCredentialsService.CookieMaxAge + TimeSpan.FromDays(1)),
         });
 
-        (await Service().PurgeCompletedDownloadCookiesAsync()).Should().Be(0);
+        int purged = await Service().PurgeStaleDownloadCookiesAsync();
+
+        purged.Should().Be(1);
+        await _secrets.Received(1).DeleteAsync("ref-old", Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task PurgeStaleDownloadCookies_KeepsCookiesStillWithinTheMaxAge()
+    {
+        _downloads.GetAllAsync(Arg.Any<CancellationToken>()).Returns(new[]
+        {
+            Recent(1, DownloadStatusCodes.Queued, "ref-fresh", SavedCredentialsService.CookieMaxAge - TimeSpan.FromDays(1)),
+        });
+
+        int purged = await Service().PurgeStaleDownloadCookiesAsync();
+
+        purged.Should().Be(0);
+        await _secrets.DidNotReceive().DeleteAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task PurgeStaleDownloadCookies_IsIdempotent()
+    {
+        _downloads.GetAllAsync(Arg.Any<CancellationToken>()).Returns(new[]
+        {
+            Recent(1, DownloadStatusCodes.Completed, cookieRef: null),
+        });
+
+        (await Service().PurgeStaleDownloadCookiesAsync()).Should().Be(0);
         await _secrets.DidNotReceive().DeleteAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 

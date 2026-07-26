@@ -1,3 +1,4 @@
+using JustDownload.Core.Abstractions;
 using JustDownload.Core.Data.Models;
 using JustDownload.Core.Data.Repositories;
 using JustDownload.Core.Lifecycle;
@@ -38,28 +39,41 @@ public interface ISavedCredentialsService
     Task RemoveAsync(SavedCredential credential, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Deletes the cookie secrets of downloads that have already completed, returning how many went. The
-    /// engine now drops them as each download finishes; this clears the ones saved before it did, which
-    /// would otherwise sit in the keychain for the life of the record. Idempotent — a second run finds none.
+    /// Deletes cookie secrets that can no longer do their job, returning how many went. Two rules: a download
+    /// that has already completed can never resend them (the engine drops these as each download finishes —
+    /// this catches records saved before it did), and cookies captured more than
+    /// <see cref="SavedCredentialsService.CookieMaxAge"/> ago are past any plausible expiry whatever state
+    /// their download is in. Idempotent — a second run over the same data finds nothing.
     /// </summary>
-    Task<int> PurgeCompletedDownloadCookiesAsync(CancellationToken cancellationToken = default);
+    Task<int> PurgeStaleDownloadCookiesAsync(CancellationToken cancellationToken = default);
 }
 
 internal sealed class SavedCredentialsService : ISavedCredentialsService
 {
+    /// <summary>
+    /// How long a captured cookie is worth keeping. Cookies are captured once, at enqueue, and never
+    /// refreshed — so a record's age *is* its cookies' age, whether or not the download ever ran. Past this
+    /// they are almost certainly expired server-side and are only a liability in the keychain (§5). Thirty
+    /// days sits beyond the usual persistent-cookie lifetime without being so long as to be meaningless.
+    /// </summary>
+    internal static readonly TimeSpan CookieMaxAge = TimeSpan.FromDays(30);
+
     private readonly ISettingsService _settings;
     private readonly IDownloadRepository _downloads;
     private readonly ISecretStore _secrets;
+    private readonly IClock _clock;
 
     public SavedCredentialsService(
-        ISettingsService settings, IDownloadRepository downloads, ISecretStore secrets)
+        ISettingsService settings, IDownloadRepository downloads, ISecretStore secrets, IClock clock)
     {
         ArgumentNullException.ThrowIfNull(settings);
         ArgumentNullException.ThrowIfNull(downloads);
         ArgumentNullException.ThrowIfNull(secrets);
+        ArgumentNullException.ThrowIfNull(clock);
         _settings = settings;
         _downloads = downloads;
         _secrets = secrets;
+        _clock = clock;
     }
 
     public async Task<IReadOnlyList<SavedCredential>> ListAsync(CancellationToken cancellationToken = default)
@@ -106,13 +120,14 @@ internal sealed class SavedCredentialsService : ISavedCredentialsService
             ? $"download {SafeLogUrl.Of(download.Url)}"
             : $"{download.Filename} — {SafeLogUrl.Of(download.Url)}";
 
-    public async Task<int> PurgeCompletedDownloadCookiesAsync(CancellationToken cancellationToken = default)
+    public async Task<int> PurgeStaleDownloadCookiesAsync(CancellationToken cancellationToken = default)
     {
         IReadOnlyList<Download> downloads = await _downloads.GetAllAsync(cancellationToken).ConfigureAwait(false);
+        DateTimeOffset capturedBefore = _clock.UtcNow - CookieMaxAge;
         int purged = 0;
         foreach (Download download in downloads)
         {
-            if (download.Status != DownloadStatusCodes.Completed || download.CookieSecretRef is not { Length: > 0 })
+            if (download.CookieSecretRef is not { Length: > 0 } || !IsStale(download, capturedBefore))
             {
                 continue;
             }
@@ -125,6 +140,9 @@ internal sealed class SavedCredentialsService : ISavedCredentialsService
 
         return purged;
     }
+
+    private static bool IsStale(Download download, DateTimeOffset capturedBefore) =>
+        download.Status == DownloadStatusCodes.Completed || download.CreatedAt < capturedBefore;
 
     public async Task RemoveAsync(SavedCredential credential, CancellationToken cancellationToken = default)
     {
