@@ -76,7 +76,9 @@
            scope, so a binding on the same element would resolve against Detail (no IsCompact there) rather
            than the outer DownloadProgressViewModel. -->
       <Panel IsVisible="{Binding !IsCompact}">
-        <views:DownloadDetailView DataContext="{Binding Detail}" />
+        <!-- IsWide: this window is far wider than the docked pane, so the speed chart spans it and the four
+             stats fit on one row — which also takes a row of height out of the window. -->
+        <views:DownloadDetailView DataContext="{Binding Detail}" IsWide="True" />
       </Panel>
 
       <!-- Compact bar: file name, progress + percent, speed/ETA, and the actions that fit the current state —

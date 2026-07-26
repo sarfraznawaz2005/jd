@@ -2,6 +2,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:JustDownload.App.ViewModels"
              xmlns:conv="using:JustDownload.App.Converters"
+             xmlns:views="using:JustDownload.App.Views"
              x:Class="JustDownload.App.Views.DownloadDetailView"
              x:DataType="vm:DownloadDetailViewModel">
 
@@ -18,6 +19,13 @@
     </Style>
     <Style Selector="TabItem /template/ Border#PART_SelectedPipe">
       <Setter Property="Margin" Value="0" />
+    </Style>
+    <!-- Wide hosts get a full-bleed speed chart, matching the segment strip below it. The docked pane keeps
+         its fixed card because at pane width a stretched chart would sit alone on an otherwise empty row.
+         It is the *narrow* case that carries the setter, never a Width attribute on the Border: a local value
+         outranks a Style setter in Avalonia's value precedence, so a local width could not be styled away. -->
+    <Style Selector="views|DownloadDetailView[IsWide=False] Border#SpeedChart">
+      <Setter Property="Width" Value="251" />
     </Style>
   </UserControl.Styles>
 
@@ -71,7 +79,11 @@
                              IsIndeterminate="{Binding Selected.IsProgressIndeterminate}" />
               </StackPanel>
 
-              <Grid ColumnDefinitions="*,*" RowDefinitions="Auto,Auto" >
+              <!-- Two layouts rather than one reflowed grid: the wide host also reorders the stats to lead
+                   with the two that change every tick (bandwidth, time left), which a shared layout can't
+                   express. Each is a flat four-cell block, so the duplication is the four cells themselves. -->
+              <Grid Name="NarrowStats" ColumnDefinitions="*,*" RowDefinitions="Auto,Auto"
+                    IsVisible="{Binding !$parent[views:DownloadDetailView].IsWide}">
                 <StackPanel Grid.Row="0" Grid.Column="0" Margin="0,0,0,12">
                   <TextBlock Text="Total size" Classes="StatKey" />
                   <TextBlock Text="{Binding TotalSizeDisplay}" Classes="StatValue" />
@@ -90,23 +102,46 @@
                 </StackPanel>
               </Grid>
 
+              <Grid Name="WideStats" ColumnDefinitions="*,*,*,*" ColumnSpacing="12"
+                    IsVisible="{Binding $parent[views:DownloadDetailView].IsWide}">
+                <StackPanel Grid.Column="0">
+                  <TextBlock Text="Bandwidth" Classes="StatKey" />
+                  <TextBlock Text="{Binding Selected.SpeedDisplay}" Classes="StatValue" Foreground="{DynamicResource AccentHoverBrush}" />
+                </StackPanel>
+                <StackPanel Grid.Column="1">
+                  <TextBlock Text="Time left" Classes="StatKey" />
+                  <TextBlock Text="{Binding Selected.EtaDisplay}" Classes="StatValue" />
+                </StackPanel>
+                <StackPanel Grid.Column="2">
+                  <TextBlock Text="Downloaded" Classes="StatKey" />
+                  <TextBlock Text="{Binding DownloadedDisplay}" Classes="StatValue" />
+                </StackPanel>
+                <StackPanel Grid.Column="3">
+                  <TextBlock Text="Total size" Classes="StatKey" />
+                  <TextBlock Text="{Binding TotalSizeDisplay}" Classes="StatValue" />
+                </StackPanel>
+              </Grid>
+
               <!-- Recent speed sparkline (TASK-137): only while actively downloading — hidden (and cleared)
                    the moment the download stops, so it doesn't sit there frozen or keep animating. -->
               <StackPanel Spacing="6" IsVisible="{Binding ShowSpeedHistory}">
                 <TextBlock Text="Speed (recent)" Classes="StatKey" />
-                <!-- Fixed to its max width (60 bars * 3px + 59 * 1px spacing) so the card doesn't keep
-                     growing wider for the sparkline's first 60 seconds — an ItemsControl otherwise sizes to
-                     its current bar count. -->
-                <Border Background="{DynamicResource CardBrush}" CornerRadius="4" Padding="6" Height="36" Width="251">
+                <!-- Width comes from UserControl.Styles: fixed in the docked pane so the card doesn't keep
+                     growing for the sparkline's first 60 seconds, unset in a wide host so it fills the row.
+                     Columns is pinned to the history's capacity — not the current bar count — so a bar keeps
+                     its width as samples accumulate and the series grows left-to-right instead of rescaling
+                     on every tick. -->
+                <Border Name="SpeedChart" Background="{DynamicResource CardBrush}" CornerRadius="4"
+                        Padding="6" Height="36">
                   <ItemsControl ItemsSource="{Binding SpeedHistory.Bars}" VerticalAlignment="Bottom">
                     <ItemsControl.ItemsPanel>
                       <ItemsPanelTemplate>
-                        <StackPanel Orientation="Horizontal" VerticalAlignment="Bottom" Spacing="1" />
+                        <UniformGrid Rows="1" Columns="{Binding SpeedHistory.Capacity}" VerticalAlignment="Bottom" />
                       </ItemsPanelTemplate>
                     </ItemsControl.ItemsPanel>
                     <ItemsControl.ItemTemplate>
                       <DataTemplate x:DataType="vm:SpeedBar">
-                        <Rectangle Width="3" Height="{Binding Height}" VerticalAlignment="Bottom"
+                        <Rectangle Height="{Binding Height}" VerticalAlignment="Bottom" Margin="0,0,1,0"
                                    Fill="{DynamicResource AccentBrush}" />
                       </DataTemplate>
                     </ItemsControl.ItemTemplate>

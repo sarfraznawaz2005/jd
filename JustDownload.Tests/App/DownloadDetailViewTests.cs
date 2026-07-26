@@ -85,6 +85,70 @@ public sealed class DownloadDetailViewTests
         }
     }
 
+    /// <summary>
+    /// The detached progress window (IsWide) is far wider than the docked pane, so it lays the Download tab
+    /// out differently (user-requested): the speed chart spans the full width like the segment strip below
+    /// it, and the four stats collapse from a 2×2 block onto one row — leading with the two that move every
+    /// tick. The docked pane must keep its existing layout.
+    /// </summary>
+    [AvaloniaTheory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void WideHost_SpansTheSpeedChart_AndPutsTheStatsOnOneRow(bool isWide)
+    {
+        var manager = Substitute.For<IDownloadManager>();
+        manager.GetConnections(Arg.Any<long>()).Returns([]);
+        manager.GetProgress(Arg.Any<long>()).Returns(
+            DownloadProgress.Create(DownloadStatus.Active, 50, 100, 1000, resumable: true, connections: 1));
+
+        var vm = new DownloadDetailViewModel(manager, Substitute.For<IDownloadActions>());
+        vm.Select(Row(DownloadStatusCodes.Active));
+        vm.SampleNow();
+
+        var view = new DownloadDetailView { DataContext = vm, IsWide = isWide };
+        var host = new Window { Content = view, Width = 700, Height = 900 };
+        host.Show();
+        Dispatcher.UIThread.RunJobs();
+        host.Measure(new Size(700, 900));
+        host.Arrange(new Rect(0, 0, 700, 900));
+
+        Grid Stats(string name) => view.GetVisualDescendants().OfType<Grid>().Single(g => g.Name == name);
+        Border chart = view.GetVisualDescendants().OfType<Border>().Single(b => b.Name == "SpeedChart");
+
+        Stats("WideStats").IsVisible.Should().Be(isWide);
+        Stats("NarrowStats").IsVisible.Should().Be(!isWide);
+
+        if (isWide)
+        {
+            chart.Bounds.Width.Should().BeGreaterThan(
+                400, "a wide host drops the chart's fixed width so it fills the row like the segment strip");
+        }
+        else
+        {
+            chart.Bounds.Width.Should().Be(251, "the docked pane keeps its fixed-width chart card");
+        }
+    }
+
+    [AvaloniaFact]
+    public void WideStats_ReadBandwidthTimeLeftDownloadedTotalSize_LeftToRight()
+    {
+        var vm = BuildViewModel();
+        vm.Select(Row(DownloadStatusCodes.Active));
+
+        var view = new DownloadDetailView { DataContext = vm, IsWide = true };
+        var host = new Window { Content = view, Width = 700, Height = 900 };
+        host.Show();
+        Dispatcher.UIThread.RunJobs();
+
+        Grid stats = view.GetVisualDescendants().OfType<Grid>().Single(g => g.Name == "WideStats");
+        string[] keys = stats.Children.OfType<StackPanel>()
+            .OrderBy(Grid.GetColumn)
+            .Select(p => ((TextBlock)p.Children[0]).Text!)
+            .ToArray();
+
+        keys.Should().Equal("Bandwidth", "Time left", "Downloaded", "Total size");
+    }
+
     private static ConnectionStat Stat() => new()
     {
         ConnectionId = 1,

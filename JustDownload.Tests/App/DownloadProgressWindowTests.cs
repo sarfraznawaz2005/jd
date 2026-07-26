@@ -1,7 +1,11 @@
+using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
+using Avalonia.Threading;
+using Avalonia.VisualTree;
 using FluentAssertions;
 using JustDownload.App.Services;
 using JustDownload.App.ViewModels;
+using JustDownload.App.Views;
 using JustDownload.Core.Abstractions;
 using JustDownload.Core.Categorization;
 using JustDownload.Core.Data.Models;
@@ -140,6 +144,27 @@ public sealed class DownloadProgressWindowTests
 
         harness.Presented.Should().HaveCount(2);
         harness.Presented[1].Should().NotBeSameAs(harness.Presented[0], "a fresh window is built after a close");
+    }
+
+    /// <summary>
+    /// The window hosts the shared detail view in its wide layout (user-requested): a full-width speed chart
+    /// and the four stats on one row. Asserted on the mounted window, not just the view's own property, so a
+    /// dropped IsWide attribute in the XAML is caught.
+    /// </summary>
+    [AvaloniaFact]
+    public void Window_HostsTheDetailView_InItsWideLayout()
+    {
+        var harness = new Harness();
+        var window = new DownloadProgressWindow { DataContext = harness.BuildViewModel(Row()) };
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+
+        DownloadDetailView detail = window.GetVisualDescendants().OfType<DownloadDetailView>().Single();
+        detail.IsWide.Should().BeTrue();
+        detail.GetVisualDescendants().OfType<Grid>().Single(g => g.Name == "WideStats")
+            .IsVisible.Should().BeTrue();
+
+        window.Close();
     }
 
     [AvaloniaFact]
