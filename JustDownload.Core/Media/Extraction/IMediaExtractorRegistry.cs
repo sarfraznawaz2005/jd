@@ -11,11 +11,14 @@ public interface IMediaExtractorRegistry
     IReadOnlyList<IMediaExtractor> Extractors { get; }
 
     /// <summary>
-    /// Returns the first recognising extractor's <see cref="MediaSource"/>, or <see langword="null"/> if no
-    /// extractor handles <paramref name="request"/> (the caller then treats it as a plain download or shows
-    /// a "couldn't extract" message — TASK-036 AC2). One extractor throwing does not abort the chain.
+    /// Returns the first recognising extractor's <see cref="MediaSource"/> in
+    /// <see cref="MediaExtractionResult.Source"/>, or <see langword="null"/> there if no extractor handles
+    /// <paramref name="request"/> (the caller then treats it as a plain download or explains the failure —
+    /// TASK-036 AC2). One extractor throwing does not abort the chain; every extractor's outcome is
+    /// reported in <see cref="MediaExtractionResult.Attempts"/> so the caller can say <em>why</em> nothing
+    /// was found instead of guessing.
     /// </summary>
     /// <param name="request">The candidate URL and its hints.</param>
     /// <param name="cancellationToken">Cancels the extraction.</param>
-    Task<MediaSource?> ExtractAsync(MediaRequest request, CancellationToken cancellationToken = default);
+    Task<MediaExtractionResult> ExtractAsync(MediaRequest request, CancellationToken cancellationToken = default);
 }

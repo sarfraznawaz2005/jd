@@ -312,7 +312,7 @@ public sealed class YtDlpMediaExtractorTests
     }
 
     [Fact]
-    public async Task TryExtractAsync_OnlyUnusableFormats_ReturnsNull_DoesNotThrow()
+    public async Task TryExtractAsync_OnlyUnusableFormats_ReportsWhyInsteadOfDecliningSilently()
     {
         ISettingsService settings = SettingsWith(videoCaptureEnabled: true);
         var locator = Substitute.For<IYtDlpLocator>();
@@ -327,10 +327,12 @@ public sealed class YtDlpMediaExtractorTests
         runner.RunAsync(Arg.Any<string>(), Arg.Any<IReadOnlyList<string>>(), Arg.Any<CancellationToken>())
             .Returns(new YtDlpRunResult(0, json, string.Empty));
 
-        MediaSource? source = await Build(settings, locator, runner)
+        Func<Task<MediaSource?>> act = () => Build(settings, locator, runner)
             .TryExtractAsync(Request("https://www.youtube.com/watch?v=abc"));
 
-        source.Should().BeNull();
+        (await act.Should().ThrowAsync<MediaExtractionFailedException>())
+            .Which.Message.Should().Contain("no downloadable format",
+                "yt-dlp did look at the URL, so the user is told why rather than shown a generic 'no media'");
     }
 
     [Fact]
@@ -340,8 +342,13 @@ public sealed class YtDlpMediaExtractorTests
         var locator = Substitute.For<IYtDlpLocator>();
         locator.LocateAsync(Arg.Any<CancellationToken>()).Returns(LocatedYtDlp);
         var runner = Substitute.For<IYtDlpRunner>();
+        const string json = """
+            {"id":"abc","formats":[
+              {"format_id":"18","url":"https://cdn.example.com/v18","protocol":"https","vcodec":"avc1.42001E","acodec":"mp4a.40.2","height":360}
+            ]}
+            """;
         runner.RunAsync(Arg.Any<string>(), Arg.Any<IReadOnlyList<string>>(), Arg.Any<CancellationToken>())
-            .Returns(new YtDlpRunResult(1, string.Empty, "irrelevant"));
+            .Returns(new YtDlpRunResult(0, json, string.Empty));
 
         await Build(settings, locator, runner).TryExtractAsync(Request("https://www.youtube.com/watch?v=abc"));
 
@@ -358,7 +365,7 @@ public sealed class YtDlpMediaExtractorTests
     [InlineData("")]
     [InlineData("{}")]
     [InlineData("""{"id":"x","url":""}""")]
-    public async Task TryExtractAsync_MalformedOrEmptyOutput_ReturnsNull_DoesNotThrow(string stdout)
+    public async Task TryExtractAsync_MalformedOrEmptyOutput_ReportsUnreadableOutput(string stdout)
     {
         ISettingsService settings = SettingsWith(videoCaptureEnabled: true);
         var locator = Substitute.For<IYtDlpLocator>();
@@ -370,27 +377,34 @@ public sealed class YtDlpMediaExtractorTests
         Func<Task<MediaSource?>> act = () => Build(settings, locator, runner)
             .TryExtractAsync(Request("https://www.youtube.com/watch?v=abc12345678"));
 
-        (await act.Should().NotThrowAsync()).Which.Should().BeNull();
+        await act.Should().ThrowAsync<MediaExtractionFailedException>();
     }
 
     [Fact]
-    public async Task TryExtractAsync_NonZeroExit_ReturnsNull_DoesNotThrow()
+    public async Task TryExtractAsync_NonZeroExit_SurfacesTheRealStderrReason()
     {
+        // The user's actual complaint: this reason was only ever logged at Debug, so with the default
+        // Error log level the only way to see it was running yt-dlp by hand in a shell.
         ISettingsService settings = SettingsWith(videoCaptureEnabled: true);
         var locator = Substitute.For<IYtDlpLocator>();
         locator.LocateAsync(Arg.Any<CancellationToken>()).Returns(LocatedYtDlp);
         var runner = Substitute.For<IYtDlpRunner>();
         runner.RunAsync(Arg.Any<string>(), Arg.Any<IReadOnlyList<string>>(), Arg.Any<CancellationToken>())
-            .Returns(new YtDlpRunResult(1, string.Empty, "ERROR: Unsupported URL"));
+            .Returns(new YtDlpRunResult(
+                1,
+                string.Empty,
+                "WARNING: something noisy\nERROR: [youtube] abc: Sign in to confirm you're not a bot"));
 
         Func<Task<MediaSource?>> act = () => Build(settings, locator, runner)
             .TryExtractAsync(Request("https://www.youtube.com/watch?v=abc12345678"));
 
-        (await act.Should().NotThrowAsync()).Which.Should().BeNull();
+        (await act.Should().ThrowAsync<MediaExtractionFailedException>())
+            .Which.Message.Should().Be("[youtube] abc: Sign in to confirm you're not a bot",
+                "the last ERROR line is the real cause; the 'ERROR:' prefix is noise for a dialog");
     }
 
     [Fact]
-    public async Task TryExtractAsync_RunnerThrowsYtDlpException_ReturnsNull_DoesNotPropagate()
+    public async Task TryExtractAsync_RunnerThrowsYtDlpException_IsReportedAsAFailureWithTheReason()
     {
         ISettingsService settings = SettingsWith(videoCaptureEnabled: true);
         var locator = Substitute.For<IYtDlpLocator>();
@@ -399,10 +413,11 @@ public sealed class YtDlpMediaExtractorTests
         runner.RunAsync(Arg.Any<string>(), Arg.Any<IReadOnlyList<string>>(), Arg.Any<CancellationToken>())
             .Returns<Task<YtDlpRunResult>>(_ => throw new YtDlpException("Failed to start yt-dlp."));
 
-        MediaSource? source = await Build(settings, locator, runner)
+        Func<Task<MediaSource?>> act = () => Build(settings, locator, runner)
             .TryExtractAsync(Request("https://www.youtube.com/watch?v=abc12345678"));
 
-        source.Should().BeNull();
+        (await act.Should().ThrowAsync<MediaExtractionFailedException>())
+            .Which.Message.Should().Contain("Failed to start yt-dlp.");
     }
 
     [Fact]

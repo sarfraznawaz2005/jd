@@ -84,7 +84,7 @@ public sealed class TestFixturesTests : IDisposable
 
         // Master → variant via the real extractor over real HTTP.
         var registry = provider.GetRequiredService<IMediaExtractorRegistry>();
-        MediaSource? source = await registry.ExtractAsync(new MediaRequest { Url = server.MasterUrl });
+        MediaSource? source = (await registry.ExtractAsync(new MediaRequest { Url = server.MasterUrl })).Source;
         source.Should().NotBeNull();
         source!.Kind.Should().Be(MediaKind.Hls);
         source.Variants.Should().ContainSingle();
@@ -110,8 +110,8 @@ public sealed class TestFixturesTests : IDisposable
         await using var server = new LoopbackHlsServer(Segments(3, 1024), encrypted: false);
         using ServiceProvider provider = BuildMediaProvider();
 
-        MediaSource? source = await provider.GetRequiredService<IMediaExtractorRegistry>()
-            .ExtractAsync(new MediaRequest { Url = server.MediaUrl });
+        MediaSource? source = (await provider.GetRequiredService<IMediaExtractorRegistry>()
+            .ExtractAsync(new MediaRequest { Url = server.MediaUrl })).Source;
 
         source!.Kind.Should().Be(MediaKind.Hls);
         source.Variants.Should().BeEmpty("a media playlist is a single quality");

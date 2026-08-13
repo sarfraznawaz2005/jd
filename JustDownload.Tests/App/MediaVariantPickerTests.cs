@@ -24,13 +24,25 @@ public sealed class MediaVariantPickerTests
 {
     private static readonly Uri MediaUrl = new("https://cdn.example.com/master.m3u8");
 
-    private static IMediaExtractorRegistry RegistryReturning(MediaSource? source)
+    private static IMediaExtractorRegistry RegistryReturning(MediaSource? source) =>
+        RegistryFor(new MediaExtractionResult
+        {
+            Source = source,
+            Attempts = source is null
+                ? [MediaExtractionAttempt.Declined("progressive")]
+                : [MediaExtractionAttempt.Accepted(source.ExtractorName)],
+        });
+
+    private static IMediaExtractorRegistry RegistryFor(MediaExtractionResult result)
     {
         var registry = Substitute.For<IMediaExtractorRegistry>();
         registry.ExtractAsync(Arg.Any<MediaRequest>(), Arg.Any<CancellationToken>())
-            .Returns(Task.FromResult(source));
+            .Returns(Task.FromResult(result));
         return registry;
     }
+
+    private static MediaExtractionResult NothingFound(params MediaExtractionAttempt[] attempts) =>
+        new() { Attempts = attempts };
 
     private static ISettingsService SettingsWith(VideoQuality quality, MediaContainer container)
     {
@@ -624,5 +636,69 @@ public sealed class MediaVariantPickerTests
         await vm.LoadAsync(MediaUrl);
 
         await registry.Received(2).ExtractAsync(Arg.Any<MediaRequest>(), Arg.Any<CancellationToken>());
+    }
+
+    // --- Why extraction failed (the picker must stop collapsing every cause into one generic string) ---
+
+    [Fact]
+    public async Task LoadAsync_EveryExtractorDeclined_KeepsTheGenericNoMediaMessage()
+    {
+        MediaVariantPickerViewModel vm = Build(
+            RegistryFor(NothingFound(
+                MediaExtractionAttempt.Declined("hls"),
+                MediaExtractionAttempt.Declined("progressive"))),
+            SettingsWith(VideoQuality.P720, MediaContainer.Mkv));
+
+        await vm.LoadAsync(new Uri("https://example.com/article"));
+
+        vm.Message.Should().Be("Couldn't find downloadable media at this URL.",
+            "nothing recognised the URL, which is exactly what the original wording says");
+    }
+
+    [Fact]
+    public async Task LoadAsync_NetworkFailure_SaysSo_NeverThatNoMediaWasFound()
+    {
+        // The user's NextDNS resolver null-routes facebook.com, so extraction dies on DNS. Reporting that as
+        // "couldn't find downloadable media" sent them hunting for a broken extractor instead of a broken DNS.
+        MediaVariantPickerViewModel vm = Build(
+            RegistryFor(NothingFound(
+                MediaExtractionAttempt.Declined("hls"),
+                MediaExtractionAttempt.NetworkFailure("facebook", "HttpRequestException: No such host is known."))),
+            SettingsWith(VideoQuality.P720, MediaContainer.Mkv));
+
+        await vm.LoadAsync(new Uri("https://www.facebook.com/reel/2044478973099445"));
+
+        vm.Message.Should().Contain("Network error").And.Contain("www.facebook.com");
+        vm.Message.Should().NotContain("Couldn't find downloadable media");
+    }
+
+    [Fact]
+    public async Task LoadAsync_ExtractorFailedWithAReason_ShowsItAttributedToThatExtractor()
+    {
+        MediaVariantPickerViewModel vm = Build(
+            RegistryFor(NothingFound(
+                MediaExtractionAttempt.Declined("progressive"),
+                MediaExtractionAttempt.Failed("yt-dlp", "Sign in to confirm you're not a bot"))),
+            SettingsWith(VideoQuality.P720, MediaContainer.Mkv));
+
+        await vm.LoadAsync(new Uri("https://www.youtube.com/watch?v=CqlDf9ba4jA"));
+
+        vm.Message.Should().Contain("yt-dlp: Sign in to confirm you're not a bot");
+    }
+
+    [Fact]
+    public async Task LoadAsync_ReasonCarryingASignedUrl_IsNotShownVerbatim()
+    {
+        // CLAUDE.md §5: these strings are user-facing — signed-URL query strings must never reach them.
+        MediaExtractionAttempt leaky = MediaExtractionAttempt.Failed(
+            "hls",
+            "HTTP 403 fetching https://video.twimg.com/pl/x.m3u8?Signature=SECRET123&Key-Pair-Id=APKA");
+        MediaVariantPickerViewModel vm = Build(
+            RegistryFor(NothingFound(leaky)), SettingsWith(VideoQuality.P720, MediaContainer.Mkv));
+
+        await vm.LoadAsync(MediaUrl);
+
+        vm.Message.Should().NotContain("SECRET123").And.NotContain("Signature=").And.NotContain("Key-Pair-Id");
+        vm.Message.Should().Contain("hls: HTTP 403 fetching https://video.twimg.com/pl/x.m3u8");
     }
 }

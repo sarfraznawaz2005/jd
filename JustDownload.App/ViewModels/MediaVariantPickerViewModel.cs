@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using CommunityToolkit.Mvvm.ComponentModel;
+using JustDownload.App.Formatting;
 using JustDownload.App.Services;
 using JustDownload.Core.Categorization;
 using JustDownload.Core.Diagnostics;
@@ -318,13 +319,15 @@ public sealed partial class MediaVariantPickerViewModel : ViewModelBase
 
         try
         {
-            MediaSource? source = await _registry
+            MediaExtractionResult extraction = await _registry
                 .ExtractAsync(new MediaRequest { Url = url, Headers = headers ?? [] }, cancellationToken)
                 .ConfigureAwait(true);
 
-            if (source is null)
+            if (extraction.Source is not { } source)
             {
-                Message = "Couldn't find downloadable media at this URL.";
+                // Say why, not just "nothing found": a DNS/connectivity failure and a yt-dlp bot challenge
+                // used to be indistinguishable from "this page has no video" (CLAUDE.md §5).
+                Message = MediaExtractionMessage.Describe(url, extraction.Attempts);
                 return;
             }
 

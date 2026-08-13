@@ -21,6 +21,9 @@ public interface IMediaExtractor
     /// Returns a <see cref="MediaSource"/> if this extractor recognises <paramref name="request"/>, or
     /// <see langword="null"/> if it does not (so the registry tries the next one). Must never throw for a
     /// URL it simply does not handle — it returns <see langword="null"/> and degrades gracefully (AC2).
+    /// An extractor that <em>did</em> recognise the URL but could not extract it should throw
+    /// <see cref="MediaExtractionFailedException"/> with the reason, so the user is told why instead of
+    /// being shown a generic "no media found" (CLAUDE.md §5, no silent failures).
     /// </summary>
     /// <param name="request">The candidate URL and its hints.</param>
     /// <param name="cancellationToken">Cancels any network probe the extractor performs.</param>

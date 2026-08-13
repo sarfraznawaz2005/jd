@@ -289,6 +289,11 @@ static async Task PrintOutcomeAsync(IMediaExtractor extractor, MediaRequest requ
             ? $"    {extractor.Name,-12} declined (returned null)"
             : $"    {extractor.Name,-12} ACCEPTED — kind={source.Kind}, variants={source.Variants.Count}, audioVariants={source.AudioVariants.Count}, suggestedFileName={source.SuggestedFileName ?? "(none)"}");
     }
+    catch (MediaExtractionFailedException ex)
+    {
+        // "Mine, but it failed" — the same reason the app's dialogs now show the user.
+        Console.WriteLine($"    {extractor.Name,-12} FAILED (recognised the URL, could not extract): {ex.Message}");
+    }
     catch (OperationCanceledException)
     {
         Console.WriteLine($"    {extractor.Name,-12} TIMED OUT after 25s (treated separately from a real exception — likely an unreachable host in this sandbox)");

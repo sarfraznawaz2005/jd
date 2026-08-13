@@ -1,3 +1,4 @@
+using System.Net.Sockets;
 using FluentAssertions;
 using JustDownload.Core;
 using JustDownload.Core.Media.Extraction;
@@ -75,7 +76,7 @@ public sealed class MediaExtractorRegistryTests
         // Registered out of order; the registry must order by priority and stop at the first match.
         MediaExtractorRegistry registry = BuildRegistry(high, low);
 
-        MediaSource? result = await registry.ExtractAsync(Request("https://example/a.mp4"));
+        MediaSource? result = (await registry.ExtractAsync(Request("https://example/a.mp4"))).Source;
 
         result.Should().NotBeNull();
         result!.ExtractorName.Should().Be("low", "the lower-priority value runs first and matches");
@@ -89,7 +90,7 @@ public sealed class MediaExtractorRegistryTests
         var declines = new StubExtractor("declines", 1, _ => null);
         var matches = new StubExtractor("matches", 2, r => SourceFrom("matches", r));
 
-        MediaSource? result = await BuildRegistry(declines, matches).ExtractAsync(Request("https://x/y"));
+        MediaSource? result = (await BuildRegistry(declines, matches).ExtractAsync(Request("https://x/y"))).Source;
 
         result!.ExtractorName.Should().Be("matches");
     }
@@ -99,9 +100,11 @@ public sealed class MediaExtractorRegistryTests
     {
         var declines = new StubExtractor("declines", 1, _ => null);
 
-        MediaSource? result = await BuildRegistry(declines).ExtractAsync(Request("https://x/page.html"));
+        MediaExtractionResult result = await BuildRegistry(declines).ExtractAsync(Request("https://x/page.html"));
 
-        result.Should().BeNull("unknown media degrades gracefully rather than throwing");
+        result.Source.Should().BeNull("unknown media degrades gracefully rather than throwing");
+        result.Attempts.Should().ContainSingle()
+            .Which.Outcome.Should().Be(MediaExtractionOutcome.Declined, "a plain decline is not a failure");
     }
 
     [Fact]
@@ -110,9 +113,75 @@ public sealed class MediaExtractorRegistryTests
         var faulty = new StubExtractor("faulty", 1, _ => throw new InvalidOperationException("boom"));
         var good = new StubExtractor("good", 2, r => SourceFrom("good", r));
 
-        MediaSource? result = await BuildRegistry(faulty, good).ExtractAsync(Request("https://x/a.mp4"));
+        MediaExtractionResult result = await BuildRegistry(faulty, good).ExtractAsync(Request("https://x/a.mp4"));
 
-        result!.ExtractorName.Should().Be("good", "one bad extractor must not break the chain");
+        result.Source!.ExtractorName.Should().Be("good", "one bad extractor must not break the chain");
+        result.Attempts[0].Outcome.Should().Be(MediaExtractionOutcome.Failed, "the throw is reported, not swallowed");
+        result.Attempts[0].Reason.Should().Contain("boom");
+        result.Attempts[1].Outcome.Should().Be(MediaExtractionOutcome.Accepted);
+    }
+
+    [Fact]
+    public async Task ExtractAsync_TransportFailure_IsReportedAsNetworkFailure_NotADecline()
+    {
+        // A DNS/connectivity failure says nothing about whether media exists at the URL, so it must never
+        // reach the user as "couldn't find downloadable media" (the whole point of the attempt vocabulary).
+        var unreachable = new StubExtractor(
+            "facebook", 1, _ => throw new HttpRequestException(
+                "No such host is known.", new SocketException(11001)));
+
+        MediaExtractionResult result =
+            await BuildRegistry(unreachable).ExtractAsync(Request("https://www.facebook.com/reel/1"));
+
+        result.Source.Should().BeNull();
+        result.Attempts.Should().ContainSingle();
+        result.Attempts[0].Outcome.Should().Be(MediaExtractionOutcome.NetworkFailure);
+        result.Attempts[0].ExtractorName.Should().Be("facebook");
+        result.Attempts[0].Reason.Should().Contain("No such host is known.");
+    }
+
+    [Fact]
+    public async Task ExtractAsync_ExtractorReportingItsOwnReason_IsReportedAsFailedWithThatReason()
+    {
+        var recognised = new StubExtractor(
+            "yt-dlp", 1, _ => throw new MediaExtractionFailedException("Sign in to confirm you're not a bot"));
+
+        MediaExtractionResult result =
+            await BuildRegistry(recognised).ExtractAsync(Request("https://www.youtube.com/watch?v=abc"));
+
+        result.Source.Should().BeNull();
+        result.Attempts.Should().ContainSingle();
+        result.Attempts[0].Outcome.Should().Be(MediaExtractionOutcome.Failed);
+        result.Attempts[0].Reason.Should().Be("Sign in to confirm you're not a bot");
+    }
+
+    [Fact]
+    public async Task ExtractAsync_ReasonContainingASignedUrl_IsRedactedBeforeItCanBeShown()
+    {
+        // CLAUDE.md §5: user-facing messages must never carry signed-URL query strings, tokens or cookies.
+        const string signed =
+            "https://video.twimg.com/pl/x.m3u8?Policy=eyJTdGF0…&Signature=SECRET123&Key-Pair-Id=APKA";
+        var leaky = new StubExtractor(
+            "leaky", 1, _ => throw new MediaExtractionFailedException($"HTTP 403 fetching {signed}"));
+
+        MediaExtractionResult result = await BuildRegistry(leaky).ExtractAsync(Request("https://x/a.m3u8"));
+
+        string reason = result.Attempts[0].Reason!;
+        reason.Should().NotContain("Signature=").And.NotContain("SECRET123").And.NotContain("Key-Pair-Id");
+        reason.Should().Contain("https://video.twimg.com/pl/x.m3u8", "the URL itself is still useful context");
+    }
+
+    [Fact]
+    public async Task ExtractAsync_MultiLineReason_IsCollapsedAndTruncated()
+    {
+        var noisy = new StubExtractor(
+            "noisy", 1, _ => throw new MediaExtractionFailedException("first line\n" + new string('x', 400)));
+
+        MediaExtractionResult result = await BuildRegistry(noisy).ExtractAsync(Request("https://x/a.mp4"));
+
+        string reason = result.Attempts[0].Reason!;
+        reason.Should().NotContain("\n");
+        reason.Length.Should().BeLessThan(200, "the dialog footer cannot carry an unbounded error dump");
     }
 
     [Fact]
@@ -218,7 +287,7 @@ public sealed class MediaExtractorRegistryTests
         // catch-all (1000) and yt-dlp's last-resort (int.MaxValue).
         registry.Extractors.Select(e => e.Name).Should().ContainInOrder("hls", "dash", "acme-clips", "progressive", "yt-dlp");
 
-        MediaSource? result = await registry.ExtractAsync(Request("https://acme-clips.example/watch?v=1"));
+        MediaSource? result = (await registry.ExtractAsync(Request("https://acme-clips.example/watch?v=1"))).Source;
 
         result.Should().NotBeNull();
         result!.ExtractorName.Should().Be("acme-clips",

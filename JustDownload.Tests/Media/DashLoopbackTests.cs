@@ -66,8 +66,8 @@ public sealed class DashLoopbackTests : IDisposable
         await using var server = new LoopbackDashServer(_dir);
 
         // The real extractor recognises the manifest and reports both representations.
-        MediaSource? source = await provider.GetRequiredService<IMediaExtractorRegistry>()
-            .ExtractAsync(new MediaRequest { Url = server.Url(Path.GetFileName(mpdPath)) });
+        MediaSource? source = (await provider.GetRequiredService<IMediaExtractorRegistry>()
+            .ExtractAsync(new MediaRequest { Url = server.Url(Path.GetFileName(mpdPath)) })).Source;
 
         source.Should().NotBeNull();
         source!.Kind.Should().Be(MediaKind.Dash);

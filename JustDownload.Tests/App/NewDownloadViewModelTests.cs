@@ -42,6 +42,10 @@ public sealed class NewDownloadViewModelTests
             Folders.GetFolderForCategory(Arg.Any<FileCategory>())
                 .Returns(ci => $@"C:\Users\me\Downloads\{((FileCategory)ci[0])}");
             Categorizer.Categorize(Arg.Any<string?>(), Arg.Any<string?>()).Returns(FileCategory.Program);
+
+            // The registry never returns null now — an unconfigured call still hands back an empty result.
+            MediaRegistry.ExtractAsync(Arg.Any<MediaRequest>(), Arg.Any<CancellationToken>())
+                .Returns(Task.FromResult(MediaExtractionResult.None));
         }
 
         public NewDownloadViewModel Build(TimeSpan? detectTimeout = null) =>
@@ -53,7 +57,17 @@ public sealed class NewDownloadViewModelTests
         public void SetMediaSource(string url, MediaSource source) =>
             MediaRegistry.ExtractAsync(
                     Arg.Is<MediaRequest>(r => r.Url == new Uri(url)), Arg.Any<CancellationToken>())
-                .Returns(Task.FromResult<MediaSource?>(source));
+                .Returns(Task.FromResult(new MediaExtractionResult
+                {
+                    Source = source,
+                    Attempts = [MediaExtractionAttempt.Accepted(source.ExtractorName)],
+                }));
+
+        /// <summary>Makes the registry find nothing for every URL, reporting <paramref name="attempts"/> as the
+        /// per-extractor outcomes that explain why.</summary>
+        public void SetMediaExtractionFailure(params MediaExtractionAttempt[] attempts) =>
+            MediaRegistry.ExtractAsync(Arg.Any<MediaRequest>(), Arg.Any<CancellationToken>())
+                .Returns(Task.FromResult(new MediaExtractionResult { Attempts = attempts }));
 
         /// <summary>Makes the registry resolve <paramref name="source"/> on its first call and then hang until
         /// cancelled on every later one — the shape of a re-detect that is still in flight when the user
@@ -66,10 +80,14 @@ public sealed class NewDownloadViewModelTests
                 {
                     if (Interlocked.Increment(ref calls) == 1)
                     {
-                        return Task.FromResult<MediaSource?>(source);
+                        return Task.FromResult(new MediaExtractionResult
+                        {
+                            Source = source,
+                            Attempts = [MediaExtractionAttempt.Accepted(source.ExtractorName)],
+                        });
                     }
 
-                    var tcs = new TaskCompletionSource<MediaSource?>(
+                    var tcs = new TaskCompletionSource<MediaExtractionResult>(
                         TaskCreationOptions.RunContinuationsAsynchronously);
                     ((CancellationToken)ci[1]).Register(() => tcs.TrySetCanceled());
                     return tcs.Task;
@@ -365,8 +383,7 @@ public sealed class NewDownloadViewModelTests
         // warning instead.
         var h = new Harness();
         const string manifestUrl = "https://video.twimg.com/amplify_video/pl/pM5J6caWDUGNnNNT.m3u8";
-        h.MediaRegistry.ExtractAsync(Arg.Any<MediaRequest>(), Arg.Any<CancellationToken>())
-            .Returns(Task.FromResult<MediaSource?>(null));
+        h.SetMediaExtractionFailure(MediaExtractionAttempt.Declined("hls"));
         h.SetProbe("pM5J6caWDUGNnNNT.m3u8", 334, ranges: true);
         var vm = h.Build();
         bool? closed = null;
@@ -380,6 +397,55 @@ public sealed class NewDownloadViewModelTests
             Arg.Any<EnqueueDownloadRequest>(), Arg.Any<CancellationToken>());
         vm.UrlWarning.Should().Contain("playlist");
         closed.Should().BeNull("the dialog must stay open so the user sees why nothing was queued");
+    }
+
+    [Fact]
+    public async Task DetectAsync_ManifestUrl_NetworkFailure_WarnsAboutConnectivity_NotMissingMedia()
+    {
+        var h = new Harness();
+        h.SetMediaExtractionFailure(
+            MediaExtractionAttempt.NetworkFailure("hls", "HttpRequestException: No such host is known."));
+        h.SetProbe("x.m3u8", 334, ranges: true);
+        var vm = h.Build();
+        vm.Url = "https://video.twimg.com/amplify_video/pl/x.m3u8";
+
+        await vm.DetectAsync();
+
+        vm.UrlWarning.Should().Contain("Network error").And.Contain("video.twimg.com");
+    }
+
+    [Fact]
+    public async Task DetectAsync_ManifestUrl_ExtractorReason_IsSurfaced_AndRepeatedWhenSubmitRefuses()
+    {
+        var h = new Harness();
+        h.SetMediaExtractionFailure(MediaExtractionAttempt.Failed("yt-dlp", "HTTP Error 429: Too Many Requests"));
+        h.SetProbe("x.m3u8", 334, ranges: true);
+        var vm = h.Build();
+        vm.Url = "https://video.twimg.com/amplify_video/pl/x.m3u8";
+
+        await vm.DetectAsync();
+        vm.UrlWarning.Should().Contain("yt-dlp: HTTP Error 429: Too Many Requests");
+
+        await vm.DownloadNowCommand.ExecuteAsync(null);
+
+        await h.Manager.DidNotReceive().EnqueueAsync(
+            Arg.Any<EnqueueDownloadRequest>(), Arg.Any<CancellationToken>());
+        vm.UrlWarning.Should().Contain("playlist").And.Contain("HTTP Error 429",
+            "the refusal keeps the reason the user needs, not just 'couldn't be read'");
+    }
+
+    [Fact]
+    public async Task DetectAsync_ManifestUrl_AllExtractorsDeclined_AddsNoExtraWarning()
+    {
+        var h = new Harness();
+        h.SetMediaExtractionFailure(MediaExtractionAttempt.Declined("hls"), MediaExtractionAttempt.Declined("dash"));
+        h.SetProbe("x.m3u8", 334, ranges: true);
+        var vm = h.Build();
+        vm.Url = "https://video.twimg.com/amplify_video/pl/x.m3u8";
+
+        await vm.DetectAsync();
+
+        vm.UrlWarning.Should().BeNull("a plain decline is not a failure worth warning about on its own");
     }
 
     [Fact]

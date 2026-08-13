@@ -104,7 +104,7 @@ public sealed class ExtractorCorpusTests : IDisposable
     private static async Task EvaluateProgressiveAsync(IMediaExtractorRegistry registry, CorpusEntry entry)
     {
         var url = new Uri($"https://cdn.example.com/{entry.Name}{entry.Ext}");
-        MediaSource? source = await registry.ExtractAsync(new MediaRequest { Url = url });
+        MediaSource? source = (await registry.ExtractAsync(new MediaRequest { Url = url })).Source;
         if (source is null || source.Kind != MediaKind.Progressive)
         {
             throw new InvalidOperationException($"expected Progressive, got {source?.Kind.ToString() ?? "null"}");
@@ -123,7 +123,7 @@ public sealed class ExtractorCorpusTests : IDisposable
         await using var server = new LoopbackHlsServer(segments, entry.Encrypted);
         Uri sourceUrl = entry.ViaMaster ? server.MasterUrl : server.MediaUrl;
 
-        MediaSource? source = await registry.ExtractAsync(new MediaRequest { Url = sourceUrl });
+        MediaSource? source = (await registry.ExtractAsync(new MediaRequest { Url = sourceUrl })).Source;
         if (source is null || source.Kind != MediaKind.Hls)
         {
             throw new InvalidOperationException($"expected Hls, got {source?.Kind.ToString() ?? "null"}");

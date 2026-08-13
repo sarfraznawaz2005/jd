@@ -68,6 +68,13 @@ public sealed partial class NewDownloadViewModel : ViewModelBase, IDisposable
     /// </summary>
     private DetectedMedia? _detectedMedia;
 
+    /// <summary>
+    /// Why the last extraction pass over a manifest URL produced nothing (a network/DNS failure, or an
+    /// extractor's own reason such as yt-dlp's bot challenge), or <see langword="null"/> when the extractors
+    /// simply declined. Kept so <see cref="SubmitAsync"/>'s refusal can say more than "couldn't be read".
+    /// </summary>
+    private string? _mediaFailure;
+
     /// <summary>The variant/audio URLs and container chosen for a detected HLS/DASH source (TASK-241).</summary>
     private sealed record DetectedMedia(MediaKind Kind, Uri Url, Uri? AudioUrl, MediaContainer Container);
 
@@ -382,6 +389,7 @@ public sealed partial class NewDownloadViewModel : ViewModelBase, IDisposable
         IsResumable = false;
         UrlWarning = null;
         DuplicateWarning = null;
+        _mediaFailure = null;
 
         // _detectedMedia is deliberately NOT cleared here. Clicking "Download now" moves focus off the URL
         // box, and the view's blur handler fires a fresh detect before the button's command runs — clearing
@@ -395,17 +403,25 @@ public sealed partial class NewDownloadViewModel : ViewModelBase, IDisposable
             // they were the video file itself — that just downloads the raw playlist/manifest text (bug fix,
             // TASK-241). Checked first and only for URLs that look like a manifest, so every other URL takes
             // the exact same plain-probe path as before.
-            MediaSource? media = await TryDetectMediaAsync(uri, cts.Token).ConfigureAwait(true);
+            MediaExtractionResult extraction = await TryDetectMediaAsync(uri, cts.Token).ConfigureAwait(true);
             if (cts.IsCancellationRequested)
             {
                 return;
             }
 
-            if (media is { Kind: not MediaKind.Progressive })
+            if (extraction.Source is { Kind: not MediaKind.Progressive } media)
             {
                 ApplyMediaDetection(media);
                 await CheckForDuplicateAsync(cts.Token).ConfigureAwait(true);
                 return;
+            }
+
+            // A manifest URL whose streams couldn't be read must explain itself — a DNS failure or a yt-dlp
+            // bot challenge is not the same as "this link has no video" (CLAUDE.md §5).
+            _mediaFailure = MediaExtractionMessage.TryDescribeFailure(uri, extraction.Attempts);
+            if (_mediaFailure is not null)
+            {
+                UrlWarning = _mediaFailure;
             }
 
             ResourceProbeResult result = await _probe.ProbeAsync(uri, headers: null, cts.Token).ConfigureAwait(true);
@@ -488,10 +504,10 @@ public sealed partial class NewDownloadViewModel : ViewModelBase, IDisposable
     /// at all, so ordinary progressive downloads are entirely unaffected (AC2) and no heavier extractor
     /// (YouTube/Facebook/yt-dlp) ever runs against a non-manifest link.
     /// </summary>
-    private Task<MediaSource?> TryDetectMediaAsync(Uri uri, CancellationToken cancellationToken) =>
+    private Task<MediaExtractionResult> TryDetectMediaAsync(Uri uri, CancellationToken cancellationToken) =>
         LooksLikeMediaManifest(uri)
             ? _mediaRegistry.ExtractAsync(new MediaRequest { Url = uri }, cancellationToken)
-            : Task.FromResult<MediaSource?>(null);
+            : Task.FromResult(MediaExtractionResult.None);
 
     private static bool LooksLikeMediaManifest(Uri uri)
     {
@@ -602,7 +618,8 @@ public sealed partial class NewDownloadViewModel : ViewModelBase, IDisposable
             if (_detectedMedia is null)
             {
                 UrlWarning = "This link is a streaming playlist, not a downloadable file, and its video "
-                    + "streams couldn't be read. Downloading it would save the playlist text instead of the video.";
+                    + "streams couldn't be read. Downloading it would save the playlist text instead of the video."
+                    + (_mediaFailure is null ? string.Empty : " " + _mediaFailure);
                 return;
             }
         }

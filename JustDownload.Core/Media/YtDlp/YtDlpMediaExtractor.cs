@@ -1,4 +1,5 @@
 using System.Diagnostics.CodeAnalysis;
+using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using JustDownload.Core.Media.Extraction;
@@ -33,9 +34,13 @@ namespace JustDownload.Core.Media.YtDlp;
 /// missing a usable URL or (for video streams) a resolution.
 /// </para>
 /// <para>
-/// Never throws for an expected failure mode (yt-dlp missing/unprovisioned, a non-zero exit, malformed or
-/// empty JSON, no usable format in the response) — it logs and returns <see langword="null"/> so the
-/// registry degrades gracefully, matching every other extractor's contract.
+/// Declines silently (returns <see langword="null"/>) for the two gates that are not failures at all: the
+/// master toggle being off, and yt-dlp not being provisioned. Every other failure mode — a non-zero exit,
+/// yt-dlp failing to launch, malformed or empty JSON, no usable format in the response — means yt-dlp
+/// actually looked at the URL and could not deliver, so it throws
+/// <see cref="MediaExtractionFailedException"/> carrying the reason (yt-dlp's own stderr where there is
+/// one). The registry records that as a failed attempt and carries on, and the UI can finally tell the user
+/// "yt-dlp: Sign in to confirm you're not a bot" instead of a generic "no media found" (CLAUDE.md §5).
 /// </para>
 /// </summary>
 internal sealed partial class YtDlpMediaExtractor : IMediaExtractor
@@ -103,7 +108,7 @@ internal sealed partial class YtDlpMediaExtractor : IMediaExtractor
         catch (Exception ex) when (ex is YtDlpException or IOException or InvalidOperationException)
         {
             LogRunFailed(_logger, request.Url, ex);
-            return null;
+            throw new MediaExtractionFailedException($"couldn't run yt-dlp ({ex.Message})", ex);
         }
 
         if (result.ExitCode != 0)
@@ -111,13 +116,13 @@ internal sealed partial class YtDlpMediaExtractor : IMediaExtractor
 #pragma warning disable CA1873 // Truncate is a cheap length check + substring, not worth an IsEnabled guard
             LogNonZeroExit(_logger, request.Url, result.ExitCode, Truncate(result.StandardError));
 #pragma warning restore CA1873
-            return null;
+            throw new MediaExtractionFailedException(DescribeExit(result.ExitCode, result.StandardError));
         }
 
         return TryMap(result.StandardOutput, request.Url);
     }
 
-    private MediaSource? TryMap(string standardOutput, Uri requestUrl)
+    private MediaSource TryMap(string standardOutput, Uri requestUrl)
     {
         YtDlpProbeResult? probe;
         try
@@ -127,7 +132,7 @@ internal sealed partial class YtDlpMediaExtractor : IMediaExtractor
         catch (JsonException ex)
         {
             LogParseFailed(_logger, requestUrl, ex);
-            return null;
+            throw new MediaExtractionFailedException("yt-dlp returned output this app could not read.", ex);
         }
 
         // Prefer the real video title (sanitized) so downloads are saved under a recognisable name; fall
@@ -195,7 +200,28 @@ internal sealed partial class YtDlpMediaExtractor : IMediaExtractor
         }
 
         LogNoUsableFormat(_logger, requestUrl);
-        return null;
+        throw new MediaExtractionFailedException(
+            "yt-dlp found no downloadable format this app can handle at that URL.");
+    }
+
+    /// <summary>
+    /// yt-dlp writes the real cause as the last "ERROR: …" line of stderr (bot challenge, HTTP 429, missing
+    /// JS runtime, unsupported URL). Prefer that over the exit code, which says nothing on its own.
+    /// </summary>
+    private static string DescribeExit(int exitCode, string standardError)
+    {
+        string? line = standardError
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .LastOrDefault(l => l.Length > 0);
+
+        if (line is null)
+        {
+            return string.Create(CultureInfo.InvariantCulture, $"yt-dlp exited with code {exitCode}.");
+        }
+
+        return line.StartsWith("ERROR:", StringComparison.OrdinalIgnoreCase)
+            ? line["ERROR:".Length..].Trim()
+            : line;
     }
 
     private static VideoVariant ToVideoVariant(YtDlpFormat format, Uri url) =>
