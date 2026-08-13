@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    JustDownload.LiveSmoke — a diagnostic-only console harness (not a test project) that exercises the
+    REAL DI-wired IMediaExtractor set against real, publicly-known video URLs for YouTube, Facebook,
+    Twitter/X, and Instagram, and prints the true per-extractor accept/decline/exception outcome instead
+    of the generic message MediaExtractorRegistry.ExtractAsync's swallow-and-continue contract shows the
+    UI. It builds and is part of the solution (`dotnet build` compiles it, same as JustDownload.Perf) but
+    NEVER runs on its own — it hits live external sites, is slow, and can go stale, so it must never run
+    in CI or as part of `dotnet test`. Opt-in invocation only: see the comment atop Program.cs for the
+    exact command line to run it (kept there, not here, so this XML comment stays free of the exact
+    command's double-hyphen flag characters).
+
+    See Program.cs for the full scenario list and per-URL sourcing notes.
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>JustDownload.LiveSmoke</RootNamespace>
+    <AssemblyName>JustDownload.LiveSmoke</AssemblyName>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="8.0.1" />
+    <!-- Only to call SqliteConnection.ClearAllPools() during cleanup (Microsoft.Data.Sqlite pools native
+         handles by default, so the temp DB file can still be locked right after disposing the DI
+         container) — version pinned to match JustDownload.Core's own reference. -->
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.10" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\JustDownload.Core\JustDownload.Core.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -15,6 +15,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "JustDownload.Perf", "JustDo
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "JustDownload.Cli", "JustDownload.Cli\JustDownload.Cli.csproj", "{C80C09CE-CD2A-46BD-88C0-5D11480CFBF1}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "JustDownload.LiveSmoke", "JustDownload.LiveSmoke\JustDownload.LiveSmoke.csproj", "{0589FAC8-5A7A-4B9D-8913-EDC35FBE2870}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -48,5 +50,9 @@ Global
 		{C80C09CE-CD2A-46BD-88C0-5D11480CFBF1}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{C80C09CE-CD2A-46BD-88C0-5D11480CFBF1}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{C80C09CE-CD2A-46BD-88C0-5D11480CFBF1}.Release|Any CPU.Build.0 = Release|Any CPU
+		{0589FAC8-5A7A-4B9D-8913-EDC35FBE2870}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{0589FAC8-5A7A-4B9D-8913-EDC35FBE2870}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{0589FAC8-5A7A-4B9D-8913-EDC35FBE2870}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{0589FAC8-5A7A-4B9D-8913-EDC35FBE2870}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal
