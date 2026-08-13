@@ -58,6 +58,62 @@ public sealed class FacebookMediaExtractorTests
     }
 
     [Fact]
+    public async Task TryExtractAsync_GroupPostUrl_ResolvesIdFromPermalink_FetchesEmbedDirectly()
+    {
+        const string embedUrl = "https://www.facebook.com/video/embed?video_id=987654321098765";
+        var transport = new MapTransport().AddText(embedUrl, ReadFixture("facebook-embed-real.html"));
+
+        MediaSource? source = await Build(transport).TryExtractAsync(
+            Request("https://www.facebook.com/groups/123456789012345/permalink/987654321098765/"));
+
+        source.Should().NotBeNull("a group post permalink id doubles as the video id for a native FB video");
+        source!.Kind.Should().Be(MediaKind.Progressive);
+        transport.RequestedUrls.Should().ContainSingle().Which.Should().Be(embedUrl);
+    }
+
+    [Fact]
+    public async Task TryExtractAsync_PageTimelinePostUrl_ResolvesIdFromPostsPath_FetchesEmbedDirectly()
+    {
+        const string embedUrl = "https://www.facebook.com/video/embed?video_id=10153231379946731";
+        var transport = new MapTransport().AddText(embedUrl, ReadFixture("facebook-embed-real.html"));
+
+        MediaSource? source = await Build(transport).TryExtractAsync(
+            Request("https://www.facebook.com/SomePage/posts/10153231379946731"));
+
+        source.Should().NotBeNull();
+        source!.Kind.Should().Be(MediaKind.Progressive);
+        transport.RequestedUrls.Should().ContainSingle().Which.Should().Be(embedUrl);
+    }
+
+    [Fact]
+    public async Task TryExtractAsync_StoryUrl_ResolvesIdFromStoriesPath_FetchesEmbedDirectly()
+    {
+        const string embedUrl = "https://www.facebook.com/video/embed?video_id=10153231379946732";
+        var transport = new MapTransport().AddText(embedUrl, ReadFixture("facebook-embed-real.html"));
+
+        MediaSource? source = await Build(transport).TryExtractAsync(
+            Request("https://www.facebook.com/stories/10153231379946732/"));
+
+        source.Should().NotBeNull();
+        source!.Kind.Should().Be(MediaKind.Progressive);
+        transport.RequestedUrls.Should().ContainSingle().Which.Should().Be(embedUrl);
+    }
+
+    [Fact]
+    public async Task TryExtractAsync_ReelsDeeplinkUrl_ResolvesIdFromIdQueryParam_FetchesEmbedDirectly()
+    {
+        const string embedUrl = "https://www.facebook.com/video/embed?video_id=10153231379946733";
+        var transport = new MapTransport().AddText(embedUrl, ReadFixture("facebook-embed-real.html"));
+
+        MediaSource? source = await Build(transport).TryExtractAsync(
+            Request("https://www.facebook.com/reels/deeplink/?id=10153231379946733"));
+
+        source.Should().NotBeNull();
+        source!.Kind.Should().Be(MediaKind.Progressive);
+        transport.RequestedUrls.Should().ContainSingle().Which.Should().Be(embedUrl);
+    }
+
+    [Fact]
     public async Task TryExtractAsync_EmbedHasOgTitle_UsesSanitizedTitleAsFileName()
     {
         const string embedUrl = "https://www.facebook.com/video/embed?video_id=10153231379946730";

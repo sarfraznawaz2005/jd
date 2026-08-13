@@ -205,9 +205,12 @@ internal sealed partial class FacebookMediaExtractor : IMediaExtractor
         }
     }
 
-    // v=, /reel/, or /videos/(vb.<pageid>/)?<id> — the id is always a digit run of 5+ (Facebook video ids
-    // are long numeric graph ids in practice, but 5+ keeps this from matching short unrelated numbers).
-    [GeneratedRegex(@"(?:[?&]v=|/reel/|/videos/(?:vb\.\d+/)?)(\d{5,})", RegexOptions.CultureInvariant)]
+    // v=, /reel/, /videos/(vb.<pageid>/)?<id>, /groups/<groupid>/permalink/<postid>, /<page>/posts/<id>,
+    // /stories/<id>, or /reels/deeplink/?id=<id> — the id is always a digit run of 5+ (Facebook video/post
+    // ids are long numeric graph ids in practice, but 5+ keeps this from matching short unrelated numbers).
+    [GeneratedRegex(
+        @"(?:[?&]v=|/reel/|/videos/(?:vb\.\d+/)?|/groups/\d+/permalink/|/posts/|/stories/|/reels/deeplink/.*?[?&]id=)(\d{5,})",
+        RegexOptions.CultureInvariant)]
     private static partial Regex VideoIdRegex();
 
     [GeneratedRegex("<meta\\s+property=[\"']og:title[\"']\\s+content=[\"']([^\"']*)[\"']", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
