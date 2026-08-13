@@ -208,8 +208,8 @@ public partial class App : Application
             mainViewModel.Status.Start();
             mainViewModel.Detail.Start();
 
-            // The toolbar/command-palette "New URL" intent opens the dialog over the main window (TASK-052/053).
-            mainViewModel.NewDownloadRequested += (_, _) => _ = ShowNewDownloadDialogAsync(window);
+            // The toolbar/command-palette "New URL" intent opens the dialog as its own independent window (TASK-052/053).
+            mainViewModel.NewDownloadRequested += (_, _) => _ = ShowNewDownloadDialogAsync();
 
             // The toolbar "Settings" intent opens the settings window (TASK-057).
             mainViewModel.SettingsRequested += (_, _) => _ = ShowSettingsDialogAsync(window);
@@ -223,7 +223,7 @@ public partial class App : Application
 
             // A URL — dropped on the app (TASK-062) or forwarded by a second launch (TASK-061) — opens the
             // new-download dialog prefilled.
-            mainViewModel.DownloadUrlRequested += (_, url) => _ = ShowNewDownloadDialogAsync(window, url);
+            mainViewModel.DownloadUrlRequested += (_, url) => _ = ShowNewDownloadDialogAsync(url);
 
             // A browser-extension hand-off (TASK-091) opens the dialog prefilled and carries the captured
             // referrer/cookies into the download so authenticated/signed links succeed.
@@ -375,8 +375,8 @@ public partial class App : Application
             }
 
             // Deliberately no BringToFront here: RequestDownloadForUrl opens the New Download dialog, which
-            // ShowWithoutForcingOwnerVisibleAsync shows on its own when the main window is hidden/minimized to
-            // tray, rather than forcing the whole window to the foreground for it.
+            // always shows as its own independent top-level window rather than forcing the whole main window
+            // to the foreground for it.
             string? url = args.FirstOrDefault(a => Uri.TryCreate(a, UriKind.Absolute, out Uri? _));
             if (url is not null)
             {
@@ -385,7 +385,7 @@ public partial class App : Application
         });
     }
 
-    private async Task ShowNewDownloadDialogAsync(Window owner, string? prefillUrl = null)
+    private async Task ShowNewDownloadDialogAsync(string? prefillUrl = null)
     {
         var viewModel = Services.GetRequiredService<NewDownloadViewModel>();
         if (!string.IsNullOrWhiteSpace(prefillUrl))
@@ -394,7 +394,7 @@ public partial class App : Application
         }
 
         var dialog = new NewDownloadWindow { DataContext = viewModel };
-        await ShowWithoutForcingOwnerVisibleAsync(owner, dialog);
+        await ShowIndependentAsync(dialog);
     }
 
     /// <summary>
@@ -405,24 +405,40 @@ public partial class App : Application
     private Task ShowHandoffAsync(Window owner, MainWindowViewModel mainViewModel, BrowserLinkHandoff handoff) =>
         handoff.Extract
             ? ShowMediaPickerDialogAsync(owner, mainViewModel, handoff.Url)
-            : ShowNewDownloadDialogAsync(owner, handoff);
+            : ShowNewDownloadDialogAsync(handoff);
 
-    private async Task ShowNewDownloadDialogAsync(Window owner, BrowserLinkHandoff handoff)
+    private async Task ShowNewDownloadDialogAsync(BrowserLinkHandoff handoff)
     {
         var viewModel = Services.GetRequiredService<NewDownloadViewModel>();
         viewModel.Url = handoff.Url;
         viewModel.SetAuthContext(handoff.Referrer, handoff.Cookies);
 
         var dialog = new NewDownloadWindow { DataContext = viewModel };
-        await ShowWithoutForcingOwnerVisibleAsync(owner, dialog);
+        await ShowIndependentAsync(dialog);
     }
 
     /// <summary>
-    /// Shows the New Download dialog modally when <paramref name="owner"/> is already visible; otherwise (the
+    /// Shows the New Download dialog as a fully independent top-level window — never owned by or parented
+    /// to the main window, and never shown via <see cref="Window.ShowDialog(Window)"/>, regardless of
+    /// whether the main window is visible, hidden, or minimized to tray. <see cref="Window.Show()"/> returns
+    /// immediately, so this awaits the window's own <see cref="Window.Closed"/> event before completing —
+    /// callers act on what the dialog produced (TASK-232), and the tray path must not report "done" while
+    /// it is still open.
+    /// </summary>
+    private static async Task ShowIndependentAsync(Window dialog)
+    {
+        var closed = new TaskCompletionSource();
+        dialog.Closed += (_, _) => closed.TrySetResult();
+        dialog.Show();
+        await closed.Task;
+    }
+
+    /// <summary>
+    /// Shows a dialog modally when <paramref name="owner"/> is already visible; otherwise (the
     /// main window is hidden/minimized to tray) opens it as an independent top-level window instead. A
-    /// download arriving via the browser extension or a second launch while the user has tray'd the app must
-    /// surface only this small confirmation dialog — forcing the whole main window visible just to satisfy
-    /// <see cref="Window.ShowDialog"/>'s "visible owner" requirement was user-reported as unwanted: the main
+    /// dialog arriving via the browser extension or a second launch while the user has tray'd the app must
+    /// surface without forcing the whole main window visible just to satisfy
+    /// <see cref="Window.ShowDialog"/>'s "visible owner" requirement — user-reported as unwanted: the main
     /// window should stay out of the way the user deliberately put it in.
     /// </summary>
     private static async Task ShowWithoutForcingOwnerVisibleAsync(Window? owner, Window dialog)
@@ -659,9 +675,10 @@ public partial class App : Application
             return;
         }
 
-        // The New Download dialog opens for each hand-off below regardless of whether the main window is
-        // hidden/minimized to tray (ShowWithoutForcingOwnerVisibleAsync handles that) — the window itself is
-        // deliberately left alone.
+        // Hand-offs that open the New Download dialog always show it as an independent top-level window,
+        // never owned by the main window; hand-offs that open the media picker instead still use
+        // ShowWithoutForcingOwnerVisibleAsync, which shows non-modally when the main window is hidden or
+        // minimized to tray. Either way, the main window itself is deliberately left alone.
         MainWindowViewModel mainViewModel = Services.GetRequiredService<MainWindowViewModel>();
         foreach (JustDownload.Core.NativeMessaging.PendingLink link in pending)
         {
