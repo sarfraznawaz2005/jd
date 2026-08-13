@@ -12,6 +12,7 @@ internal sealed class MapTransport : ITransport
 {
     private readonly ConcurrentDictionary<string, byte[]> _bodies = new(StringComparer.Ordinal);
     private readonly ConcurrentBag<string> _requested = [];
+    private readonly ConcurrentBag<ByteRange> _requestedRanges = [];
     private int _current;
     private int _peak;
 
@@ -23,6 +24,15 @@ internal sealed class MapTransport : ITransport
 
     /// <summary>The peak number of concurrently in-flight requests observed.</summary>
     public int PeakConcurrency => Volatile.Read(ref _peak);
+
+    /// <summary>The byte ranges requested so far (in no guaranteed order).</summary>
+    public IReadOnlyCollection<ByteRange> RequestedRanges => _requestedRanges;
+
+    /// <summary>
+    /// When set, a ranged request is answered with <c>200 OK</c> and the whole body — the adversarial
+    /// "server ignores <c>Range</c>" behaviour a byte-range HLS download must not be corrupted by.
+    /// </summary>
+    public bool IgnoreRangeRequests { get; set; }
 
     /// <summary>Maps <paramref name="url"/> to a UTF-8 text body (e.g. a playlist).</summary>
     public MapTransport AddText(string url, string body)
@@ -58,8 +68,31 @@ internal sealed class MapTransport : ITransport
             Interlocked.Decrement(ref _current);
         }
 
-        bool found = _bodies.TryGetValue(request.Uri.ToString(), out byte[]? body);
-        return new MapResponse(found ? 200 : 404, request.Uri, found ? body! : []);
+        if (!_bodies.TryGetValue(request.Uri.ToString(), out byte[]? body))
+        {
+            return new MapResponse(404, request.Uri, []);
+        }
+
+        if (request.Range is not { } range)
+        {
+            return new MapResponse(200, request.Uri, body);
+        }
+
+        _requestedRanges.Add(range);
+        if (IgnoreRangeRequests)
+        {
+            return new MapResponse(200, request.Uri, body);
+        }
+
+        long last = Math.Min(range.To ?? body.Length - 1, body.Length - 1);
+        if (range.From >= body.Length || last < range.From)
+        {
+            return new MapResponse(416, request.Uri, []);
+        }
+
+        byte[] slice = body[(int)range.From..(int)(last + 1)];
+        return new MapResponse(
+            206, request.Uri, slice, new ContentRange(range.From, last, body.Length));
     }
 
     private void UpdatePeak(int candidate)
@@ -80,11 +113,12 @@ internal sealed class MapTransport : ITransport
     {
         private readonly byte[] _body;
 
-        public MapResponse(int statusCode, Uri uri, byte[] body)
+        public MapResponse(int statusCode, Uri uri, byte[] body, ContentRange? contentRange = null)
         {
             StatusCode = statusCode;
             FinalUri = uri;
             _body = body;
+            ContentRange = contentRange;
         }
 
         public int StatusCode { get; }
@@ -97,9 +131,9 @@ internal sealed class MapTransport : ITransport
 
         public long? ContentLength => _body.Length;
 
-        public ContentRange? ContentRange => null;
+        public ContentRange? ContentRange { get; }
 
-        public bool AcceptsRanges => false;
+        public bool AcceptsRanges => IsPartialContent;
 
         public string SuggestedFileName => Path.GetFileName(FinalUri.AbsolutePath);
 

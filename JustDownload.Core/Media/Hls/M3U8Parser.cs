@@ -15,6 +15,7 @@ public static class M3U8Parser
     private const string InfTag = "#EXTINF:";
     private const string MediaSequenceTag = "#EXT-X-MEDIA-SEQUENCE:";
     private const string MapTag = "#EXT-X-MAP:";
+    private const string ByteRangeTag = "#EXT-X-BYTERANGE:";
     private const string TargetDurationTag = "#EXT-X-TARGETDURATION:";
     private const string EndListTag = "#EXT-X-ENDLIST";
 
@@ -75,6 +76,11 @@ public static class M3U8Parser
     }
 
     /// <summary>Parses a media playlist's ordered segments, resolved against <paramref name="baseUri"/>.</summary>
+    /// <exception cref="HlsExtractionException">
+    /// A <c>#EXT-X-BYTERANGE</c> (or an <c>#EXT-X-MAP</c> <c>BYTERANGE</c>) is malformed, or omits its offset
+    /// with no earlier sub-range of the same resource to continue from. Such a playlist cannot be downloaded
+    /// correctly, and treating it as an unranged one would silently produce a wrong file.
+    /// </exception>
     public static HlsMediaPlaylist ParseMedia(string content, Uri baseUri)
     {
         ArgumentNullException.ThrowIfNull(content);
@@ -86,9 +92,13 @@ public static class M3U8Parser
         bool isEndList = false;
 
         HlsEncryption currentKey = HlsEncryption.None;
-        Uri? initializationSegment = null;
+        HlsInitializationSegment? initializationSegment = null;
         double pendingDuration = 0;
         bool haveInf = false;
+        string? pendingByteRange = null;
+
+        // Where the next offset-less #EXT-X-BYTERANGE of each resource continues from (RFC 8216 §4.3.2.2).
+        var nextByteRangeOffsets = new Dictionary<Uri, long>();
 
         string[] lines = SplitLines(content);
         long sequence = 0;
@@ -119,7 +129,12 @@ public static class M3U8Parser
             {
                 // Only the first #EXT-X-MAP is kept: a second one re-initialises the decoder mid-stream, which
                 // this byte-append pipeline cannot express, and silently appending it would corrupt the output.
-                initializationSegment ??= ParseMap(line[MapTag.Length..], baseUri);
+                initializationSegment ??= ParseMap(line[MapTag.Length..], baseUri, nextByteRangeOffsets);
+            }
+            else if (line.StartsWith(ByteRangeTag, StringComparison.Ordinal))
+            {
+                // Applies to the next segment URI; its offset can only be resolved once that URI is known.
+                pendingByteRange = line[ByteRangeTag.Length..];
             }
             else if (line.StartsWith(EndListTag, StringComparison.Ordinal))
             {
@@ -139,22 +154,75 @@ public static class M3U8Parser
                 }
 
                 Uri uri = ResolveUri(line, baseUri);
-                segments.Add(new HlsSegment(uri, haveInf ? pendingDuration : 0, sequence, currentKey));
+                HlsByteRange? byteRange = pendingByteRange is { } rangeText
+                    ? ResolveByteRange(rangeText, uri, nextByteRangeOffsets)
+                    : null;
+
+                segments.Add(new HlsSegment(uri, haveInf ? pendingDuration : 0, sequence, currentKey, byteRange));
                 sequence++;
                 pendingDuration = 0;
                 haveInf = false;
+                pendingByteRange = null;
             }
         }
 
         return new HlsMediaPlaylist(segments, targetDuration, startSequence, isEndList, initializationSegment);
     }
 
-    private static Uri? ParseMap(string attributeText, Uri baseUri)
+    private static HlsInitializationSegment? ParseMap(
+        string attributeText, Uri baseUri, Dictionary<Uri, long> nextByteRangeOffsets)
     {
         Dictionary<string, string> attributes = ParseAttributes(attributeText);
-        return attributes.TryGetValue("URI", out string? uriValue) && uriValue.Length > 0
-            ? ResolveUri(uriValue, baseUri)
+        if (!attributes.TryGetValue("URI", out string? uriValue) || uriValue.Length == 0)
+        {
+            return null;
+        }
+
+        Uri uri = ResolveUri(uriValue, baseUri);
+        HlsByteRange? byteRange = attributes.TryGetValue("BYTERANGE", out string? rangeText) && rangeText.Length > 0
+            ? ResolveByteRange(rangeText, uri, nextByteRangeOffsets)
             : null;
+
+        return new HlsInitializationSegment(uri, byteRange);
+    }
+
+    /// <summary>
+    /// Resolves a <c>&lt;length&gt;[@&lt;offset&gt;]</c> byte range against <paramref name="uri"/>, continuing from the
+    /// previous sub-range of the same resource when the offset is omitted (RFC 8216 §4.3.2.2), and recording
+    /// where the next one would continue from.
+    /// </summary>
+    private static HlsByteRange ResolveByteRange(string text, Uri uri, Dictionary<Uri, long> nextByteRangeOffsets)
+    {
+        string value = text.Trim();
+        int at = value.IndexOf('@', StringComparison.Ordinal);
+        string lengthText = at >= 0 ? value[..at] : value;
+
+        if (GetLongValue(lengthText) is not { } length || length <= 0)
+        {
+            throw new HlsExtractionException(
+                $"Byte range '{value}' for '{uri}' does not declare a usable length (RFC 8216 §4.3.2.2).");
+        }
+
+        long offset;
+        if (at >= 0)
+        {
+            if (GetLongValue(value[(at + 1)..]) is not { } declaredOffset || declaredOffset < 0)
+            {
+                throw new HlsExtractionException(
+                    $"Byte range '{value}' for '{uri}' declares an invalid offset (RFC 8216 §4.3.2.2).");
+            }
+
+            offset = declaredOffset;
+        }
+        else if (!nextByteRangeOffsets.TryGetValue(uri, out offset))
+        {
+            throw new HlsExtractionException(
+                $"Byte range '{value}' for '{uri}' omits its offset, but no earlier sub-range of that " +
+                "resource precedes it (RFC 8216 §4.3.2.2).");
+        }
+
+        nextByteRangeOffsets[uri] = offset + length;
+        return new HlsByteRange(length, offset);
     }
 
     private static HlsEncryption ParseKey(string attributeText, Uri baseUri)

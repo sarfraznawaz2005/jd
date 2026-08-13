@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using System.Text;
 using FluentAssertions;
 using JustDownload.Core.Media.Hls;
+using JustDownload.Core.Transport;
 using JustDownload.Tests.Fakes;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
@@ -82,6 +83,94 @@ public sealed class HlsDownloaderTests : IDisposable
         (await File.ReadAllBytesAsync(result.SegmentFiles[1])).Should().Equal(f0);
         (await File.ReadAllBytesAsync(result.SegmentFiles[2])).Should().Equal(f1);
         result.TotalBytes.Should().Be(init.Length + f0.Length + f1.Length);
+    }
+
+    [Fact]
+    public async Task DownloadAsync_ByteRangeSegments_RequestsRanges_AndWritesExactSubRanges()
+    {
+        // One resource, sub-ranged per segment (#EXT-X-BYTERANGE) — the shape fMP4 CDNs serve. The second
+        // fragment omits its offset and continues after the first.
+        const string playlistUrl = "https://cdn/b/media.m3u8";
+        byte[] resource = Encoding.ASCII.GetBytes("INITINITf0f0f0f0f0f1f1f1f1TRAILING");
+        byte[] init = resource[..8];
+        byte[] f0 = resource[8..18];
+        byte[] f1 = resource[18..26];
+
+        var transport = new MapTransport()
+            .AddText(playlistUrl,
+                "#EXTM3U\n#EXT-X-MAP:URI=\"all.mp4\",BYTERANGE=\"8@0\"\n" +
+                "#EXT-X-BYTERANGE:10@8\n#EXTINF:3,\nall.mp4\n" +
+                "#EXT-X-BYTERANGE:8\n#EXTINF:3,\nall.mp4\n#EXT-X-ENDLIST\n")
+            .AddBytes("https://cdn/b/all.mp4", resource);
+
+        HlsDownloadResult result = await Build(transport).DownloadAsync(new Uri(playlistUrl), _workDir);
+
+        result.SegmentFiles.Should().HaveCount(3, "the init sub-range leads the two fragment sub-ranges");
+        (await File.ReadAllBytesAsync(result.SegmentFiles[0])).Should().Equal(init);
+        (await File.ReadAllBytesAsync(result.SegmentFiles[1])).Should().Equal(f0);
+        (await File.ReadAllBytesAsync(result.SegmentFiles[2])).Should().Equal(f1);
+        result.TotalBytes.Should().Be(init.Length + f0.Length + f1.Length);
+
+        transport.RequestedRanges.Should().BeEquivalentTo(new[]
+        {
+            new ByteRange(0, 7),
+            new ByteRange(8, 17),
+            new ByteRange(18, 25),
+        });
+    }
+
+    [Fact]
+    public async Task DownloadAsync_ServerIgnoresRangeHeader_SlicesLocally_RatherThanAppendingWholeResource()
+    {
+        // Adversarial server: answers a ranged request with 200 OK and the entire resource. Appending that
+        // whole body per segment would triple the output and corrupt it (CLAUDE.md §5, no silent failures).
+        const string playlistUrl = "https://cdn/r/media.m3u8";
+        byte[] resource = Encoding.ASCII.GetBytes("0123456789ABCDEFGHIJ");
+
+        var transport = new MapTransport { IgnoreRangeRequests = true }
+            .AddText(playlistUrl,
+                "#EXTM3U\n#EXT-X-BYTERANGE:5@0\n#EXTINF:3,\nall.mp4\n" +
+                "#EXT-X-BYTERANGE:5\n#EXTINF:3,\nall.mp4\n#EXT-X-ENDLIST\n")
+            .AddBytes("https://cdn/r/all.mp4", resource);
+
+        HlsDownloadResult result = await Build(transport).DownloadAsync(new Uri(playlistUrl), _workDir);
+
+        (await File.ReadAllBytesAsync(result.SegmentFiles[0])).Should().Equal(Encoding.ASCII.GetBytes("01234"));
+        (await File.ReadAllBytesAsync(result.SegmentFiles[1])).Should().Equal(Encoding.ASCII.GetBytes("56789"));
+        result.TotalBytes.Should().Be(10, "only the requested sub-ranges count, not the full body twice");
+    }
+
+    [Fact]
+    public async Task DownloadAsync_ServerIgnoresRange_AndBodyCannotContainTheSubRange_Throws()
+    {
+        const string playlistUrl = "https://cdn/t/media.m3u8";
+
+        var transport = new MapTransport { IgnoreRangeRequests = true }
+            .AddText(playlistUrl,
+                "#EXTM3U\n#EXT-X-BYTERANGE:1000@800\n#EXTINF:3,\nall.mp4\n#EXT-X-ENDLIST\n")
+            .AddBytes("https://cdn/t/all.mp4", Encoding.ASCII.GetBytes("far too short"));
+
+        Func<Task> act = () => Build(transport).DownloadAsync(new Uri(playlistUrl), _workDir);
+
+        await act.Should().ThrowAsync<HlsExtractionException>().WithMessage("*all.mp4*ignored the Range*");
+    }
+
+    [Fact]
+    public async Task DownloadAsync_PlaylistWithoutByteRanges_SendsNoRangeHeader()
+    {
+        // Regression guard: the common unranged playlist must behave exactly as before byte-range support.
+        const string playlistUrl = "https://cdn/u/media.m3u8";
+        byte[] s0 = Encoding.ASCII.GetBytes("PLAIN-ZERO");
+
+        var transport = new MapTransport()
+            .AddText(playlistUrl, "#EXTM3U\n#EXT-X-MAP:URI=\"init.mp4\"\n#EXTINF:6,\nseg0.ts\n#EXT-X-ENDLIST\n")
+            .AddBytes("https://cdn/u/init.mp4", Encoding.ASCII.GetBytes("INIT"))
+            .AddBytes("https://cdn/u/seg0.ts", s0);
+
+        HlsDownloadResult result = await Build(transport).DownloadAsync(new Uri(playlistUrl), _workDir);
+
+        transport.RequestedRanges.Should().BeEmpty();
+        (await File.ReadAllBytesAsync(result.SegmentFiles[1])).Should().Equal(s0);
     }
 
     [Fact]

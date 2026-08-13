@@ -16,9 +16,13 @@ namespace JustDownload.Core.Media.Hls;
 /// fragments without prepending it yields a file no player can read ("no tfhd was found"), so it is part of
 /// the download, not optional metadata.
 /// </param>
+/// <remarks>
+/// Segments may carry an <c>#EXT-X-BYTERANGE</c> sub-range (<see cref="HlsSegment.ByteRange"/>), in which
+/// case several consecutive segments share one resource URI and are distinguished only by that range.
+/// </remarks>
 public sealed record HlsMediaPlaylist(
     IReadOnlyList<HlsSegment> Segments,
     int TargetDuration,
     long MediaSequence,
     bool IsEndList,
-    Uri? InitializationSegment = null);
+    HlsInitializationSegment? InitializationSegment = null);

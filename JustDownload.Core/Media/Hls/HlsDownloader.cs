@@ -21,6 +21,11 @@ namespace JustDownload.Core.Media.Hls;
 /// <c>ftyp</c>/<c>moov</c> boxes the fragments depend on. Without it the joined <c>.m4s</c> fragments decode
 /// to nothing — ffprobe reports "trun track id unknown, no tfhd was found".
 /// </para>
+/// <para>
+/// Segments carrying an <c>#EXT-X-BYTERANGE</c> sub-range are fetched with an HTTP <c>Range</c> header. A
+/// server that ignores it and answers <c>200 OK</c> with the whole resource is tolerated by slicing the
+/// requested window out locally — never by appending the full body, which would corrupt the output.
+/// </para>
 /// </summary>
 internal sealed partial class HlsDownloader : IHlsDownloader
 {
@@ -72,9 +77,10 @@ internal sealed partial class HlsDownloader : IHlsDownloader
         // paying for the whole stream.
         string? initializationFile = null;
         long initializationBytes = 0;
-        if (playlist.InitializationSegment is { } initializationUri)
+        if (playlist.InitializationSegment is { } initializationSegment)
         {
-            byte[] initialization = await FetchBytesAsync(initializationUri, headers, cancellationToken)
+            byte[] initialization = await FetchBytesAsync(
+                    initializationSegment.Uri, headers, initializationSegment.ByteRange, cancellationToken)
                 .ConfigureAwait(false);
             initializationFile = Path.Combine(workingDirectory, "init.mp4");
             await File.WriteAllBytesAsync(initializationFile, initialization, cancellationToken)
@@ -152,7 +158,8 @@ internal sealed partial class HlsDownloader : IHlsDownloader
         ConcurrentDictionary<Uri, Task<byte[]>> keyCache,
         CancellationToken cancellationToken)
     {
-        byte[] cipher = await FetchBytesAsync(segment.Uri, headers, cancellationToken).ConfigureAwait(false);
+        byte[] cipher = await FetchBytesAsync(segment.Uri, headers, segment.ByteRange, cancellationToken)
+            .ConfigureAwait(false);
 
         if (segment.Encryption.Method != HlsKeyMethod.Aes128)
         {
@@ -162,7 +169,7 @@ internal sealed partial class HlsDownloader : IHlsDownloader
         // Fetch each distinct key exactly once; concurrent segments share the in-flight fetch.
         byte[] key = await keyCache.GetOrAdd(
             segment.Encryption.Uri!,
-            uri => FetchBytesAsync(uri, headers, cancellationToken)).ConfigureAwait(false);
+            uri => FetchBytesAsync(uri, headers, byteRange: null, cancellationToken)).ConfigureAwait(false);
 
         if (key.Length != 16)
         {
@@ -199,9 +206,19 @@ internal sealed partial class HlsDownloader : IHlsDownloader
     }
 
     private async Task<byte[]> FetchBytesAsync(
-        Uri uri, IReadOnlyList<KeyValuePair<string, string>> headers, CancellationToken cancellationToken)
+        Uri uri,
+        IReadOnlyList<KeyValuePair<string, string>> headers,
+        HlsByteRange? byteRange,
+        CancellationToken cancellationToken)
     {
-        var request = new TransportRequest { Uri = uri, Method = TransportMethod.Get, Headers = headers };
+        var request = new TransportRequest
+        {
+            Uri = uri,
+            Method = TransportMethod.Get,
+            Headers = headers,
+            Range = byteRange is { } requested ? new ByteRange(requested.Offset, requested.Last) : null,
+        };
+
         await using ITransportResponse response = await _transport.SendAsync(request, cancellationToken)
             .ConfigureAwait(false);
 
@@ -214,7 +231,40 @@ internal sealed partial class HlsDownloader : IHlsDownloader
         await using Stream stream = await response.OpenContentStreamAsync(cancellationToken).ConfigureAwait(false);
         using var buffer = new MemoryStream();
         await stream.CopyToAsync(buffer, cancellationToken).ConfigureAwait(false);
-        return buffer.ToArray();
+        byte[] body = buffer.ToArray();
+
+        return byteRange is { } range ? ExtractRange(body, range, uri, response.IsPartialContent) : body;
+    }
+
+    /// <summary>
+    /// Returns exactly the bytes of <paramref name="range"/>. A <c>206</c> body is used as-is once its length
+    /// is confirmed; a <c>200</c> means the server ignored the <c>Range</c> header and sent the whole
+    /// resource, so the window is sliced out locally rather than appended whole (which would corrupt the
+    /// output). Anything that cannot contain the range fails loudly (CLAUDE.md §5, no silent failures).
+    /// </summary>
+    private byte[] ExtractRange(byte[] body, HlsByteRange range, Uri uri, bool isPartialContent)
+    {
+        if (isPartialContent)
+        {
+            if (body.LongLength != range.Length)
+            {
+                throw new HlsExtractionException(
+                    $"'{uri}' answered the range request for {range.Length} bytes at offset {range.Offset} " +
+                    $"with {body.LongLength} bytes.");
+            }
+
+            return body;
+        }
+
+        if (range.Offset + range.Length > body.LongLength)
+        {
+            throw new HlsExtractionException(
+                $"'{uri}' ignored the Range header and returned {body.LongLength} bytes, which do not " +
+                $"contain the requested sub-range {range.Length}@{range.Offset}.");
+        }
+
+        LogRangeIgnored(_logger, uri, range.Length, range.Offset);
+        return body.AsSpan((int)range.Offset, (int)range.Length).ToArray();
     }
 
     private async Task<string> FetchTextAsync(
@@ -223,7 +273,7 @@ internal sealed partial class HlsDownloader : IHlsDownloader
         byte[] bytes;
         try
         {
-            bytes = await FetchBytesAsync(uri, headers, cancellationToken).ConfigureAwait(false);
+            bytes = await FetchBytesAsync(uri, headers, byteRange: null, cancellationToken).ConfigureAwait(false);
         }
         catch (HlsExtractionException)
         {
@@ -239,4 +289,10 @@ internal sealed partial class HlsDownloader : IHlsDownloader
 
     [LoggerMessage(EventId = 1, Level = LogLevel.Information, Message = "Downloaded {Count} HLS segments from {Url}.")]
     private static partial void LogDownloaded(ILogger logger, int count, Uri url);
+
+    [LoggerMessage(
+        EventId = 2,
+        Level = LogLevel.Warning,
+        Message = "{Url} ignored the Range header; slicing {Length} bytes at offset {Offset} locally.")]
+    private static partial void LogRangeIgnored(ILogger logger, Uri url, long length, long offset);
 }

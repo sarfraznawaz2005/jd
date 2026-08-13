@@ -150,7 +150,10 @@ public sealed class M3U8ParserTests
 
         HlsMediaPlaylist media = M3U8Parser.ParseMedia(content, MasterUri);
 
-        media.InitializationSegment.Should().Be(new Uri("https://cdn.example.com/vid/avc1/0/0/396x270/init.mp4"));
+        media.InitializationSegment.Should().NotBeNull();
+        media.InitializationSegment?.Uri.Should().Be(
+            new Uri("https://cdn.example.com/vid/avc1/0/0/396x270/init.mp4"));
+        media.InitializationSegment?.ByteRange.Should().BeNull("the EXT-X-MAP carries no BYTERANGE here");
         media.Segments.Should().HaveCount(2, "the EXT-X-MAP line is not itself a media segment");
         media.Segments.Select(s => s.Uri.ToString()).Should().ContainInOrder(
             "https://cdn.example.com/vid/avc1/0/3000/396x270/a.m4s",
@@ -174,8 +177,113 @@ public sealed class M3U8ParserTests
             "#EXT-X-MAP:URI=\"first.mp4\"\n#EXTINF:6,\na.m4s\n" +
             "#EXT-X-MAP:URI=\"second.mp4\"\n#EXTINF:6,\nb.m4s\n#EXT-X-ENDLIST\n";
 
-        M3U8Parser.ParseMedia(content, MasterUri).InitializationSegment
+        M3U8Parser.ParseMedia(content, MasterUri).InitializationSegment?.Uri
             .Should().Be(new Uri("https://cdn.example.com/video/first.mp4"));
+    }
+
+    [Fact]
+    public void ParseMedia_ParsesByteRanges_OnMapAndSegments_CarryingTheOmittedOffsetForward()
+    {
+        // Byte-range shape, as Twitter/X and other fMP4 CDNs serve: one resource, sub-ranged per segment.
+        // The second segment omits its offset, so it continues at the byte after the first (RFC 8216 §4.3.2.2).
+        const string content =
+            "#EXTM3U\n" +
+            "#EXT-X-MAP:URI=\"all.mp4\",BYTERANGE=\"800@0\"\n" +
+            "#EXT-X-BYTERANGE:1000@800\n#EXTINF:3,\nall.mp4\n" +
+            "#EXT-X-BYTERANGE:900\n#EXTINF:3,\nall.mp4\n" +
+            "#EXT-X-ENDLIST\n";
+
+        HlsMediaPlaylist media = M3U8Parser.ParseMedia(content, MasterUri);
+
+        var resource = new Uri("https://cdn.example.com/video/all.mp4");
+        media.InitializationSegment?.Uri.Should().Be(resource);
+        media.InitializationSegment?.ByteRange.Should().Be(new HlsByteRange(800, 0));
+
+        media.Segments.Should().HaveCount(2);
+        media.Segments.Should().OnlyContain(s => s.Uri == resource, "all segments share one resource");
+        media.Segments[0].ByteRange.Should().Be(new HlsByteRange(1000, 800));
+        media.Segments[1].ByteRange.Should().Be(
+            new HlsByteRange(900, 1800), "the omitted offset continues after the previous sub-range");
+        media.Segments[1].ByteRange?.Last.Should().Be(2699);
+    }
+
+    [Fact]
+    public void ParseMedia_ByteRangeCarryForward_IsPerResourceUri()
+    {
+        const string content =
+            "#EXTM3U\n" +
+            "#EXT-X-BYTERANGE:100@0\n#EXTINF:3,\na.mp4\n" +
+            "#EXT-X-BYTERANGE:200@0\n#EXTINF:3,\nb.mp4\n" +
+            "#EXT-X-BYTERANGE:50\n#EXTINF:3,\na.mp4\n" +
+            "#EXT-X-ENDLIST\n";
+
+        HlsMediaPlaylist media = M3U8Parser.ParseMedia(content, MasterUri);
+
+        media.Segments[2].ByteRange.Should().Be(
+            new HlsByteRange(50, 100), "the carry-forward follows a.mp4, not the intervening b.mp4");
+    }
+
+    [Fact]
+    public void ParseMedia_ByteRangeOmittingOffsetWithNoPreviousSubRange_Throws()
+    {
+        // Unresolvable: silently dropping the range would download the whole resource and emit a wrong file.
+        const string content = "#EXTM3U\n#EXT-X-BYTERANGE:1000\n#EXTINF:3,\nall.mp4\n#EXT-X-ENDLIST\n";
+
+        Action act = () => M3U8Parser.ParseMedia(content, MasterUri);
+
+        act.Should().Throw<HlsExtractionException>().WithMessage("*all.mp4*omits its offset*");
+    }
+
+    [Fact]
+    public void ParseMedia_ByteRangeAfterAnUnrangedSegmentOfTheSameResource_Throws()
+    {
+        // A whole-resource segment establishes no sub-range to continue from.
+        const string content =
+            "#EXTM3U\n#EXTINF:3,\nall.mp4\n#EXT-X-BYTERANGE:10\n#EXTINF:3,\nall.mp4\n#EXT-X-ENDLIST\n";
+
+        Action act = () => M3U8Parser.ParseMedia(content, MasterUri);
+
+        act.Should().Throw<HlsExtractionException>().WithMessage("*omits its offset*");
+    }
+
+    [Theory]
+    [InlineData("#EXT-X-BYTERANGE:abc@0")]
+    [InlineData("#EXT-X-BYTERANGE:0@0")]
+    [InlineData("#EXT-X-BYTERANGE:-5@0")]
+    [InlineData("#EXT-X-BYTERANGE:100@x")]
+    [InlineData("#EXT-X-BYTERANGE:100@-1")]
+    [InlineData("#EXT-X-BYTERANGE:")]
+    public void ParseMedia_MalformedByteRange_Throws(string byteRangeLine)
+    {
+        string content = "#EXTM3U\n" + byteRangeLine + "\n#EXTINF:3,\nall.mp4\n#EXT-X-ENDLIST\n";
+
+        Action act = () => M3U8Parser.ParseMedia(content, MasterUri);
+
+        act.Should().Throw<HlsExtractionException>();
+    }
+
+    [Fact]
+    public void ParseMedia_MalformedByteRangeOnExtXMap_Throws()
+    {
+        const string content =
+            "#EXTM3U\n#EXT-X-MAP:URI=\"all.mp4\",BYTERANGE=\"nonsense\"\n#EXTINF:3,\na.m4s\n#EXT-X-ENDLIST\n";
+
+        Action act = () => M3U8Parser.ParseMedia(content, MasterUri);
+
+        act.Should().Throw<HlsExtractionException>().WithMessage("*usable length*");
+    }
+
+    [Fact]
+    public void ParseMedia_WithoutByteRanges_LeavesEverySegmentByteRangeNull()
+    {
+        // Regression guard: the overwhelmingly common playlist shape must be unaffected by byte-range support.
+        const string content =
+            "#EXTM3U\n#EXTINF:6,\nseg0.ts\n#EXTINF:6,\nseg1.ts\n#EXT-X-ENDLIST\n";
+
+        HlsMediaPlaylist media = M3U8Parser.ParseMedia(content, MasterUri);
+
+        media.Segments.Should().HaveCount(2);
+        media.Segments.Should().OnlyContain(s => s.ByteRange == null);
     }
 
     [Theory]
