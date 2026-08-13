@@ -223,16 +223,42 @@ test("only one page-level icon appears however many players the page has (TASK-2
   assert.equal(appended.length, 1, "the page URL is the same for all of them — one icon is enough");
 });
 
-test("a directly-resolvable video still wins over the page hand-off (TASK-232)", async () => {
+// Was "a directly-resolvable video still wins over the page hand-off": on an EXTRACTABLE_HOSTS page a
+// resolvable, non-blob src used to short-circuit extraction entirely. That was the bug — Facebook does
+// sometimes serve a directly-resolvable src, but it's an opaque CDN-hash filename with no quality picker,
+// so it must never beat the extractor pipeline. Rewritten to assert the fixed behavior: the page hand-off
+// (extract=true) now always wins on these hosts, regardless of what the element's own src resolves to.
+test("on an extractable host, the page hand-off wins even over a directly-resolvable video src (TASK-232 fix)", async () => {
   const video = makeMediaElement("video", "https://www.facebook.com/real-clip.mp4");
   const { appended, sentMessages } = await runContentScript([video], {
     href: "https://www.facebook.com/watch/?v=123",
   });
 
+  assert.equal(appended.length, 1, "the watch page gets exactly one icon");
   appended[0].click();
   const sent = sentMessages.find((m) => m.type === "DOWNLOAD_LINK");
-  assert.equal(sent.url, "https://www.facebook.com/real-clip.mp4", "an exact URL beats extraction");
-  assert.equal(sent.extract, false);
+  assert.equal(sent.url, "https://www.facebook.com/watch/?v=123", "extraction hands off the page URL");
+  assert.equal(sent.extract, true, "extraction wins over the element's own resolvable src");
+});
+
+test("an extractable host with multiple video elements still routes every icon click through extraction (TASK-232 fix)", async () => {
+  // A Facebook watch page can have several <video> elements at once (main clip, sidebar/suggested videos,
+  // hover-preview autoplay clips), some with a resolvable src. Only the first gets an icon (dedup below),
+  // but that icon — whichever element it landed on — must still hand off to extraction.
+  const players = [
+    makeMediaElement("video", "https://www.facebook.com/main-clip.mp4"),
+    makeMediaElement("video", "https://www.facebook.com/sidebar-clip.mp4"),
+    makeMediaElement("video", "blob:https://www.facebook.com/hover-preview"),
+  ];
+  const { appended, sentMessages } = await runContentScript(players, {
+    href: "https://www.facebook.com/watch/?v=123",
+  });
+
+  assert.equal(appended.length, 1, "no duplicate icons for the extra players");
+  appended[0].click();
+  const sent = sentMessages.find((m) => m.type === "DOWNLOAD_LINK");
+  assert.equal(sent.extract, true, "the icon that exists always routes through extraction");
+  assert.equal(sent.url, "https://www.facebook.com/watch/?v=123");
 });
 
 test("an ordinary site with an unresolvable video gets no page hand-off (TASK-232)", async () => {

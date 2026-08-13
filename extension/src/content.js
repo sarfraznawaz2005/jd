@@ -148,18 +148,28 @@
     }
     inFlight.add(el);
     try {
+      // On a site the app has an extractor for, the page URL always wins over the element's own src
+      // (TASK-232 follow-up): Facebook (and friends) sometimes serves a directly-resolvable, non-blob src
+      // that still points at an opaque CDN-hash file with no quality picker — trusting it instead of the
+      // extractor pipeline is exactly the bug this branch used to have, so extraction must never lose to
+      // "the browser happened to find an exact URL". The page URL is identical for every <video> here, so
+      // only the first element gets an icon at all: later ones (hover-preview/sidebar clips) are skipped
+      // outright rather than sprouting a duplicate direct-src or sniffer-based icon of their own.
+      if (JD.isExtractablePage(location.href)) {
+        if (pageIconAttached) {
+          return;
+        }
+        pending.delete(el);
+        const icon = createIcon(location.href, "video", true);
+        tracked.set(el, { icon, url: location.href, extract: true });
+        pageIconAttached = true;
+        positionIcon(el, icon);
+        ensureRepositionTimer();
+        return;
+      }
+
       let url = resolveElementUrl(el);
       let kind = "video";
-      let extract = false;
-
-      // On a site the app has an extractor for, hand off the page URL rather than waiting on the sniffer
-      // (TASK-232): there is no fetchable media URL to find on these (see EXTRACTABLE_HOSTS in jdcore.js),
-      // so waiting would only delay an icon that must appear anyway. A directly-resolvable element src
-      // still wins above — it is an exact answer, and some pages on these hosts do serve plain files.
-      if (!url && JD.isExtractablePage(location.href) && !pageIconAttached) {
-        url = location.href;
-        extract = true;
-      }
 
       if (!url) {
         const sniffed = await sniffedVideoUrl();
@@ -181,19 +191,12 @@
       }
 
       pending.delete(el);
-      const icon = createIcon(url, kind, extract);
-      tracked.set(el, { icon, url, extract });
-      if (extract) {
-        // One page-level icon per frame: the page URL is the same for every <video> here, and a watch page
-        // spawns extra preview players on hover that would otherwise each sprout an identical icon.
-        pageIconAttached = true;
-      }
+      const icon = createIcon(url, kind, false);
+      tracked.set(el, { icon, url, extract: false });
       positionIcon(el, icon);
-      if (!extract) {
-        // Only report real media URLs to the sniffer's store: a page URL is not something GET_TAB_MEDIA
-        // should later hand back to another element as a downloadable stream (TASK-232).
-        api.runtime.sendMessage({ type: "MEDIA_DETECTED", url }).catch(() => {});
-      }
+      // Only report real media URLs to the sniffer's store: a page URL is not something GET_TAB_MEDIA
+      // should later hand back to another element as a downloadable stream (TASK-232).
+      api.runtime.sendMessage({ type: "MEDIA_DETECTED", url }).catch(() => {});
       ensureRepositionTimer();
     } finally {
       inFlight.delete(el);
