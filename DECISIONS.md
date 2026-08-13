@@ -1,0 +1,18 @@
+# Project Decisions
+
+Architectural and design decisions made during development.
+All agents should read this before starting work and log new decisions here.
+
+## Media extractors: suggested filename from real title, not opaque id
+**When**: 2026-08-13 18:24:18
+
+User-reported UX bug: downloaded videos were saved as "ytdlp-{id}"/"youtube-{id}" instead of the real video title. Fixed by reading yt-dlp's "title" field (YtDlpMediaExtractor) and videoDetails.title from the already-parsed player response (YouTubeMediaExtractor), sanitized via a new shared CrossPlatformFileName.Sanitize(string?) helper (same logic HttpFileNameResolver already used privately, now reusable). Both extractors fall back to the old opaque id-based name when no title is available/parseable — never throws, matches the existing graceful-degradation contract (D3). FacebookMediaExtractor was intentionally left unchanged: its embed page doesn't reliably expose a title without an extra page fetch — flagged as a follow-up, not done in this pass.
+
+**Impact**: JustDownload.Core/CrossPlatformFileName.cs (new public Sanitize method), JustDownload.Core/Media/YtDlp/YtDlpMediaExtractor.cs, JustDownload.Core/Media/YouTube/YouTubeMediaExtractor.cs, and their tests. Any future extractor wanting a title-based filename should call CrossPlatformFileName.Sanitize(title) with an id-based fallback, following this same pattern.
+
+## Facebook title follow-up resolved: og:title now used for suggested filename
+**When**: 2026-08-13 18:33:52
+
+Follow-up to "Media extractors: suggested filename from real title, not opaque id" (2026-08-13), which explicitly deferred FacebookMediaExtractor because its embed page "doesn't reliably expose a title without an extra page fetch". Investigated further: Facebook's VideoInlinePlayerConfig JSON (the source of hd_src/sd_src) has no title field at all in either the fixtures or real-world extractor references (yt-dlp's own FacebookIE reads title from og:title/twitter:title meta tags or the <title> element, never from that JSON blob) — so a JSON field was never going to be an option. The embed endpoint's own <title> element is generic ("Facebook embed", confirmed in the existing facebook-embed-real.html fixture) and not the video's title, so it is deliberately NOT used as a source. Implemented: read the video title from the og:title meta tag — checked on embedHtml first (always fetched), then on pageHtml (only present when a short link was already followed to resolve the video id) — using a new OgTitleRegex, HTML-decoded via System.Net.WebUtility.HtmlDecode, then CrossPlatformFileName.Sanitize(title) with fallback to the existing facebook-{videoId} name, matching the exact pattern YouTubeMediaExtractor/YtDlpMediaExtractor already use. No extra HTTP fetch was needed — both HTML sources checked were already being fetched for hd_src/sd_src or video_id resolution. Never throws (TryGetTitle degrades to null on no match), matching D3's graceful-degradation contract.
+
+**Impact**: JustDownload.Core/Media/Facebook/FacebookMediaExtractor.cs (pageHtml hoisted out of the short-link branch so it's available as a secondary title source; new TryGetTitle + OgTitleRegex; SuggestedFileName now sanitized-title-or-fallback). JustDownload.Tests/Media/FacebookMediaExtractorTests.cs (two new tests: title found -> sanitized title used; no og:title anywhere -> falls back to facebook-{id}). JustDownload.Tests/Fixtures/facebook-embed-with-title.html (new synthetic fixture with an og:title tag). All extractors flagged in the original entry (YouTube, yt-dlp, Facebook) now use the real-title-with-fallback pattern; no further follow-up remains from that decision.

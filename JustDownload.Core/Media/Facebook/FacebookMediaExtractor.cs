@@ -1,3 +1,4 @@
+using System.Net;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using JustDownload.Core.Media.Extraction;
@@ -46,18 +47,21 @@ internal sealed partial class FacebookMediaExtractor : IMediaExtractor
         }
 
         string? videoId = TryGetVideoId(request.Url.AbsoluteUri);
+        string? pageHtml = null;
 
         if (videoId is null)
         {
             // Opaque short links (fb.watch, /share/v/...) carry no id — follow the page and read its
-            // embedded video_id instead.
-            (string? pageHtml, Uri? finalUri) = await TryFetchAsync(request, request.Url, cancellationToken)
+            // embedded video_id instead. The fetched page is also kept as a secondary title source below,
+            // since it (unlike the embed endpoint) is the real, SEO-tagged watch/share page.
+            (string? fetchedHtml, Uri? finalUri) = await TryFetchAsync(request, request.Url, cancellationToken)
                 .ConfigureAwait(false);
-            if (pageHtml is null)
+            if (fetchedHtml is null)
             {
                 return null;
             }
 
+            pageHtml = fetchedHtml;
             videoId = (finalUri is not null ? TryGetVideoId(finalUri.AbsoluteUri) : null)
                 ?? ExtractJsonStringField(pageHtml, "video_id");
         }
@@ -89,13 +93,38 @@ internal sealed partial class FacebookMediaExtractor : IMediaExtractor
             return null;
         }
 
+        // Prefer the real video title (sanitized) so the download is saved under a recognisable name; fall
+        // back to the opaque id-based name when neither already-fetched page carries a usable title.
+        string? title = TryGetTitle(embedHtml) ?? (pageHtml is not null ? TryGetTitle(pageHtml) : null);
+        string? suggestedFileName = CrossPlatformFileName.Sanitize(title) ?? $"facebook-{videoId}";
+
         return new MediaSource
         {
             ExtractorName = Name,
             Kind = MediaKind.Progressive,
             Url = resolved,
-            SuggestedFileName = $"facebook-{videoId}",
+            SuggestedFileName = suggestedFileName,
         };
+    }
+
+    /// <summary>
+    /// Reads the video's real title from its page's <c>og:title</c> meta tag — the field Facebook itself
+    /// populates for accurate link/embed previews, unlike the embed endpoint's own generic
+    /// <c>&lt;title&gt;</c> element (e.g. "Facebook embed"), which is not the video's title and is
+    /// therefore deliberately not used as a fallback here. Purely cosmetic (the file name), so a
+    /// missing/malformed tag never fails extraction — this returns <see langword="null"/> instead of
+    /// throwing.
+    /// </summary>
+    private static string? TryGetTitle(string html)
+    {
+        Match match = OgTitleRegex().Match(html);
+        if (!match.Success)
+        {
+            return null;
+        }
+
+        string decoded = WebUtility.HtmlDecode(match.Groups[1].Value).Trim();
+        return decoded.Length == 0 ? null : decoded;
     }
 
     private static bool LooksLikeFacebook(Uri url) =>
@@ -180,6 +209,9 @@ internal sealed partial class FacebookMediaExtractor : IMediaExtractor
     // are long numeric graph ids in practice, but 5+ keeps this from matching short unrelated numbers).
     [GeneratedRegex(@"(?:[?&]v=|/reel/|/videos/(?:vb\.\d+/)?)(\d{5,})", RegexOptions.CultureInvariant)]
     private static partial Regex VideoIdRegex();
+
+    [GeneratedRegex("<meta\\s+property=[\"']og:title[\"']\\s+content=[\"']([^\"']*)[\"']", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex OgTitleRegex();
 
     [LoggerMessage(EventId = 1, Level = LogLevel.Debug, Message = "Facebook fetch of {Url} returned status {StatusCode}; declining.")]
     private static partial void LogFetchFailed(ILogger logger, Uri url, int statusCode);

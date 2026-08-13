@@ -58,6 +58,36 @@ public sealed class FacebookMediaExtractorTests
     }
 
     [Fact]
+    public async Task TryExtractAsync_EmbedHasOgTitle_UsesSanitizedTitleAsFileName()
+    {
+        const string embedUrl = "https://www.facebook.com/video/embed?video_id=10153231379946730";
+        var transport = new MapTransport().AddText(embedUrl, ReadFixture("facebook-embed-with-title.html"));
+
+        MediaSource? source = await Build(transport).TryExtractAsync(
+            Request("https://www.facebook.com/facebook/videos/10153231379946730/"));
+
+        source.Should().NotBeNull();
+        source!.SuggestedFileName.Should().Be(
+            "Amazing Cat Video_ Full Compilation",
+            "the real video title (from the embed page's og:title) is preferred over the opaque id-based name, sanitized for filesystem safety");
+    }
+
+    [Fact]
+    public async Task TryExtractAsync_NoOgTitleAnywhere_FallsBackToIdBasedFileName()
+    {
+        const string embedUrl = "https://www.facebook.com/video/embed?video_id=10153231379946729";
+        var transport = new MapTransport().AddText(embedUrl, ReadFixture("facebook-embed-real.html"));
+
+        MediaSource? source = await Build(transport).TryExtractAsync(
+            Request("https://www.facebook.com/facebook/videos/10153231379946729/"));
+
+        source.Should().NotBeNull();
+        source!.SuggestedFileName.Should().Be(
+            "facebook-10153231379946729",
+            "no og:title was present on the embed page (and no separate watch page was fetched), so the id-based name is the graceful fallback");
+    }
+
+    [Fact]
     public async Task TryExtractAsync_OpaqueShortLink_ResolvesIdFromPageBody_ThenFetchesEmbed()
     {
         const string shortLink = "https://fb.watch/abc123XYZ/";

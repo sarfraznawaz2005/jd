@@ -1,0 +1,14 @@
+<!--
+  Synthetic fixture (not a real capture) for the title-extraction follow-up to TASK-101 (see DECISIONS.md
+  "Media extractors: suggested filename from real title, not opaque id"). Same VideoInlinePlayerConfig
+  JSON shape as facebook-embed-real.html, with an og:title meta tag added — the field Facebook itself
+  populates for accurate link/embed previews (confirmed as the reliable cross-page-type source via
+  yt-dlp's own Facebook extractor, since the embed endpoint's own generic <title> element is not the
+  video's title). The title includes a colon to prove CrossPlatformFileName.Sanitize is actually applied,
+  not just the raw og:title value.
+-->
+<html><head><meta property="og:title" content="Amazing Cat Video: Full Compilation" /><title>Facebook embed</title></head><body>
+<script>
+require("VideoInlinePlayerConfig").init([{"video_id":"10153231379946730","hd_src":"https:\/\/video.fkhi20-1.fna.fbcdn.net\/o1\/v\/t2\/f2\/m412\/AQO00example_hd_token2.mp4?_nc_cat=101&_nc_oc=Adexample&_nc_sid=8bf8fe&efg=exampleEfgToken%3D&oh=00_AQBexampleOh&oe=6A4C179D&bitrate=580000&tag=hd","sd_src":"https:\/\/video.fkhi20-1.fna.fbcdn.net\/o1\/v\/t2\/f2\/m412\/AQPDexample_sd_token2.mp4?_nc_cat=111&_nc_oc=Adexample2&_nc_sid=8bf8fe&oh=00_AQBexampleOh2&oe=6A4C15A3&bitrate=127000&tag=sd","hd_tag":"","sd_tag":"","stream_type":"progressive","dash_manifest":null}],1]);
+</script>
+</body></html>
