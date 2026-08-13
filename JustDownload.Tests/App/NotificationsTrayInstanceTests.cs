@@ -1,6 +1,12 @@
+using System.Reflection;
+using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.ApplicationLifetimes;
 using FluentAssertions;
 using JustDownload.App.Services;
+using JustDownload.App.ViewModels;
+using JustDownload.Core.Abstractions;
+using JustDownload.Core.Categorization;
 using JustDownload.Core.Data.Models;
 using JustDownload.Core.Data.Repositories;
 using JustDownload.Core.Downloading;
@@ -123,6 +129,62 @@ public sealed class NotificationsTrayInstanceTests
         }
 
         (show, add, quit).Should().Be((1, 1, 1), "each tray item runs its action");
+    }
+
+    /// <summary>
+    /// Regression for the tray "New Download" action wrongly bringing the main window to front: the New
+    /// Download dialog is a fully independent top-level window (App.axaml.cs ShowIndependentAsync), so
+    /// invoking it from the tray must not show or activate the main window, unlike the tray "Show" item.
+    /// </summary>
+    [Avalonia.Headless.XUnit.AvaloniaFact]
+    public void TrayMenu_NewDownload_DoesNotShowOrActivateMainWindow()
+    {
+        MainWindowViewModel mainViewModel = BuildMinimalMainViewModel();
+        var window = new Window();
+        var desktop = Substitute.For<IClassicDesktopStyleApplicationLifetime>();
+        var app = (JustDownload.App.App)Application.Current!;
+
+        MethodInfo installTrayIcon = typeof(JustDownload.App.App)
+            .GetMethod("InstallTrayIcon", BindingFlags.NonPublic | BindingFlags.Instance)!;
+        installTrayIcon.Invoke(app, [desktop, window, mainViewModel]);
+
+        int newDownloadRaised = 0;
+        mainViewModel.NewDownloadRequested += (_, _) => newDownloadRaised++;
+
+        NativeMenu menu = TrayIcon.GetIcons(app)!.Single().Menu!;
+        NativeMenuItem newDownloadItem = menu.Items.OfType<NativeMenuItem>()
+            .Single(i => Equals(i.Header, "New download…"));
+        newDownloadItem.Command!.Execute(null);
+
+        newDownloadRaised.Should().Be(1, "the tray item still triggers NewDownloadCommand");
+        window.IsVisible.Should().BeFalse(
+            "the New Download dialog is fully independent — the tray action must not show the main window");
+    }
+
+    private static MainWindowViewModel BuildMinimalMainViewModel()
+    {
+        var manager = Substitute.For<IDownloadManager>();
+        var repository = Substitute.For<IDownloadRepository>();
+        repository.GetAllAsync(Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<JustDownload.Core.Data.Models.Download>>(
+                Array.Empty<JustDownload.Core.Data.Models.Download>()));
+        var clock = Substitute.For<IClock>();
+        clock.UtcNow.Returns(DateTimeOffset.UtcNow);
+
+        var downloads = new DownloadsListViewModel(
+            repository,
+            manager,
+            Substitute.For<IDownloadActions>(),
+            Substitute.For<IClipboardService>(),
+            Substitute.For<IFileRevealer>(),
+            Substitute.For<IFileCategorizer>(),
+            clock);
+        var detail = new DownloadDetailViewModel(manager, Substitute.For<IDownloadActions>());
+        var sidebar = new SidebarViewModel(downloads);
+
+        return new MainWindowViewModel(
+            new ThemeService(), Substitute.For<IDensityService>(), new StatusSummaryViewModel(manager),
+            downloads, detail, sidebar);
     }
 
     // --- AC2: single-instance argument forwarding ------------------------------------------------

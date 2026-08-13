@@ -321,11 +321,9 @@ public partial class App : Application
     {
         NativeMenu menu = TrayMenuFactory.Create(
             show: () => BringToFront(window),
-            newDownload: () =>
-            {
-                BringToFront(window); // ensure a visible owner for the dialog, even when started hidden
-                mainViewModel.NewDownloadCommand.Execute(null);
-            },
+            // Deliberately no BringToFront here: NewDownloadCommand opens the dialog via ShowIndependentAsync,
+            // which is a fully independent top-level window regardless of whether the main window is visible.
+            newDownload: () => mainViewModel.NewDownloadCommand.Execute(null),
             quit: () => Quit(desktop));
 
         var tray = new TrayIcon
