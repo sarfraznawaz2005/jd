@@ -151,14 +151,17 @@
       </StackPanel>
     </StackPanel>
 
-    <!-- Footer -->
-    <Grid ColumnDefinitions="Auto,*,Auto,Auto" Margin="0,4,0,0">
-      <TextBlock Grid.Column="0" Text="Detecting…" VerticalAlignment="Center" FontWeight="Bold"
+    <!-- Footer: status text stacked above the buttons (wraps + centers instead of squeezing the
+         fixed-width window's row and clipping the buttons off-screen). -->
+    <Grid RowDefinitions="Auto,Auto" Margin="0,4,0,0">
+      <TextBlock Grid.Row="0" Text="Detecting…" FontWeight="Bold"
+                 TextWrapping="Wrap" TextAlignment="Center" HorizontalAlignment="Stretch"
                  IsVisible="{Binding IsDetecting}" FontSize="11.5" Foreground="{DynamicResource GreenBrush}" />
       <!-- Foreground is set only via these Style setters, never as a direct attribute — a local attribute
            value outranks a Style setter (even a matched class selector) in Avalonia's value precedence, so
            this once always rendered green regardless of IsNotResumable (a real, now-fixed bug). -->
-      <TextBlock Grid.Column="0" Text="{Binding DetectionMessage}" VerticalAlignment="Center" FontWeight="Bold"
+      <TextBlock Grid.Row="0" Text="{Binding DetectionMessage}" FontWeight="Bold"
+                 TextWrapping="Wrap" TextAlignment="Center" HorizontalAlignment="Stretch"
                  IsVisible="{Binding IsDetectionInfoVisible}" FontSize="11.5"
                  Classes.NotResumable="{Binding IsNotResumable}">
         <TextBlock.Styles>
@@ -170,10 +173,12 @@
           </Style>
         </TextBlock.Styles>
       </TextBlock>
-      <Button Grid.Column="2" Classes="App" Content="Add paused" Margin="0,0,8,0"
-              Command="{Binding AddPausedCommand}" />
-      <Button Grid.Column="3" Classes="App Accent" Content="Download now"
-              Command="{Binding DownloadNowCommand}" IsDefault="True" />
+      <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,8,0,0">
+        <Button Classes="App" Content="Add paused" Margin="0,0,8,0"
+                Command="{Binding AddPausedCommand}" />
+        <Button Classes="App Accent" Content="Download now"
+                Command="{Binding DownloadNowCommand}" IsDefault="True" />
+      </StackPanel>
     </Grid>
   </StackPanel>
 </Window>
