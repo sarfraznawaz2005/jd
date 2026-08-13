@@ -88,6 +88,108 @@ public sealed class MediaVariantPickerTests
     }
 
     [Fact]
+    public async Task LoadAsync_VariantsWithCodecAndFps_LabelDistinguishesOtherwiseIdenticalRenditions()
+    {
+        // TASK-166: yt-dlp's raw formats often contain several genuinely distinct 720p renditions — the
+        // label must show codec and, above 30fps, the frame rate too, so they aren't indistinguishable.
+        var source = new MediaSource
+        {
+            ExtractorName = "yt-dlp",
+            Kind = MediaKind.Progressive,
+            Url = MediaUrl,
+            Variants =
+            [
+                new VideoVariant("v-h264-30", 720, 1_000_000, 30, "H.264"),
+                new VideoVariant("v-vp9-30", 720, 600_000, 30, "VP9"),
+                new VideoVariant("v-h264-60", 720, 1_900_000, 60, "H.264"),
+            ],
+        };
+        MediaVariantPickerViewModel vm = Build(
+            RegistryReturning(source), SettingsWith(VideoQuality.P720, MediaContainer.Mkv));
+
+        await vm.LoadAsync(MediaUrl);
+
+        vm.Variants.Should().HaveCount(3, "no variant is dropped or deduped even though all three are 720p");
+        vm.Variants.Select(v => v.Label).Should().Equal(
+            "720p · H.264 · 1.0 Mbps",
+            "720p · VP9 · 0.6 Mbps",
+            "720p60 · H.264 · 1.9 Mbps");
+    }
+
+    [Fact]
+    public async Task LoadAsync_VariantWithCodecButNoFps_OmitsTheFpsSuffix()
+    {
+        var source = new MediaSource
+        {
+            ExtractorName = "yt-dlp",
+            Kind = MediaKind.Progressive,
+            Url = MediaUrl,
+            Variants = [new VideoVariant("v", 720, 1_000_000, null, "H.264")],
+        };
+        MediaVariantPickerViewModel vm = Build(
+            RegistryReturning(source), SettingsWith(VideoQuality.P720, MediaContainer.Mkv));
+
+        await vm.LoadAsync(MediaUrl);
+
+        vm.Variants[0].Label.Should().Be("720p · H.264 · 1.0 Mbps", "an unknown fps must not print as 30 or as a bogus suffix");
+    }
+
+    [Fact]
+    public async Task LoadAsync_VariantWithFpsAtOrBelowThirty_OmitsTheFpsSuffix()
+    {
+        var source = new MediaSource
+        {
+            ExtractorName = "yt-dlp",
+            Kind = MediaKind.Progressive,
+            Url = MediaUrl,
+            Variants = [new VideoVariant("v", 720, 1_000_000, 25, "H.264")],
+        };
+        MediaVariantPickerViewModel vm = Build(
+            RegistryReturning(source), SettingsWith(VideoQuality.P720, MediaContainer.Mkv));
+
+        await vm.LoadAsync(MediaUrl);
+
+        vm.Variants[0].Label.Should().Be("720p · H.264 · 1.0 Mbps", "30fps and below is the common default — only above 30 is worth calling out");
+    }
+
+    [Fact]
+    public async Task LoadAsync_VariantWithUnrecognizedCodecLabel_IncludesItVerbatim()
+    {
+        var source = new MediaSource
+        {
+            ExtractorName = "yt-dlp",
+            Kind = MediaKind.Progressive,
+            Url = MediaUrl,
+            Variants = [new VideoVariant("v", 480, 500_000, null, "theora")],
+        };
+        MediaVariantPickerViewModel vm = Build(
+            RegistryReturning(source), SettingsWith(VideoQuality.P1080, MediaContainer.Mkv));
+
+        await vm.LoadAsync(MediaUrl);
+
+        vm.Variants[0].Label.Should().Be("480p · theora · 0.5 Mbps", "an unrecognized codec still falls back to the raw string");
+    }
+
+    [Fact]
+    public async Task LoadAsync_VariantWithNoCodecOrFps_FallsBackToTheOldHeightAndBitrateLabel()
+    {
+        // In-house DASH/HLS extractors don't report codec/fps — must degrade gracefully to the pre-TASK-166 format.
+        var source = new MediaSource
+        {
+            ExtractorName = "hls",
+            Kind = MediaKind.Hls,
+            Url = MediaUrl,
+            Variants = [new VideoVariant("v", 1080, 2_500_000)],
+        };
+        MediaVariantPickerViewModel vm = Build(
+            RegistryReturning(source), SettingsWith(VideoQuality.P1080, MediaContainer.Mkv));
+
+        await vm.LoadAsync(MediaUrl);
+
+        vm.Variants[0].Label.Should().Be("1080p · 2.5 Mbps");
+    }
+
+    [Fact]
     public async Task LoadAsync_PreSelectsDefaultQuality()
     {
         MediaVariantPickerViewModel vm = Build(

@@ -76,7 +76,21 @@ public sealed class YouTubeMediaExtractorTests
         source!.ExtractorName.Should().Be("youtube");
         source.Kind.Should().Be(MediaKind.Progressive);
         source.Url.ToString().Should().Contain("example-unciphered");
-        source.SuggestedFileName.Should().Be("youtube-synthetic01");
+        source.SuggestedFileName.Should().Be(
+            "Synthetic unciphered fixture", "the real video title (from videoDetails.title) is preferred over the opaque id-based name");
+    }
+
+    [Fact]
+    public async Task TryExtractAsync_NoTitleInVideoDetails_FallsBackToIdBasedFileName()
+    {
+        var transport = new MapTransport().AddText(
+            "https://www.youtube.com/watch?v=synthetic02", ReadFixture("youtube-unciphered-no-title-synthetic.html"));
+
+        MediaSource? source = await Build(transport)
+            .TryExtractAsync(Request("https://www.youtube.com/watch?v=synthetic02"));
+
+        source.Should().NotBeNull();
+        source!.SuggestedFileName.Should().Be("youtube-synthetic02", "no title was reported, so the id-based name is the graceful fallback");
     }
 
     [Fact]

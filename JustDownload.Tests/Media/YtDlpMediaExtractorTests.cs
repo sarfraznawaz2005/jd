@@ -155,6 +155,110 @@ public sealed class YtDlpMediaExtractorTests
     }
 
     [Fact]
+    public async Task TryExtractAsync_SameResolutionFormatsWithDifferentCodecsAndFps_MapsFpsAndCodecOntoEveryVariant()
+    {
+        // TASK-166: yt-dlp's raw formats commonly contain several distinct 720p renditions (H.264 vs VP9 vs
+        // AV1, 30fps vs 60fps) — every one must map through with its own fps/codec, none dropped or merged.
+        ISettingsService settings = SettingsWith(videoCaptureEnabled: true);
+        var locator = Substitute.For<IYtDlpLocator>();
+        locator.LocateAsync(Arg.Any<CancellationToken>()).Returns(LocatedYtDlp);
+        var runner = Substitute.For<IYtDlpRunner>();
+        const string json = """
+            {"id":"abc","formats":[
+              {"format_id":"136","url":"https://cdn.example.com/h264-30","protocol":"https","vcodec":"avc1.4d401f","acodec":"none","height":720,"vbr":1000,"fps":30},
+              {"format_id":"247","url":"https://cdn.example.com/vp9-30","protocol":"https","vcodec":"vp9","acodec":"none","height":720,"vbr":600,"fps":30},
+              {"format_id":"298","url":"https://cdn.example.com/h264-60","protocol":"https","vcodec":"avc1.4d4020","acodec":"none","height":720,"vbr":1900,"fps":60},
+              {"format_id":"400","url":"https://cdn.example.com/av1-30","protocol":"https","vcodec":"av01.0.05M.08","acodec":"none","height":720,"vbr":500,"fps":30},
+              {"format_id":"140","url":"https://cdn.example.com/audio","protocol":"https","vcodec":"none","acodec":"mp4a.40.2","abr":129.5}
+            ]}
+            """;
+        runner.RunAsync(Arg.Any<string>(), Arg.Any<IReadOnlyList<string>>(), Arg.Any<CancellationToken>())
+            .Returns(new YtDlpRunResult(0, json, string.Empty));
+
+        MediaSource? source = await Build(settings, locator, runner)
+            .TryExtractAsync(Request("https://www.youtube.com/watch?v=abc"));
+
+        source.Should().NotBeNull();
+        source!.Variants.Should().HaveCount(4, "no yt-dlp format entry is dropped or deduped, even at identical resolutions");
+        source.Variants.Should().Contain(v => v.Id.EndsWith("h264-30", StringComparison.Ordinal) && v.Codec == "H.264" && v.Fps == 30);
+        source.Variants.Should().Contain(v => v.Id.EndsWith("vp9-30", StringComparison.Ordinal) && v.Codec == "VP9" && v.Fps == 30);
+        source.Variants.Should().Contain(v => v.Id.EndsWith("h264-60", StringComparison.Ordinal) && v.Codec == "H.264" && v.Fps == 60);
+        source.Variants.Should().Contain(v => v.Id.EndsWith("av1-30", StringComparison.Ordinal) && v.Codec == "AV1" && v.Fps == 30);
+    }
+
+    [Fact]
+    public async Task TryExtractAsync_UnrecognizedVcodec_FallsBackToTheRawVcodecString()
+    {
+        ISettingsService settings = SettingsWith(videoCaptureEnabled: true);
+        var locator = Substitute.For<IYtDlpLocator>();
+        locator.LocateAsync(Arg.Any<CancellationToken>()).Returns(LocatedYtDlp);
+        var runner = Substitute.For<IYtDlpRunner>();
+        const string json = """
+            {"id":"abc","formats":[
+              {"format_id":"1","url":"https://cdn.example.com/theora","protocol":"https","vcodec":"theora","acodec":"vorbis","height":480}
+            ]}
+            """;
+        runner.RunAsync(Arg.Any<string>(), Arg.Any<IReadOnlyList<string>>(), Arg.Any<CancellationToken>())
+            .Returns(new YtDlpRunResult(0, json, string.Empty));
+
+        MediaSource? source = await Build(settings, locator, runner)
+            .TryExtractAsync(Request("https://www.youtube.com/watch?v=abc"));
+
+        source.Should().NotBeNull();
+        source!.Variants.Should().ContainSingle();
+        source.Variants[0].Codec.Should().Be("theora");
+        source.Variants[0].Fps.Should().BeNull("this format never reported an fps");
+    }
+
+    [Fact]
+    public async Task TryExtractAsync_NoFpsOrVcodecReported_LeavesThemNull()
+    {
+        ISettingsService settings = SettingsWith(videoCaptureEnabled: true);
+        var locator = Substitute.For<IYtDlpLocator>();
+        locator.LocateAsync(Arg.Any<CancellationToken>()).Returns(LocatedYtDlp);
+        var runner = Substitute.For<IYtDlpRunner>();
+        const string json = """
+            {"id":"jNQXAC9IVRw","formats":[
+              {"format_id":"18","url":"https://rr2.googlevideo.com/videoplayback?itag=18","protocol":"https","vcodec":"avc1.42001E","acodec":"mp4a.40.2","height":360,"tbr":359.6}
+            ]}
+            """;
+        runner.RunAsync(Arg.Any<string>(), Arg.Any<IReadOnlyList<string>>(), Arg.Any<CancellationToken>())
+            .Returns(new YtDlpRunResult(0, json, string.Empty));
+
+        MediaSource? source = await Build(settings, locator, runner)
+            .TryExtractAsync(Request("https://www.youtube.com/watch?v=jNQXAC9IVRw"));
+
+        source.Should().NotBeNull();
+        source!.Variants[0].Fps.Should().BeNull("this fixture format never carried an fps field");
+        source.Variants[0].Codec.Should().Be("H.264", "avc1.* still maps to a friendly label even without fps");
+    }
+
+    [Fact]
+    public async Task TryExtractAsync_TitlePresent_UsesTheSanitizedTitleAsSuggestedFileName()
+    {
+        // Steering feedback: downloaded videos were saved under the opaque "ytdlp-{id}" name instead of the
+        // real title. yt-dlp's --dump-json already reports "title"; use it (sanitized) when present.
+        ISettingsService settings = SettingsWith(videoCaptureEnabled: true);
+        var locator = Substitute.For<IYtDlpLocator>();
+        locator.LocateAsync(Arg.Any<CancellationToken>()).Returns(LocatedYtDlp);
+        var runner = Substitute.For<IYtDlpRunner>();
+        const string json = """
+            {"id":"jNQXAC9IVRw","title":"Me at the zoo: Part 1?","formats":[
+              {"format_id":"18","url":"https://cdn.example.com/v18","protocol":"https","vcodec":"avc1.42001E","acodec":"mp4a.40.2","height":360}
+            ]}
+            """;
+        runner.RunAsync(Arg.Any<string>(), Arg.Any<IReadOnlyList<string>>(), Arg.Any<CancellationToken>())
+            .Returns(new YtDlpRunResult(0, json, string.Empty));
+
+        MediaSource? source = await Build(settings, locator, runner)
+            .TryExtractAsync(Request("https://www.youtube.com/watch?v=jNQXAC9IVRw"));
+
+        source.Should().NotBeNull();
+        source!.SuggestedFileName.Should().Be(
+            "Me at the zoo_ Part 1_", "characters invalid in a file name (: and ?) are sanitized to _");
+    }
+
+    [Fact]
     public async Task TryExtractAsync_M3U8Format_MapsToHlsMediaSourceWithVariant()
     {
         ISettingsService settings = SettingsWith(videoCaptureEnabled: true);

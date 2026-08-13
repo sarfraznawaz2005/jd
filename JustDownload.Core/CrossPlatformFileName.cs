@@ -1,3 +1,5 @@
+using System.Text;
+
 namespace JustDownload.Core;
 
 /// <summary>
@@ -27,5 +29,35 @@ public static class CrossPlatformFileName
         }
 
         return [.. chars];
+    }
+
+    /// <summary>
+    /// Reduces a candidate name (e.g. a media title) to a bare, filesystem-safe file name: strips any path
+    /// component, replaces characters forbidden on any supported OS with <c>_</c>, and trims trailing dots
+    /// and spaces (invalid on Windows). Returns <see langword="null"/> when nothing usable remains (empty,
+    /// or just <c>"."</c> / <c>".."</c>) so callers can fall back to a synthetic name.
+    /// </summary>
+    public static string? Sanitize(string? candidate)
+    {
+        if (string.IsNullOrWhiteSpace(candidate))
+        {
+            return null;
+        }
+
+        string name = candidate.Replace('\\', '/');
+        int slash = name.LastIndexOf('/');
+        if (slash >= 0)
+        {
+            name = name[(slash + 1)..];
+        }
+
+        var builder = new StringBuilder(name.Length);
+        foreach (char ch in name)
+        {
+            builder.Append(Array.IndexOf(InvalidChars, ch) >= 0 ? '_' : ch);
+        }
+
+        string cleaned = builder.ToString().Trim().TrimEnd('.', ' ').Trim();
+        return cleaned.Length == 0 || cleaned is "." or ".." ? null : cleaned;
     }
 }

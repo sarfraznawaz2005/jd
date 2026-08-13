@@ -8,4 +8,10 @@ namespace JustDownload.Core.Media;
 /// <param name="Id">An opaque identifier (e.g. the variant playlist URL).</param>
 /// <param name="Height">The vertical resolution in pixels (e.g. 1080).</param>
 /// <param name="Bandwidth">The advertised bits-per-second, if known (used as a tie-break).</param>
-public sealed record VideoVariant(string Id, int Height, long? Bandwidth = null);
+/// <param name="Fps">The frame rate, if known (yt-dlp only; other extractors leave this <see langword="null"/>).</param>
+/// <param name="Codec">
+/// A friendly video codec label (e.g. "H.264", "VP9", "AV1"), if known — used to distinguish otherwise
+/// identical-looking same-resolution renditions in the quality picker (TASK-166). <see langword="null"/>
+/// when the extractor doesn't report a codec.
+/// </param>
+public sealed record VideoVariant(string Id, int Height, long? Bandwidth = null, double? Fps = null, string? Codec = null);

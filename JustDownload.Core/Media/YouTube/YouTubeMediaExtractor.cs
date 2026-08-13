@@ -99,13 +99,39 @@ internal sealed partial class YouTubeMediaExtractor : IMediaExtractor
             return null;
         }
 
+        // Prefer the real video title (sanitized) so the download is saved under a recognisable name; fall
+        // back to the opaque id-based name when the page carries no usable title.
+        string? suggestedFileName = CrossPlatformFileName.Sanitize(TryGetTitle(playerResponseJson))
+            ?? $"youtube-{videoId}";
+
         return new MediaSource
         {
             ExtractorName = Name,
             Kind = MediaKind.Progressive,
             Url = new Uri(mediaUrl),
-            SuggestedFileName = $"youtube-{videoId}",
+            SuggestedFileName = suggestedFileName,
         };
+    }
+
+    /// <summary>
+    /// Reads <c>videoDetails.title</c> from the player response, if present. Purely cosmetic (the file
+    /// name), so a malformed/missing title never fails extraction — this returns <see langword="null"/>
+    /// instead of throwing.
+    /// </summary>
+    private static string? TryGetTitle(string playerResponseJson)
+    {
+        try
+        {
+            using JsonDocument document = JsonDocument.Parse(playerResponseJson);
+            return document.RootElement.TryGetProperty("videoDetails", out JsonElement videoDetails) &&
+                videoDetails.TryGetProperty("title", out JsonElement titleProperty)
+                    ? titleProperty.GetString()
+                    : null;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
     }
 
     private static bool LooksLikeYouTube(Uri url) =>

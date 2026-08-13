@@ -385,9 +385,22 @@ public sealed partial class MediaVariantPickerViewModel : ViewModelBase
         string quality = variant.Height > 0
             ? string.Create(CultureInfo.InvariantCulture, $"{variant.Height}p")
             : "Auto";
-        return variant.Bandwidth is { } bps && bps > 0
-            ? string.Create(CultureInfo.InvariantCulture, $"{quality} · {bps / 1_000_000.0:0.0} Mbps")
+
+        // Same-resolution renditions can differ by codec/fps (yt-dlp's raw formats, e.g. H.264 vs VP9 vs
+        // AV1, or 30fps vs 60fps) — surface both so the picker never shows indistinguishable duplicates
+        // (TASK-166). Only append an fps suffix above the common 30fps default; below/at 30 it's noise.
+        if (variant.Fps is { } fps && fps > 30)
+        {
+            quality = string.Create(CultureInfo.InvariantCulture, $"{quality}{(int)Math.Round(fps)}");
+        }
+
+        string label = !string.IsNullOrWhiteSpace(variant.Codec)
+            ? string.Create(CultureInfo.InvariantCulture, $"{quality} · {variant.Codec}")
             : quality;
+
+        return variant.Bandwidth is { } bps && bps > 0
+            ? string.Create(CultureInfo.InvariantCulture, $"{label} · {bps / 1_000_000.0:0.0} Mbps")
+            : label;
     }
 
     private static string DescribeAudio(AudioVariant variant)

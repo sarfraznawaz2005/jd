@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using JustDownload.Core.Media.Extraction;
@@ -129,7 +130,10 @@ internal sealed partial class YtDlpMediaExtractor : IMediaExtractor
             return null;
         }
 
-        string? suggestedFileName = probe?.Id is { Length: > 0 } videoId ? $"ytdlp-{videoId}" : null;
+        // Prefer the real video title (sanitized) so downloads are saved under a recognisable name; fall
+        // back to the opaque id-based name only when yt-dlp reported no usable title.
+        string? suggestedFileName = CrossPlatformFileName.Sanitize(probe?.Title)
+            ?? (probe?.Id is { Length: > 0 } videoId ? $"ytdlp-{videoId}" : null);
 
         var usable = new List<(YtDlpFormat Format, Uri Url)>();
         foreach (YtDlpFormat format in probe?.Formats ?? [])
@@ -195,7 +199,43 @@ internal sealed partial class YtDlpMediaExtractor : IMediaExtractor
     }
 
     private static VideoVariant ToVideoVariant(YtDlpFormat format, Uri url) =>
-        new(url.ToString(), format.Height ?? 0, ToBitsPerSecond(format.TotalBitrateKbps ?? format.VideoBitrateKbps));
+        new(
+            url.ToString(),
+            format.Height ?? 0,
+            ToBitsPerSecond(format.TotalBitrateKbps ?? format.VideoBitrateKbps),
+            format.Fps,
+            ToFriendlyCodec(format.VideoCodec));
+
+    /// <summary>
+    /// Maps yt-dlp's raw <c>vcodec</c> string (e.g. <c>avc1.42001E</c>, <c>vp9</c>, <c>av01.0.05M.08</c>) to
+    /// a short, human-friendly label for the quality picker (TASK-166). Falls back to the raw string for a
+    /// codec this doesn't recognise, and to <see langword="null"/> when there is no video stream.
+    /// </summary>
+    private static string? ToFriendlyCodec(string? vcodec)
+    {
+        if (!HasStream(vcodec))
+        {
+            return null;
+        }
+
+        if (vcodec.StartsWith("avc1", StringComparison.OrdinalIgnoreCase) ||
+            vcodec.StartsWith("h264", StringComparison.OrdinalIgnoreCase))
+        {
+            return "H.264";
+        }
+
+        if (vcodec.StartsWith("vp9", StringComparison.OrdinalIgnoreCase))
+        {
+            return "VP9";
+        }
+
+        if (vcodec.StartsWith("av01", StringComparison.OrdinalIgnoreCase))
+        {
+            return "AV1";
+        }
+
+        return vcodec;
+    }
 
     private static AudioVariant ToAudioVariant(YtDlpFormat format, Uri url) =>
         new(url.ToString(), ToBitsPerSecond(format.TotalBitrateKbps ?? format.AudioBitrateKbps));
@@ -203,7 +243,7 @@ internal sealed partial class YtDlpMediaExtractor : IMediaExtractor
     private static long? ToBitsPerSecond(double? kilobitsPerSecond) =>
         kilobitsPerSecond is > 0 ? (long)(kilobitsPerSecond.Value * 1000) : null;
 
-    private static bool HasStream(string? codec) =>
+    private static bool HasStream([NotNullWhen(true)] string? codec) =>
         !string.IsNullOrEmpty(codec) && !codec.Equals("none", StringComparison.OrdinalIgnoreCase);
 
     // Only protocols this extractor's simple "GET the URL" pipeline can actually handle: a plain
@@ -241,6 +281,10 @@ internal sealed record YtDlpProbeResult
 {
     [JsonPropertyName("id")]
     public string? Id { get; init; }
+
+    /// <summary>The video's real title, used (sanitized) as the suggested download file name.</summary>
+    [JsonPropertyName("title")]
+    public string? Title { get; init; }
 
     [JsonPropertyName("formats")]
     public IReadOnlyList<YtDlpFormat>? Formats { get; init; }
@@ -281,4 +325,8 @@ internal sealed record YtDlpFormat
     /// <summary>Audio-only average bitrate in Kbit/s, when yt-dlp reports one for this format.</summary>
     [JsonPropertyName("abr")]
     public double? AudioBitrateKbps { get; init; }
+
+    /// <summary>Frame rate, when yt-dlp reports one for this format (video formats only).</summary>
+    [JsonPropertyName("fps")]
+    public double? Fps { get; init; }
 }
