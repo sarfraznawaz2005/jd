@@ -382,7 +382,13 @@ public sealed partial class NewDownloadViewModel : ViewModelBase, IDisposable
         IsResumable = false;
         UrlWarning = null;
         DuplicateWarning = null;
-        _detectedMedia = null;
+
+        // _detectedMedia is deliberately NOT cleared here. Clicking "Download now" moves focus off the URL
+        // box, and the view's blur handler fires a fresh detect before the button's command runs — clearing
+        // up front left SubmitAsync reading a wiped result mid-pass and silently enqueuing the manifest URL
+        // as a plain file (user-reported: a 334-byte .mp4 of playlist text). It is only replaced by the pass
+        // that resolves a new verdict (ApplyMediaDetection / ApplyDetection), or dropped when the URL itself
+        // changes (OnUrlChanged) — so a cancelled or superseded pass can never wipe a good result.
         try
         {
             // HLS/DASH manifest URLs (e.g. an extension-sniffed Twitter/X .m3u8) must never be probed as if
@@ -454,6 +460,8 @@ public sealed partial class NewDownloadViewModel : ViewModelBase, IDisposable
 
     private void ApplyDetection(string suggestedFileName, long? totalBytes, bool resumable)
     {
+        _detectedMedia = null; // a plain-file verdict replaces any earlier media one for this same URL
+
         if (!_fileNameTouched && !string.IsNullOrWhiteSpace(suggestedFileName))
         {
             SetFileNameQuietly(suggestedFileName);
@@ -582,6 +590,21 @@ public sealed partial class NewDownloadViewModel : ViewModelBase, IDisposable
         if (!TryGetValidUri(Url, out Uri? uri))
         {
             return;
+        }
+
+        // A playlist/manifest URL with no resolved media source must never be enqueued as a plain download —
+        // that saves the manifest text itself as the "video". Detection may simply not have run yet (the
+        // dialog can be submitted before the debounce fires), so run it once more and only refuse if the
+        // streams still can't be read (no silent failures, §5).
+        if (LooksLikeMediaManifest(uri) && _detectedMedia is null)
+        {
+            await DetectAsync().ConfigureAwait(true);
+            if (_detectedMedia is null)
+            {
+                UrlWarning = "This link is a streaming playlist, not a downloadable file, and its video "
+                    + "streams couldn't be read. Downloading it would save the playlist text instead of the video.";
+                return;
+            }
         }
 
         FileCategory category = ResolveCategory();
@@ -846,10 +869,14 @@ public sealed partial class NewDownloadViewModel : ViewModelBase, IDisposable
     };
 
     // Editing the URL invalidates the previous probe's verdict until the next detect runs — including a
-    // stale media-source detection, which would otherwise still enqueue the *previous* URL's variant.
+    // stale media-source detection, which would otherwise still enqueue the *previous* URL's variant. The
+    // message goes with it so the dialog can never claim "Adaptive stream detected" for a URL whose media
+    // source has just been dropped.
     partial void OnUrlChanged(string value)
     {
         UrlWarning = null;
+        DetectionMessage = null;
+        DetectionMessageIsError = false;
         _detectedMedia = null;
     }
 

@@ -55,6 +55,27 @@ public sealed class NewDownloadViewModelTests
                     Arg.Is<MediaRequest>(r => r.Url == new Uri(url)), Arg.Any<CancellationToken>())
                 .Returns(Task.FromResult<MediaSource?>(source));
 
+        /// <summary>Makes the registry resolve <paramref name="source"/> on its first call and then hang until
+        /// cancelled on every later one — the shape of a re-detect that is still in flight when the user
+        /// submits (TASK-247).</summary>
+        public void SetMediaSourceThenHang(MediaSource source)
+        {
+            int calls = 0;
+            MediaRegistry.ExtractAsync(Arg.Any<MediaRequest>(), Arg.Any<CancellationToken>())
+                .Returns(ci =>
+                {
+                    if (Interlocked.Increment(ref calls) == 1)
+                    {
+                        return Task.FromResult<MediaSource?>(source);
+                    }
+
+                    var tcs = new TaskCompletionSource<MediaSource?>(
+                        TaskCreationOptions.RunContinuationsAsynchronously);
+                    ((CancellationToken)ci[1]).Register(() => tcs.TrySetCanceled());
+                    return tcs.Task;
+                });
+        }
+
         public void SetProbe(string fileName, long? size, bool ranges) =>
             Probe.ProbeAsync(Arg.Any<Uri>(), Arg.Any<IReadOnlyList<KeyValuePair<string, string>>?>(), Arg.Any<CancellationToken>())
                 .Returns(Task.FromResult(new ResourceProbeResult
@@ -252,6 +273,113 @@ public sealed class NewDownloadViewModelTests
                 r.MediaKind == null &&
                 r.Url == new Uri("https://download.mozilla.org/firefox-126.0.dmg")),
             Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Submit_WhileASupersedingDetectIsInFlight_StillEnqueuesTheDetectedMedia()
+    {
+        // Repro (user-reported, DB rows 60/62): the dialog showed "Adaptive stream detected" and a .mp4 file
+        // name, yet the enqueued row had media_kind NULL, the master-playlist URL, and 334 bytes — the raw
+        // playlist text saved as the "video". Clicking "Download now" moves focus off the URL box, and
+        // NewDownloadWindow.OnUrlCommitted fires a fresh DetectAsync on that blur *before* the button's
+        // command runs. That pass wiped the already-resolved media source and was still awaiting the
+        // extractor when SubmitAsync read it, so the request silently degraded to a plain progressive
+        // download of the manifest.
+        var h = new Harness();
+        const string masterUrl =
+            "https://video.twimg.com/amplify_video/2087460753578098688/pl/pM5J6caWDUGNnNNT.m3u8?tag=29";
+        const string variantUrl = "https://video.twimg.com/amplify_video/pl/avc1/1584x1080/WApxn0.m3u8";
+        var source = new MediaSource
+        {
+            ExtractorName = "hls",
+            Kind = MediaKind.Hls,
+            Url = new Uri(masterUrl),
+            SuggestedFileName = "pM5J6caWDUGNnNNT",
+            Variants = [new VideoVariant(variantUrl, 1080, 3_000_000)],
+        };
+        h.SetMediaSourceThenHang(source);
+        h.Manager.EnqueueAsync(Arg.Any<EnqueueDownloadRequest>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(62L));
+        var vm = h.Build();
+        vm.Url = masterUrl;
+
+        await vm.DetectAsync();
+        vm.DetectionMessage.Should().Contain("Adaptive stream detected");
+
+        // The blur-triggered second pass: started, state-clearing already done, still awaiting the extractor.
+        Task inFlight = vm.DetectAsync();
+        vm.IsDetecting.Should().BeTrue("the second pass must still be running when the user submits");
+
+        await vm.DownloadNowCommand.ExecuteAsync(null);
+
+        await h.Manager.Received(1).EnqueueAsync(
+            Arg.Is<EnqueueDownloadRequest>(r =>
+                r.MediaKind == MediaKind.Hls &&
+                r.Url == new Uri(variantUrl)),
+            Arg.Any<CancellationToken>());
+
+        vm.Dispose();
+        await inFlight;
+    }
+
+    [Fact]
+    public async Task Submit_WhileASupersedingDetectIsInFlight_StillEnqueuesAMediaPlaylistWithNoVariants()
+    {
+        // DB row 63: the same failure for a *media* (non-master) playlist, which resolves to no variants at
+        // all — the download URL is then the playlist itself, but it still must carry MediaKind.Hls so the
+        // engine takes the segments->concat path rather than a raw GET.
+        var h = new Harness();
+        const string mediaUrl =
+            "https://video.twimg.com/amplify_video/pl/avc1/1584x1080/WApxn0wcZ0NSP6FI.m3u8";
+        var source = new MediaSource
+        {
+            ExtractorName = "hls",
+            Kind = MediaKind.Hls,
+            Url = new Uri(mediaUrl),
+            SuggestedFileName = "WApxn0wcZ0NSP6FI",
+        };
+        h.SetMediaSourceThenHang(source);
+        h.Manager.EnqueueAsync(Arg.Any<EnqueueDownloadRequest>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(63L));
+        var vm = h.Build();
+        vm.Url = mediaUrl;
+
+        await vm.DetectAsync();
+        Task inFlight = vm.DetectAsync();
+
+        await vm.DownloadNowCommand.ExecuteAsync(null);
+
+        await h.Manager.Received(1).EnqueueAsync(
+            Arg.Is<EnqueueDownloadRequest>(r => r.MediaKind == MediaKind.Hls && r.Url == new Uri(mediaUrl)),
+            Arg.Any<CancellationToken>());
+
+        vm.Dispose();
+        await inFlight;
+    }
+
+    [Fact]
+    public async Task Submit_ManifestUrlThatNoExtractorCanResolve_IsRefused_NotEnqueuedAsARawFile()
+    {
+        // No silent failures (§5): if the URL is a playlist/manifest but no media source could be resolved,
+        // enqueuing it as a plain download would save the playlist text as the "video". Refuse with a clear
+        // warning instead.
+        var h = new Harness();
+        const string manifestUrl = "https://video.twimg.com/amplify_video/pl/pM5J6caWDUGNnNNT.m3u8";
+        h.MediaRegistry.ExtractAsync(Arg.Any<MediaRequest>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<MediaSource?>(null));
+        h.SetProbe("pM5J6caWDUGNnNNT.m3u8", 334, ranges: true);
+        var vm = h.Build();
+        bool? closed = null;
+        vm.CloseRequested += (_, ok) => closed = ok;
+        vm.Url = manifestUrl;
+
+        await vm.DetectAsync();
+        await vm.DownloadNowCommand.ExecuteAsync(null);
+
+        await h.Manager.DidNotReceive().EnqueueAsync(
+            Arg.Any<EnqueueDownloadRequest>(), Arg.Any<CancellationToken>());
+        vm.UrlWarning.Should().Contain("playlist");
+        closed.Should().BeNull("the dialog must stay open so the user sees why nothing was queued");
     }
 
     [Fact]
