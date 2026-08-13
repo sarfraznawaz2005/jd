@@ -596,4 +596,82 @@ public sealed class YtDlpMediaExtractorTests
                 args.Contains("--cookies-from-browser") && args.Contains("chrome")),
             Arg.Any<CancellationToken>());
     }
+
+    [Fact]
+    public async Task TryExtractAsync_NoCookieSetting_BotError_AutoDetectsBrowser_AndRetriesWithIt()
+    {
+        ISettingsService settings = SettingsWith(videoCaptureEnabled: true);
+        var locator = Substitute.For<IYtDlpLocator>();
+        locator.LocateAsync(Arg.Any<CancellationToken>()).Returns(LocatedYtDlp);
+        var runner = Substitute.For<IYtDlpRunner>();
+        runner.RunAsync(Arg.Any<string>(), Arg.Any<IReadOnlyList<string>>(), Arg.Any<CancellationToken>())
+            .Returns(
+                _ => new YtDlpRunResult(
+                    1, string.Empty, "ERROR: [youtube] abc: Sign in to confirm you're not a bot"),
+                _ => new YtDlpRunResult(0, """
+                    {"id":"abc","formats":[
+                      {"format_id":"18","url":"https://cdn.example.com/v18","protocol":"https","vcodec":"avc1.42001E","acodec":"mp4a.40.2","height":360}
+                    ]}
+                    """, string.Empty));
+        YtDlpMediaExtractor extractor = Build(settings, locator, runner);
+        extractor.BrowserCookieStoreExists = name => name == "edge";
+
+        MediaSource? source = await extractor.TryExtractAsync(Request("https://www.youtube.com/watch?v=abc"));
+
+        source.Should().NotBeNull("the zero-config auto-detected browser cookies dislodged the bot challenge");
+        await runner.Received(1).RunAsync(
+            LocatedYtDlp.ExecutablePath,
+            Arg.Is<IReadOnlyList<string>>(args =>
+                args.Contains("--cookies-from-browser") && args.Contains("edge")),
+            Arg.Any<CancellationToken>());
+        await runner.Received(2).RunAsync(
+            LocatedYtDlp.ExecutablePath, Arg.Any<IReadOnlyList<string>>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task TryExtractAsync_NoCookieSetting_NoBrowserDetected_DoesNotRetry_AndSurfacesBotReason()
+    {
+        ISettingsService settings = SettingsWith(videoCaptureEnabled: true);
+        var locator = Substitute.For<IYtDlpLocator>();
+        locator.LocateAsync(Arg.Any<CancellationToken>()).Returns(LocatedYtDlp);
+        var runner = Substitute.For<IYtDlpRunner>();
+        runner.RunAsync(Arg.Any<string>(), Arg.Any<IReadOnlyList<string>>(), Arg.Any<CancellationToken>())
+            .Returns(new YtDlpRunResult(
+                1, string.Empty, "ERROR: [youtube] abc: Sign in to confirm you're not a bot"));
+        YtDlpMediaExtractor extractor = Build(settings, locator, runner);
+        extractor.BrowserCookieStoreExists = _ => false;
+
+        Func<Task<MediaSource?>> act = () => extractor.TryExtractAsync(Request("https://www.youtube.com/watch?v=abc"));
+
+        (await act.Should().ThrowAsync<MediaExtractionFailedException>())
+            .Which.Message.Should().Be("[youtube] abc: Sign in to confirm you're not a bot");
+        await runner.Received(1).RunAsync(
+            Arg.Any<string>(), Arg.Any<IReadOnlyList<string>>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task TryExtractAsync_AutoDetectedRetryFails_SurfacesOriginalBotReason_NotTheCookieReason()
+    {
+        ISettingsService settings = SettingsWith(videoCaptureEnabled: true);
+        var locator = Substitute.For<IYtDlpLocator>();
+        locator.LocateAsync(Arg.Any<CancellationToken>()).Returns(LocatedYtDlp);
+        var runner = Substitute.For<IYtDlpRunner>();
+        // The guessed browser's cookies failed for their own reason — the user should still see the wall.
+        runner.RunAsync(Arg.Any<string>(), Arg.Any<IReadOnlyList<string>>(), Arg.Any<CancellationToken>())
+            .Returns(
+                _ => new YtDlpRunResult(
+                    1, string.Empty, "ERROR: [youtube] abc: Sign in to confirm you're not a bot"),
+                _ => new YtDlpRunResult(
+                    1, string.Empty, "ERROR: could not copy edge cookie database"));
+        YtDlpMediaExtractor extractor = Build(settings, locator, runner);
+        extractor.BrowserCookieStoreExists = name => name == "edge";
+
+        Func<Task<MediaSource?>> act = () => extractor.TryExtractAsync(Request("https://www.youtube.com/watch?v=abc"));
+
+        (await act.Should().ThrowAsync<MediaExtractionFailedException>())
+            .Which.Message.Should().Be("[youtube] abc: Sign in to confirm you're not a bot",
+                "auto-detection is a best-effort guess; its own failure must not replace the real reason");
+        await runner.Received(2).RunAsync(
+            Arg.Any<string>(), Arg.Any<IReadOnlyList<string>>(), Arg.Any<CancellationToken>());
+    }
 }

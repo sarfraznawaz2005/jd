@@ -43,13 +43,17 @@ namespace JustDownload.Core.Media.YtDlp;
 /// "yt-dlp: Sign in to confirm you're not a bot" instead of a generic "no media found" (CLAUDE.md §5).
 /// </para>
 /// <para>
-/// When the user has configured a cookie source (<see cref="AppSettings.YtDlpCookieFilePath"/> and/or
-/// <see cref="AppSettings.YtDlpCookieBrowser"/>) as a bot-detection fallback, a probe that fails with a
-/// bot-style error (the sign-in wall, HTTP 429, an explicit "use cookies" hint — matched
-/// case-insensitively against a few known substrings) is retried exactly once with
-/// <c>--cookies</c>/<c>--cookies-from-browser</c> appended. No cookie source configured, or any non-bot
-/// failure, leaves the behaviour byte-identical to before: a single probe, no cookie argv, and the same
-/// reason surfaced. The retry never loops.
+/// A probe that fails with a bot-style error (the sign-in wall, HTTP 429, an explicit "use cookies" hint —
+/// matched case-insensitively against a few known substrings) is retried exactly once with cookies. The
+/// cookie source is the user's configuration when there is one (<see cref="AppSettings.YtDlpCookieFilePath"/>
+/// and/or <see cref="AppSettings.YtDlpCookieBrowser"/>), and otherwise the first installed browser found by
+/// <see cref="DetectBrowserCookieArguments"/> — a zero-config <c>--cookies-from-browser</c> fallback, so the
+/// common case needs no setting at all. Auto-detection is best-effort: when the auto-detected retry also
+/// fails, the ORIGINAL bot-detection reason is surfaced (the guessed browser's own cookie error would only
+/// mislead), whereas an explicitly configured source keeps surfacing the retry's own reason. Any non-bot
+/// failure, or a bot failure with no configured source and no browser detected, leaves the behaviour
+/// byte-identical to before: a single probe, no cookie argv, and the same reason surfaced. The retry never
+/// loops.
 /// </para>
 /// </summary>
 internal sealed partial class YtDlpMediaExtractor : IMediaExtractor
@@ -60,6 +64,10 @@ internal sealed partial class YtDlpMediaExtractor : IMediaExtractor
     // downloading or resolving/merging anything, so this extractor can map real options into Variants.
     private static readonly string[] BaseArguments =
         ["--dump-json", "--no-playlist", "--no-warnings", "--ignore-config"];
+
+    // Probed in order on the zero-config cookie fallback; the first one installed wins. yt-dlp accepts
+    // exactly these names for --cookies-from-browser.
+    private static readonly string[] BrowserCookieCandidates = ["chrome", "edge", "firefox", "brave", "opera"];
 
     private static readonly JsonSerializerOptions JsonOptions = new() { PropertyNameCaseInsensitive = true };
 
@@ -80,6 +88,11 @@ internal sealed partial class YtDlpMediaExtractor : IMediaExtractor
         _runner = runner;
         _logger = logger;
     }
+
+    /// <summary>Per-browser cookie-store probe used by <see cref="DetectBrowserCookieArguments"/>; a
+    /// property rather than a constructor parameter so tests can swap the filesystem probe out without every
+    /// call site growing an argument.</summary>
+    internal Func<string, bool> BrowserCookieStoreExists { get; set; } = RealBrowserCookieStoreExists;
 
     /// <summary>Runs strictly last — after every in-house extractor, including Progressive's catch-all.</summary>
     public int Priority => int.MaxValue;
@@ -102,25 +115,46 @@ internal sealed partial class YtDlpMediaExtractor : IMediaExtractor
             return null; // Not provisioned. Provisioning is an explicit user action, never implicit here.
         }
 
-        // Built once: the base probe (no cookies) — identical to the pre-cookie behaviour — and the
-        // cookie args, which are appended only on the one-shot bot-detection retry below. When no cookie
-        // source is configured this array is empty and the retry branch is never taken.
-        string[] cookieArgs = BuildCookieArguments(_settings.Current);
+        // The base probe carries no cookie argv — identical to the pre-cookie behaviour. Cookies are
+        // resolved only inside the bot-detection catch below, so the happy path pays nothing for them.
         string[] arguments = [.. BaseArguments, request.Url.AbsoluteUri];
 
         try
         {
             return await RunAndMapAsync(ytDlp, arguments, request, cancellationToken).ConfigureAwait(false);
         }
-        catch (MediaExtractionFailedException ex)
-            when (cookieArgs.Length > 0 && IsBotDetectionReason(ex.Message))
+        catch (MediaExtractionFailedException ex) when (IsBotDetectionReason(ex.Message))
         {
-            // yt-dlp hit a bot challenge (sign-in wall, HTTP 429, "use cookies"). The user supplied a
-            // cookie source as the fallback for exactly this — retry once, with cookies, then surface
-            // whatever the retry says either way. No loop: a second failure just propagates out.
-            LogCookieFallback(_logger, request.Url, ex.Message);
-            return await RunAndMapAsync(ytDlp, [.. arguments, .. cookieArgs], request, cancellationToken)
-                .ConfigureAwait(false);
+            // yt-dlp hit a bot challenge (sign-in wall, HTTP 429, "use cookies"). Cookies are the fallback
+            // for exactly this: the user's configured source if there is one, otherwise an auto-detected
+            // installed browser. No loop: exactly one retry, whatever happens.
+            string[] cookieArgs = BuildCookieArguments(_settings.Current);
+            bool autoDetected = false;
+            if (cookieArgs.Length == 0)
+            {
+                cookieArgs = DetectBrowserCookieArguments();
+                autoDetected = cookieArgs.Length > 0;
+            }
+
+            if (cookieArgs.Length == 0)
+            {
+                throw; // No configured source and no browser found — surface the bot reason unchanged.
+            }
+
+            LogCookieFallback(_logger, request.Url, ex.Message, cookieArgs[^1]);
+            try
+            {
+                return await RunAndMapAsync(ytDlp, [.. arguments, .. cookieArgs], request, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            catch (MediaExtractionFailedException cookieEx) when (autoDetected)
+            {
+                // Auto-detection guessed the browser, so its failure ("could not read cookies from edge",
+                // a locked cookie DB, the wrong profile) is our problem, not the user's: show the real
+                // wall they hit. A source the user configured deliberately keeps reporting its own reason.
+                LogCookieFallbackFailed(_logger, request.Url, cookieEx.Message);
+                throw ex;
+            }
         }
     }
 
@@ -158,10 +192,9 @@ internal sealed partial class YtDlpMediaExtractor : IMediaExtractor
     }
 
     /// <summary>
-    /// Builds the <c>--cookies &lt;path&gt;</c> / <c>--cookies-from-browser &lt;browser&gt;</c> argv for the
-    /// bot-detection fallback, in that order. Returns an empty array when neither cookie source is
-    /// configured, so the retry branch in <see cref="TryExtractAsync"/> is never taken and yt-dlp's
-    /// behaviour is byte-identical to before this feature existed.
+    /// Builds the <c>--cookies &lt;path&gt;</c> / <c>--cookies-from-browser &lt;browser&gt;</c> argv from the
+    /// user's settings, in that order. Returns an empty array when neither cookie source is configured — the
+    /// bot-detection retry then falls back to <see cref="DetectBrowserCookieArguments"/>.
     /// </summary>
     private static string[] BuildCookieArguments(AppSettings settings)
     {
@@ -182,6 +215,80 @@ internal sealed partial class YtDlpMediaExtractor : IMediaExtractor
         }
 
         return [.. args];
+    }
+
+    /// <summary>
+    /// Zero-config fallback for a bot-detection failure with no cookie source configured: the first
+    /// candidate browser whose local cookie store exists, as <c>--cookies-from-browser &lt;name&gt;</c>
+    /// (yt-dlp reads the live store itself). Ordered by how likely the user is signed in there. Returns an
+    /// empty array when no candidate is detected, leaving the original failure to surface untouched.
+    /// </summary>
+    private string[] DetectBrowserCookieArguments()
+    {
+        foreach (string browser in BrowserCookieCandidates)
+        {
+            if (BrowserCookieStoreExists(browser))
+            {
+                return ["--cookies-from-browser", browser];
+            }
+        }
+
+        return [];
+    }
+
+    /// <summary>
+    /// Does this browser have a cookie store on this machine? Windows paths are implemented; other
+    /// platforms return <see langword="false"/> so auto-detection is a graceful no-op there (the explicit
+    /// <see cref="AppSettings.YtDlpCookieFilePath"/>/<see cref="AppSettings.YtDlpCookieBrowser"/> settings
+    /// still work everywhere). Documented extension point: to support macOS/Linux, add the
+    /// <c>~/Library/Application Support/...</c> and <c>~/.config/...</c> profile roots here.
+    /// </summary>
+    private static bool RealBrowserCookieStoreExists(string browser)
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return false;
+        }
+
+        string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        string roamingAppData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+
+        return browser switch
+        {
+            "chrome" => ChromiumCookiesExist(Path.Combine(localAppData, "Google", "Chrome", "User Data", "Default")),
+            "edge" => ChromiumCookiesExist(Path.Combine(localAppData, "Microsoft", "Edge", "User Data", "Default")),
+            "brave" => ChromiumCookiesExist(
+                Path.Combine(localAppData, "BraveSoftware", "Brave-Browser", "User Data", "Default")),
+            // Opera keeps its profile in Roaming, directly at the profile root (no "User Data\Default").
+            "opera" => ChromiumCookiesExist(Path.Combine(roamingAppData, "Opera Software", "Opera Stable")),
+            "firefox" => FirefoxCookiesExist(Path.Combine(roamingAppData, "Mozilla", "Firefox", "Profiles")),
+            _ => false,
+        };
+    }
+
+    // Chromium moved the cookie DB into a "Network" subfolder in 2020; both layouts are still in the wild.
+    private static bool ChromiumCookiesExist(string profileDirectory) =>
+        File.Exists(Path.Combine(profileDirectory, "Cookies")) ||
+        File.Exists(Path.Combine(profileDirectory, "Network", "Cookies"));
+
+    private static bool FirefoxCookiesExist(string profilesDirectory)
+    {
+        try
+        {
+            foreach (string profile in Directory.EnumerateDirectories(profilesDirectory))
+            {
+                if (File.Exists(Path.Combine(profile, "cookies.sqlite")))
+                {
+                    return true;
+                }
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return false; // Unreadable profile root: "not detected", never a failed extraction.
+        }
+
+        return false;
     }
 
     /// <summary>
@@ -366,8 +473,11 @@ internal sealed partial class YtDlpMediaExtractor : IMediaExtractor
     [LoggerMessage(EventId = 1, Level = LogLevel.Debug, Message = "yt-dlp failed to run for {Url}; declining.")]
     private static partial void LogRunFailed(ILogger logger, Uri url, Exception exception);
 
-    [LoggerMessage(EventId = 5, Level = LogLevel.Debug, Message = "yt-dlp hit a bot-detection error for {Url} ({Reason}); retrying once with configured cookies.")]
-    private static partial void LogCookieFallback(ILogger logger, Uri url, string reason);
+    [LoggerMessage(EventId = 5, Level = LogLevel.Debug, Message = "yt-dlp hit a bot-detection error for {Url} ({Reason}); retrying once with cookies from {CookieSource}.")]
+    private static partial void LogCookieFallback(ILogger logger, Uri url, string reason, string cookieSource);
+
+    [LoggerMessage(EventId = 6, Level = LogLevel.Debug, Message = "The auto-detected browser cookie retry for {Url} also failed ({Reason}); surfacing the original bot-detection reason.")]
+    private static partial void LogCookieFallbackFailed(ILogger logger, Uri url, string reason);
 
     [LoggerMessage(EventId = 2, Level = LogLevel.Debug, Message = "yt-dlp exited {ExitCode} for {Url}: {Error}")]
     private static partial void LogNonZeroExit(ILogger logger, Uri url, int exitCode, string error);

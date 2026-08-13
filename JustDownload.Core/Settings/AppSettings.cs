@@ -176,7 +176,8 @@ public sealed record AppSettings
     /// bot-detection errors. Less portable than a cookie file (the browser must be installed, and some OSes
     /// need a keyring to decrypt its cookies), so <see cref="YtDlpCookieFilePath"/> is the recommended
     /// option; both may be set at once and are passed together on the retry. <see langword="null"/>/empty
-    /// disables it.
+    /// disables the explicit choice, in which case the extractor auto-detects an installed browser for the
+    /// same retry (a zero-config fallback) — set this only to pin a specific browser.
     /// </summary>
     public string? YtDlpCookieBrowser { get; init; }
 
