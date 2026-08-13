@@ -402,7 +402,7 @@ public partial class App : Application
     /// </summary>
     private Task ShowHandoffAsync(Window owner, MainWindowViewModel mainViewModel, BrowserLinkHandoff handoff) =>
         handoff.Extract
-            ? ShowMediaPickerDialogAsync(owner, mainViewModel, handoff.Url)
+            ? ShowMediaPickerDialogAsync(owner, mainViewModel, handoff.Url, handoff.FallbackUrl)
             : ShowNewDownloadDialogAsync(handoff);
 
     private async Task ShowNewDownloadDialogAsync(BrowserLinkHandoff handoff)
@@ -495,9 +495,10 @@ public partial class App : Application
     }
 
     private async Task ShowMediaPickerDialogAsync(
-        Window owner, MainWindowViewModel mainViewModel, string? prefillUrl = null)
+        Window owner, MainWindowViewModel mainViewModel, string? prefillUrl = null, string? fallbackUrl = null)
     {
         var viewModel = Services.GetRequiredService<MediaVariantPickerViewModel>();
+        viewModel.FallbackUrl = fallbackUrl;
         bool enqueued = false;
         viewModel.CloseRequested += (_, ok) => enqueued = ok;
 
@@ -682,7 +683,7 @@ public partial class App : Application
         {
             // Carry the captured referrer/cookies through so authenticated/signed hand-offs succeed (TASK-091).
             mainViewModel.RequestDownloadHandoff(
-                new BrowserLinkHandoff(link.Url, link.Referrer, link.Cookies, link.Extract));
+                new BrowserLinkHandoff(link.Url, link.Referrer, link.Cookies, link.Extract, link.FallbackUrl));
         }
     }
 

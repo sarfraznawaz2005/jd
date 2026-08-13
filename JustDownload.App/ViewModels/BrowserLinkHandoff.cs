@@ -14,4 +14,13 @@ namespace JustDownload.App.ViewModels;
 /// (TASK-232) — set by the extension for MediaSource-backed sites where no fetchable stream URL exists for
 /// it to sniff. Such a hand-off opens the quality picker instead of the New Download dialog.
 /// </param>
-public sealed record BrowserLinkHandoff(string Url, string? Referrer, string? Cookies, bool Extract = false);
+/// <param name="FallbackUrl">
+/// A stream the extension's sniffer saw on the same page, offered in the quality picker when extraction of
+/// <paramref name="Url"/> finds nothing (TASK-241). Only set for an <paramref name="Extract"/> hand-off.
+/// </param>
+public sealed record BrowserLinkHandoff(
+    string Url,
+    string? Referrer,
+    string? Cookies,
+    bool Extract = false,
+    string? FallbackUrl = null);

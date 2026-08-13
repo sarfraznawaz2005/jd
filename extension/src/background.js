@@ -27,6 +27,76 @@ const MENU_ROOT = "jd-download";
 // Media detected per tab via the network sniffer + content-script DOM scan (TASK-068).
 const mediaStore = JD.createMediaStore();
 
+// Per-URL memo of "is this .m3u8 a master playlist, and which variants does it list?" (TASK-241). Cached
+// because content.js polls GET_TAB_MEDIA on a bounded retry loop, and without this one page could turn into
+// dozens of identical network requests. Value: the variant URIs, or null when the URL is not a master or
+// could not be read. Dropped along with the tab's media so it cannot grow unbounded.
+const playlistVariants = new Map();
+
+async function masterVariantsOf(url) {
+  if (playlistVariants.has(url)) {
+    return playlistVariants.get(url);
+  }
+  let variants = null;
+  try {
+    // Only the background worker can read a cross-origin body directly (manifest host_permissions is
+    // <all_urls>); a content script's fetch would be subject to the page's CORS. `credentials: "include"`
+    // so a session-protected playlist still resolves.
+    const response = await fetch(url, { credentials: "include" });
+    if (response.ok) {
+      const uris = JD.parseMasterVariants(await response.text());
+      variants = uris.length > 0 ? uris : null;
+    }
+  } catch {
+    variants = null; // offline, expired signature, blocked — fall back to the variant we already have
+  }
+  playlistVariants.set(url, variants);
+  return variants;
+}
+
+/**
+ * The best media the sniffer has for a tab (TASK-241): the master playlist when one was observed, otherwise
+ * the most recently detected stream. Preferring the master is what makes the app's quality picker and the
+ * user's default_video_quality setting apply at all — the newest .m3u8 is the variant the player happens to
+ * be streaming right now. Every uncertain path degrades to that variant, never to nothing.
+ */
+async function preferredMedia(tabId) {
+  // Audio is never a download target: the app has no audio-download feature (TASK-181).
+  const items = mediaStore.get(tabId).filter((m) => m.kind !== "audio" && m.url);
+  if (items.length === 0) {
+    return null;
+  }
+
+  const latest = items[items.length - 1];
+  if (latest.kind !== "hls") {
+    return latest;
+  }
+  if (await masterVariantsOf(latest.url)) {
+    return latest; // already a master
+  }
+
+  // Oldest-first: a player must fetch the master before the variant it then plays. Requiring the master to
+  // actually list `latest` keeps a page with several videos from handing over a different video's master.
+  for (const candidate of items) {
+    if (candidate === latest || candidate.kind !== "hls") {
+      continue;
+    }
+    const variants = await masterVariantsOf(candidate.url);
+    if (variants && JD.playlistTargets(variants, candidate.url, latest.url)) {
+      return candidate;
+    }
+  }
+  return latest;
+}
+
+/** Forgets a tab's detected media and the playlist analysis cached for it. */
+function forgetTab(tabId) {
+  for (const item of mediaStore.get(tabId)) {
+    playlistVariants.delete(item.url);
+  }
+  mediaStore.clear(tabId);
+}
+
 /** The user's per-site blacklist (TASK-069), read from sync storage (default empty). */
 async function getBlacklist() {
   try {
@@ -133,10 +203,10 @@ api.webRequest.onBeforeRequest.addListener(
 // Forget a tab's media when it navigates away or closes.
 api.tabs.onUpdated.addListener((tabId, changeInfo) => {
   if (changeInfo.status === "loading" && changeInfo.url) {
-    mediaStore.clear(tabId);
+    forgetTab(tabId);
   }
 });
-api.tabs.onRemoved.addListener((tabId) => mediaStore.clear(tabId));
+api.tabs.onRemoved.addListener((tabId) => forgetTab(tabId));
 
 api.runtime.onInstalled.addListener(() => {
   api.contextMenus.removeAll(() => {
@@ -186,8 +256,9 @@ api.contextMenus.onClicked.addListener((info, tab) => {
  * @param {string|null} pageUrl
  * @param {string|null} mediaKind
  * @param {boolean} extract whether `url` is a page for the app's extractor pipeline (TASK-232)
+ * @param {string|null} fallbackUrl a sniffed stream to offer if extraction finds nothing (TASK-241)
  */
-async function sendDownload(url, tab, pageUrl, mediaKind = null, extract = false) {
+async function sendDownload(url, tab, pageUrl, mediaKind = null, extract = false, fallbackUrl = null) {
   const cookies = await collectCookieHeader(url);
   const message = JD.buildDownloadMessage({
     url,
@@ -197,6 +268,7 @@ async function sendDownload(url, tab, pageUrl, mediaKind = null, extract = false
     headers: { "User-Agent": navigator.userAgent },
     mediaKind,
     extract,
+    fallbackUrl,
   });
   return forwardToApp(message);
 }
@@ -265,9 +337,14 @@ api.runtime.onMessage.addListener((message, sender, sendResponse) => {
       const topUrl = sender?.tab?.url || null;
       const url = extract && topUrl ? topUrl : message.url;
       const pageUrl = extract && topUrl ? topUrl : message.pageUrl || topUrl || null;
-      void sendDownload(url, sender?.tab, pageUrl, message.mediaKind, extract).then((forwarded) =>
-        sendResponse({ ok: true, forwarded }),
-      );
+      void sendDownload(
+        url,
+        sender?.tab,
+        pageUrl,
+        message.mediaKind,
+        extract,
+        extract ? message.fallbackUrl || null : null,
+      ).then((forwarded) => sendResponse({ ok: true, forwarded }));
       return true; // async response
     }
 
@@ -310,8 +387,16 @@ api.runtime.onMessage.addListener((message, sender, sendResponse) => {
       // content.js's icon-overlay fallback asks what the sniffer detected for its tab (TASK-181) — the
       // only remaining consumer since the popup's own media list was removed (TASK-187).
       const tabId = message.tabId ?? sender?.tab?.id;
-      sendResponse({ ok: true, media: typeof tabId === "number" ? mediaStore.get(tabId) : [] });
-      break;
+      if (typeof tabId !== "number") {
+        sendResponse({ ok: true, media: [], preferred: null });
+        break;
+      }
+      // `preferred` is the one the caller should actually use (TASK-241) — resolving it can read a playlist
+      // body, so the answer is async; `media` stays for callers that just want the raw detection list.
+      void preferredMedia(tabId).then((preferred) =>
+        sendResponse({ ok: true, media: mediaStore.get(tabId), preferred }),
+      );
+      return true; // async response
     }
 
     default:

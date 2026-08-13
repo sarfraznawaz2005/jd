@@ -40,6 +40,12 @@ function makeIconElement() {
         l.handler({ preventDefault() {}, stopPropagation() {} });
       }
     },
+    /** Awaits the async work an icon click kicks off (the sniffer round-trip for a fallback URL). */
+    async clickAndSettle() {
+      this.click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    },
     remove() {},
     set innerHTML(_v) {},
     set type(_v) {},
@@ -51,8 +57,10 @@ function makeIconElement() {
 /**
  * Builds a fresh sandbox: a document containing `elements`, plus a minimal window/api stub.
  * @param {object[]} elements
- * @param {{ tabMedia?: Array<{url: string, kind: string}> }} [options] `tabMedia` is what GET_TAB_MEDIA
- *   responds with — the network sniffer's stand-in for the blob:-URL fallback (TASK-181).
+ * @param {{ tabMedia?: Array<{url: string, kind: string}> }} [options] `tabMedia` is what the background's
+ *   sniffer has detected — the stand-in for the blob:-URL fallback (TASK-181). Its GET_TAB_MEDIA reply is
+ *   modelled on the real one (TASK-241): the background, not the content script, decides which detection to
+ *   use and returns it as `preferred`, so this stub mirrors that rather than making content.js re-pick.
  */
 function makeSandbox(elements, options = {}) {
   const appended = [];
@@ -92,7 +100,9 @@ function makeSandbox(elements, options = {}) {
       sendMessage: (msg) => {
         sentMessages.push(msg);
         if (msg.type === "GET_TAB_MEDIA") {
-          return Promise.resolve({ ok: true, media: options.tabMedia ?? [] });
+          const media = options.tabMedia ?? [];
+          const usable = media.filter((m) => m?.kind !== "audio" && m?.url);
+          return Promise.resolve({ ok: true, media, preferred: usable[usable.length - 1] ?? null });
         }
         return Promise.resolve();
       },
@@ -205,11 +215,14 @@ test("a blob:-backed video on an extractor site gets an icon targeting the page 
     "a page URL is not reported to the sniffer's media store",
   );
 
-  appended[0].click();
+  // Was a synchronous click(): an extraction hand-off now asks the sniffer for a fallback stream first
+  // (TASK-241), so the DOWNLOAD_LINK message is sent a tick later.
+  await appended[0].clickAndSettle();
   const sent = sentMessages.find((m) => m.type === "DOWNLOAD_LINK");
   assert.ok(sent, "clicking the icon hands the page off");
   assert.equal(sent.url, WATCH_URL, "the hand-off carries the page URL, not a guessed stream URL");
   assert.equal(sent.extract, true, "and flags it for the app's extractor pipeline");
+  assert.equal(sent.fallbackUrl, null, "nothing was sniffed here, so there is no fallback to offer");
 });
 
 test("only one page-level icon appears however many players the page has (TASK-232)", async () => {
@@ -235,7 +248,7 @@ test("on an extractable host, the page hand-off wins even over a directly-resolv
   });
 
   assert.equal(appended.length, 1, "the watch page gets exactly one icon");
-  appended[0].click();
+  await appended[0].clickAndSettle();
   const sent = sentMessages.find((m) => m.type === "DOWNLOAD_LINK");
   assert.equal(sent.url, "https://www.facebook.com/watch/?v=123", "extraction hands off the page URL");
   assert.equal(sent.extract, true, "extraction wins over the element's own resolvable src");
@@ -255,7 +268,7 @@ test("an extractable host with multiple video elements still routes every icon c
   });
 
   assert.equal(appended.length, 1, "no duplicate icons for the extra players");
-  appended[0].click();
+  await appended[0].clickAndSettle();
   const sent = sentMessages.find((m) => m.type === "DOWNLOAD_LINK");
   assert.equal(sent.extract, true, "the icon that exists always routes through extraction");
   assert.equal(sent.url, "https://www.facebook.com/watch/?v=123");
@@ -265,4 +278,62 @@ test("an ordinary site with an unresolvable video gets no page hand-off (TASK-23
   const video = makeMediaElement("video", "blob:https://example.com/abc");
   const { appended } = await runContentScript([video], { href: "https://example.com/page" });
   assert.equal(appended.length, 0, "we only hand off pages the app actually has an extractor for");
+});
+
+// --- x.com routing + no-regression fallback (TASK-241) ----------------------------------------------
+
+const STATUS_URL = "https://x.com/unicodef1wn/status/2087461469881336049";
+const X_MASTER_URL = "https://video.twimg.com/amplify_video/2087461469881336049/pl/9k3T.m3u8";
+
+test("an x.com status page routes through extraction (TASK-241)", async () => {
+  const video = makeMediaElement("video", "blob:https://x.com/abc");
+  const { appended, sentMessages } = await runContentScript([video], {
+    href: STATUS_URL,
+    tabMedia: [{ url: X_MASTER_URL, kind: "hls" }],
+  });
+
+  assert.equal(appended.length, 1);
+  await appended[0].clickAndSettle();
+  const sent = sentMessages.find((m) => m.type === "DOWNLOAD_LINK");
+  assert.equal(sent.url, STATUS_URL, "the page URL goes to the app's extractor pipeline");
+  assert.equal(sent.extract, true);
+});
+
+test("an extraction hand-off carries the sniffed stream as a fallback (TASK-241)", async () => {
+  // Without this, adding x.com to EXTRACTABLE_HOSTS would be a straight regression for anyone whose app has
+  // no yt-dlp: there is no in-house Twitter extractor, so the page is declined by everything and the user
+  // loses the working sniffed download they had before. The app offers this URL in the picker instead.
+  const video = makeMediaElement("video", "blob:https://x.com/abc");
+  const { appended, sentMessages } = await runContentScript([video], {
+    href: STATUS_URL,
+    tabMedia: [{ url: X_MASTER_URL, kind: "hls" }],
+  });
+
+  await appended[0].clickAndSettle();
+  const sent = sentMessages.find((m) => m.type === "DOWNLOAD_LINK");
+  assert.equal(sent.fallbackUrl, X_MASTER_URL, "the stream the sniffer saw travels with the page hand-off");
+});
+
+test("a direct (non-extraction) hand-off carries no fallback URL (TASK-241)", async () => {
+  // The URL already *is* the stream — there is nothing for the app to fall back to.
+  const video = makeMediaElement("video", "/clip.mp4");
+  const { appended, sentMessages } = await runContentScript([video]);
+
+  await appended[0].clickAndSettle();
+  const sent = sentMessages.find((m) => m.type === "DOWNLOAD_LINK");
+  assert.equal(sent.url, "https://example.com/clip.mp4");
+  assert.equal(sent.extract, false);
+  assert.equal(sent.fallbackUrl, null);
+});
+
+test("the icon on a non-extractable page targets the master the background picked (TASK-241)", async () => {
+  const video = makeMediaElement("video", "blob:https://example.com/abc");
+  const { appended, sentMessages } = await runContentScript([video], {
+    tabMedia: [{ url: "https://cdn.example.com/master.m3u8", kind: "hls" }],
+  });
+
+  assert.equal(appended.length, 1);
+  await appended[0].clickAndSettle();
+  const sent = sentMessages.find((m) => m.type === "DOWNLOAD_LINK");
+  assert.equal(sent.url, "https://cdn.example.com/master.m3u8", "content.js uses the background's choice");
 });

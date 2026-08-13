@@ -27,6 +27,12 @@
                IsVisible="{Binding Message, Converter={x:Static ObjectConverters.IsNotNull}}"
                Foreground="{DynamicResource TextDimBrush}" />
 
+    <!-- Fallback to the stream the browser extension sniffed, when the page itself extracted nothing -->
+    <Button Classes="App Ghost" HorizontalAlignment="Left"
+            Content="Use the stream your browser detected"
+            ToolTip.Tip="Reads the media stream the JustDownload extension saw on this page instead of the page itself."
+            IsVisible="{Binding CanUseFallback}" Click="OnUseFallback" />
+
     <!-- Video quality -->
     <StackPanel Spacing="5" IsVisible="{Binding HasVariants}">
       <TextBlock Text="Quality" FontSize="12" Foreground="{DynamicResource TextDimBrush}" />

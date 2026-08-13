@@ -62,5 +62,13 @@ public partial class MediaVariantPickerWindow : Window
         }
     }
 
+    private async void OnUseFallback(object? sender, RoutedEventArgs e)
+    {
+        if (DataContext is MediaVariantPickerViewModel vm)
+        {
+            await vm.UseFallbackAsync();
+        }
+    }
+
     private void OnCancel(object? sender, RoutedEventArgs e) => Close(false);
 }

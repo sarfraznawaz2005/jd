@@ -210,3 +210,81 @@ test("buildDownloadMessage carries the extract flag only when set (TASK-232)", (
     "only a real boolean true turns a direct download into an extraction",
   );
 });
+
+test("isExtractablePage covers x.com/twitter.com (TASK-241)", () => {
+  // Verified hands-on: yt-dlp resolves an x.com status page into a real title and every HLS variant, so the
+  // page URL is worth handing to the extractor pipeline. There is no in-house Twitter extractor, which is
+  // why the hand-off also carries a fallbackUrl.
+  assert.equal(JD.isExtractablePage("https://x.com/unicodef1wn/status/2087461469881336049"), true);
+  assert.equal(JD.isExtractablePage("https://twitter.com/someone/status/123"), true);
+  assert.equal(JD.isExtractablePage("https://mobile.twitter.com/someone/status/123"), true, "subdomains count");
+  assert.equal(JD.isExtractablePage("https://notx.com/status/1"), false, "no false suffix match");
+});
+
+test("buildDownloadMessage carries a fallback stream URL, normalizing absent ones to null (TASK-241)", () => {
+  assert.equal(JD.buildDownloadMessage({ url: "https://x/p" }).fallbackUrl, null);
+  assert.equal(
+    JD.buildDownloadMessage({ url: "https://x/p", extract: true, fallbackUrl: "https://cdn/pl.m3u8" }).fallbackUrl,
+    "https://cdn/pl.m3u8",
+  );
+  assert.equal(JD.buildDownloadMessage({ url: "https://x/p", fallbackUrl: "" }).fallbackUrl, null);
+  assert.equal(JD.buildDownloadMessage({ url: "https://x/p", fallbackUrl: 42 }).fallbackUrl, null);
+});
+
+// --- HLS master-playlist recognition (TASK-241) ------------------------------------------------------
+
+const TWITTER_MASTER = [
+  "#EXTM3U",
+  "#EXT-X-INDEPENDENT-SEGMENTS",
+  '#EXT-X-STREAM-INF:BANDWIDTH=256000,RESOLUTION=396x270,CODECS="mp4a.40.2,avc1.4d001e"',
+  "/amplify_video/2087461469881336049/vid/avc1/396x270/lo.m3u8?v=e6c",
+  '#EXT-X-STREAM-INF:BANDWIDTH=2176000,RESOLUTION=1280x720,CODECS="mp4a.40.2,avc1.640020"',
+  "/amplify_video/2087461469881336049/vid/avc1/1280x720/hi.m3u8?v=e6c",
+  "",
+].join("\n");
+
+const VARIANT_PLAYLIST = [
+  "#EXTM3U",
+  "#EXT-X-TARGETDURATION:3",
+  "#EXT-X-MAP:URI=/amplify_video/2087461469881336049/vid/avc1/396x270/init.mp4",
+  "#EXTINF:3.000,",
+  "/amplify_video/2087461469881336049/vid/avc1/396x270/seg1.m4s",
+  "#EXT-X-ENDLIST",
+].join("\n");
+
+test("parseMasterVariants lists a master's variant URIs and ignores a variant playlist (TASK-241)", () => {
+  assert.deepEqual(JD.parseMasterVariants(TWITTER_MASTER), [
+    "/amplify_video/2087461469881336049/vid/avc1/396x270/lo.m3u8?v=e6c",
+    "/amplify_video/2087461469881336049/vid/avc1/1280x720/hi.m3u8?v=e6c",
+  ]);
+  assert.deepEqual(JD.parseMasterVariants(VARIANT_PLAYLIST), [], "a media playlist has no #EXT-X-STREAM-INF");
+  assert.deepEqual(JD.parseMasterVariants(""), []);
+  assert.deepEqual(JD.parseMasterVariants(null), []);
+});
+
+test("parseMasterVariants tolerates CRLF and blank lines between tag and URI (TASK-241)", () => {
+  const body = "#EXTM3U\r\n#EXT-X-STREAM-INF:BANDWIDTH=1\r\n\r\nhigh.m3u8\r\n";
+  assert.deepEqual(JD.parseMasterVariants(body), ["high.m3u8"]);
+});
+
+test("playlistTargets matches a variant regardless of the player's own query params (TASK-241)", () => {
+  const masterUrl = "https://video.twimg.com/amplify_video/2087461469881336049/pl/9k3T.m3u8?container=fmp4";
+  const uris = JD.parseMasterVariants(TWITTER_MASTER);
+
+  assert.equal(
+    JD.playlistTargets(
+      uris,
+      masterUrl,
+      "https://video.twimg.com/amplify_video/2087461469881336049/vid/avc1/396x270/lo.m3u8?v=e6c&t=9",
+    ),
+    true,
+    "resolved against the master and compared on origin+path, so extra query params still match",
+  );
+  assert.equal(
+    JD.playlistTargets(uris, masterUrl, "https://video.twimg.com/amplify_video/999/vid/avc1/396x270/lo.m3u8"),
+    false,
+    "another video's variant is not claimed by this master",
+  );
+  assert.equal(JD.playlistTargets(uris, masterUrl, "not a url"), false);
+  assert.equal(JD.playlistTargets(null, masterUrl, "https://x/a.m3u8"), false);
+});

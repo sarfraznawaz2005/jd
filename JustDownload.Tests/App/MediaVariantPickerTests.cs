@@ -701,4 +701,110 @@ public sealed class MediaVariantPickerTests
         vm.Message.Should().NotContain("SECRET123").And.NotContain("Signature=").And.NotContain("Key-Pair-Id");
         vm.Message.Should().Contain("hls: HTTP 403 fetching https://video.twimg.com/pl/x.m3u8");
     }
+
+    // --- Falling back to the stream the browser sniffed (TASK-241) ---------------------------------------
+    //
+    // x.com is routed through extraction because yt-dlp resolves a status page into a real title and every
+    // variant. But there is no in-house Twitter extractor, so on an app where yt-dlp is not enabled the page
+    // is declined by everything — and before this the user, who previously got a working sniffed download,
+    // was left staring at "Couldn't find downloadable media". The extension now sends the stream it saw
+    // alongside the page so the picker can offer it.
+
+    private static readonly Uri StatusUrl = new("https://x.com/unicodef1wn/status/2087461469881336049");
+    private const string SniffedMaster = "https://video.twimg.com/amplify_video/2087461469881336049/pl/9k3T.m3u8";
+
+    private static IMediaExtractorRegistry RegistryPerUrl(
+        Uri firstUrl, MediaExtractionResult firstResult, Uri secondUrl, MediaExtractionResult secondResult)
+    {
+        var registry = Substitute.For<IMediaExtractorRegistry>();
+        registry.ExtractAsync(Arg.Is<MediaRequest>(r => r.Url == firstUrl), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(firstResult));
+        registry.ExtractAsync(Arg.Is<MediaRequest>(r => r.Url == secondUrl), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(secondResult));
+        return registry;
+    }
+
+    private static MediaExtractionResult Found(MediaSource source) =>
+        new() { Source = source, Attempts = [MediaExtractionAttempt.Accepted(source.ExtractorName)] };
+
+    [Fact]
+    public async Task LoadAsync_ExtractionFoundNothing_OffersTheSniffedStream()
+    {
+        MediaVariantPickerViewModel vm = Build(
+            RegistryFor(NothingFound(MediaExtractionAttempt.Declined("hls"))),
+            SettingsWith(VideoQuality.P720, MediaContainer.Mkv));
+        vm.FallbackUrl = SniffedMaster;
+
+        await vm.LoadAsync(StatusUrl);
+
+        vm.CanUseFallback.Should().BeTrue("the browser plainly had a playable stream — this must not dead-end");
+    }
+
+    [Fact]
+    public async Task LoadAsync_ExtractionSucceeded_DoesNotOfferTheFallback()
+    {
+        MediaVariantPickerViewModel vm = Build(
+            RegistryReturning(HlsSource(360, 720)), SettingsWith(VideoQuality.P720, MediaContainer.Mkv));
+        vm.FallbackUrl = SniffedMaster;
+
+        await vm.LoadAsync(StatusUrl);
+
+        vm.CanUseFallback.Should().BeFalse("there is nothing to fall back from");
+    }
+
+    [Fact]
+    public async Task LoadAsync_NoFallbackSent_OffersNothing()
+    {
+        // A picker the user opened themselves, or a hand-off where the sniffer saw nothing.
+        MediaVariantPickerViewModel vm = Build(
+            RegistryFor(NothingFound(MediaExtractionAttempt.Declined("hls"))),
+            SettingsWith(VideoQuality.P720, MediaContainer.Mkv));
+
+        await vm.LoadAsync(StatusUrl);
+
+        vm.CanUseFallback.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task UseFallbackAsync_ExtractsTheSniffedStream_AndListsItsVariants()
+    {
+        var sniffed = new Uri(SniffedMaster);
+        MediaVariantPickerViewModel vm = Build(
+            RegistryPerUrl(
+                StatusUrl,
+                NothingFound(MediaExtractionAttempt.Declined("hls"), MediaExtractionAttempt.Declined("progressive")),
+                sniffed,
+                Found(HlsSource(270, 480, 720))),
+            SettingsWith(VideoQuality.P720, MediaContainer.Mkv));
+        vm.FallbackUrl = SniffedMaster;
+
+        await vm.LoadAsync(StatusUrl);
+        await vm.UseFallbackAsync();
+
+        vm.Url.Should().Be(SniffedMaster);
+        // The sniffed URL is a master playlist, so every quality is offered — not one fixed rendition.
+        vm.Variants.Select(v => v.Variant.Height).Should().Equal(270, 480, 720);
+        vm.SelectedVariant!.Variant.Height.Should().Be(720, "the user's default quality still applies");
+        vm.CanUseFallback.Should().BeFalse("the offer is spent once taken");
+    }
+
+    [Fact]
+    public async Task UseFallbackAsync_FallbackAlsoFails_DoesNotOfferItselfAgain()
+    {
+        var sniffed = new Uri(SniffedMaster);
+        MediaVariantPickerViewModel vm = Build(
+            RegistryPerUrl(
+                StatusUrl,
+                NothingFound(MediaExtractionAttempt.Declined("hls")),
+                sniffed,
+                NothingFound(MediaExtractionAttempt.Failed("hls", "HTTP 403"))),
+            SettingsWith(VideoQuality.P720, MediaContainer.Mkv));
+        vm.FallbackUrl = SniffedMaster;
+
+        await vm.LoadAsync(StatusUrl);
+        await vm.UseFallbackAsync();
+
+        vm.Message.Should().Contain("hls: HTTP 403");
+        vm.CanUseFallback.Should().BeFalse("re-offering the URL that just failed would loop the user in place");
+    }
 }

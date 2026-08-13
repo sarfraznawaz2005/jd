@@ -223,6 +223,34 @@ public sealed class ExtensionMessageHandlerTests
     }
 
     [Fact]
+    public async Task DownloadLink_CarriesTheSniffedFallbackStream_ForPageHandoffs()
+    {
+        // TASK-241: x.com has no in-house extractor, so on an app without yt-dlp the page hand-off is
+        // declined by every extractor. The extension sends the stream its sniffer already saw alongside the
+        // page URL so the quality picker can offer it instead of dead-ending.
+        var inbox = new FakeInbox();
+        ExtensionMessageHandler handler = Build(new InMemoryBlacklist(), inbox);
+
+        await handler.HandleAsync(
+            "{\"type\":\"download_link\",\"url\":\"https://x.com/u/status/1\",\"extract\":true," +
+            "\"fallbackUrl\":\"https://video.twimg.com/amplify_video/1/pl/m.m3u8\"}");
+
+        inbox.Links.Should().ContainSingle();
+        inbox.Links[0].FallbackUrl.Should().Be("https://video.twimg.com/amplify_video/1/pl/m.m3u8");
+    }
+
+    [Fact]
+    public async Task DownloadLink_HasNoFallbackUrl_WhenTheExtensionSentNone()
+    {
+        var inbox = new FakeInbox();
+        ExtensionMessageHandler handler = Build(new InMemoryBlacklist(), inbox);
+
+        await handler.HandleAsync("{\"type\":\"download_link\",\"url\":\"https://x/a.zip\"}");
+
+        inbox.Links[0].FallbackUrl.Should().BeNull();
+    }
+
+    [Fact]
     public async Task DownloadLink_DefaultsToDirectDownload_WhenExtractIsAbsentOrFalse()
     {
         var inbox = new FakeInbox();

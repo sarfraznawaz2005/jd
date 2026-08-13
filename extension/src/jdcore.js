@@ -133,7 +133,12 @@
   // hands the *page* URL to the app and lets the extractor pipeline (and, if the user enabled it, the
   // yt-dlp fallback — D3) resolve the real streams and mux audio. Per D3 this is best-effort: the app
   // reports a clear failure when no extractor can handle the page.
-  const EXTRACTABLE_HOSTS = ["youtube.com", "youtu.be", "facebook.com", "fb.watch"];
+  // x.com/twitter.com joined this list (TASK-241) once yt-dlp was verified to extract a status page into a
+  // real title plus every HLS variant. There is no in-house Twitter extractor, so on an app without yt-dlp
+  // enabled the page is declined by every extractor — which is why an extraction hand-off also carries
+  // `fallbackUrl` (see buildDownloadMessage): the stream the sniffer already saw, offered in the picker
+  // instead of a dead end.
+  const EXTRACTABLE_HOSTS = ["youtube.com", "youtu.be", "facebook.com", "fb.watch", "x.com", "twitter.com"];
 
   /** Whether the desktop app has a site extractor for this page's host, so the page URL is worth handing off. */
   function isExtractablePage(url) {
@@ -186,7 +191,66 @@
       mediaKind: o.mediaKind || null,
       // Whether `url` is a page to run the extractor pipeline on rather than a direct media URL (TASK-232).
       extract: o.extract === true,
+      // A directly-downloadable stream the sniffer saw on the same page, carried alongside an extraction
+      // hand-off so the app can offer it when no extractor can resolve the page (TASK-241). Null otherwise.
+      fallbackUrl: typeof o.fallbackUrl === "string" && o.fallbackUrl.length > 0 ? o.fallbackUrl : null,
     };
+  }
+
+  // HLS master ("multivariant") playlist recognition (TASK-241). A player fetches the master once and then a
+  // variant playlist per quality switch, so the sniffer's newest .m3u8 is normally the *currently playing*
+  // variant — handing that to the app pins the download to whatever the browser happened to be playing (a
+  // 396x270 file despite a 720p default) and leaves the quality picker nothing to choose between. Only a
+  // master carries #EXT-X-STREAM-INF, so this is a body check rather than a guess at the URL's shape, which
+  // varies per CDN.
+  const STREAM_INF_TAG = "#EXT-X-STREAM-INF";
+
+  /** The variant playlist URIs a master lists (the first non-blank line after each #EXT-X-STREAM-INF). */
+  function parseMasterVariants(body) {
+    if (typeof body !== "string") {
+      return [];
+    }
+    const lines = body.split(/\r?\n/);
+    const uris = [];
+    for (let i = 0; i < lines.length; i++) {
+      if (!lines[i].startsWith(STREAM_INF_TAG)) {
+        continue;
+      }
+      for (let j = i + 1; j < lines.length; j++) {
+        const candidate = lines[j].trim();
+        if (candidate.length === 0) {
+          continue;
+        }
+        if (!candidate.startsWith("#")) {
+          uris.push(candidate);
+        }
+        break; // the URI is the first non-blank line after the tag; anything else is a malformed playlist
+      }
+    }
+    return uris;
+  }
+
+  /** A URL's origin + path, with query and fragment dropped, or null when it cannot be parsed. */
+  function mediaIdentity(url, base) {
+    try {
+      const parsed = base === undefined ? new URL(url) : new URL(url, base);
+      return parsed.origin + parsed.pathname;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Whether a master playlist at `playlistUrl` lists `targetUrl` among `variantUris`. Compared on origin +
+   * path only: a player appends its own query parameters when it fetches a variant, so the sniffed URL is
+   * rarely character-identical to the URI written in the master.
+   */
+  function playlistTargets(variantUris, playlistUrl, targetUrl) {
+    const target = mediaIdentity(targetUrl);
+    if (target === null || !Array.isArray(variantUris)) {
+      return false;
+    }
+    return variantUris.some((uri) => mediaIdentity(uri, playlistUrl) === target);
   }
 
   /**
@@ -321,6 +385,8 @@
     isMediaUrl,
     normalizeMediaUrl,
     isExtractablePage,
+    parseMasterVariants,
+    playlistTargets,
     pickContextUrl,
     buildDownloadMessage,
     formatCookieHeader,

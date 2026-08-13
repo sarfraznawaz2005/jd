@@ -77,6 +77,9 @@ public sealed partial class MediaVariantPickerViewModel : ViewModelBase
     [ObservableProperty]
     private MediaContainer _selectedContainer;
 
+    [ObservableProperty]
+    private bool _canUseFallback;
+
     public MediaVariantPickerViewModel(
         IMediaExtractorRegistry registry,
         ISettingsService settings,
@@ -105,6 +108,13 @@ public sealed partial class MediaVariantPickerViewModel : ViewModelBase
         _logger = logger;
         _selectedContainer = settings.Current.DefaultContainer;
     }
+
+    /// <summary>
+    /// A stream the browser extension's sniffer saw on the handed-off page, offered when extraction of the
+    /// page itself finds nothing (TASK-241). Set by the shell for an extraction hand-off; <see langword="null"/>
+    /// for a picker the user opened themselves.
+    /// </summary>
+    public string? FallbackUrl { get; set; }
 
     /// <summary>Raised when the dialog should close; <see langword="true"/> when a media download was enqueued.</summary>
     public event EventHandler<bool>? CloseRequested;
@@ -146,6 +156,24 @@ public sealed partial class MediaVariantPickerViewModel : ViewModelBase
     /// Enter in the URL box), where "nothing happened" would be the wrong answer (TASK-237).
     /// </summary>
     public Task RedetectAsync() => DetectAsync(force: true);
+
+    /// <summary>
+    /// Extracts <see cref="FallbackUrl"/> instead of the page (TASK-241). Sites with no in-house extractor —
+    /// x.com among them — resolve only through the optional yt-dlp fallback (D3), so without it the hand-off
+    /// dead-ends on "couldn't find downloadable media" even though the browser was plainly playing something.
+    /// The sniffed stream is a master playlist wherever the extension could identify one, so this normally
+    /// lands on the full quality list rather than a single fixed rendition.
+    /// </summary>
+    public Task UseFallbackAsync()
+    {
+        if (!CanUseFallback || string.IsNullOrWhiteSpace(FallbackUrl))
+        {
+            return Task.CompletedTask;
+        }
+
+        Url = FallbackUrl;
+        return RedetectAsync();
+    }
 
     private async Task DetectAsync(bool force)
     {
@@ -233,6 +261,12 @@ public sealed partial class MediaVariantPickerViewModel : ViewModelBase
         CloseRequested?.Invoke(this, true);
     }
 
+    // Never offered for the URL that just failed, so retrying the fallback cannot loop back on itself.
+    private bool HasUsableFallback(Uri attempted) =>
+        Uri.TryCreate(FallbackUrl, UriKind.Absolute, out Uri? fallback)
+        && (fallback.Scheme == Uri.UriSchemeHttp || fallback.Scheme == Uri.UriSchemeHttps)
+        && fallback != attempted;
+
     private bool TryGetUrl([NotNullWhen(true)] out Uri? uri)
     {
         uri = null;
@@ -311,6 +345,7 @@ public sealed partial class MediaVariantPickerViewModel : ViewModelBase
 
         IsLoading = true;
         Message = null;
+        CanUseFallback = false;
         _source = null;
         Variants.Clear();
         AudioVariants.Clear();
@@ -328,6 +363,7 @@ public sealed partial class MediaVariantPickerViewModel : ViewModelBase
                 // Say why, not just "nothing found": a DNS/connectivity failure and a yt-dlp bot challenge
                 // used to be indistinguishable from "this page has no video" (CLAUDE.md §5).
                 Message = MediaExtractionMessage.Describe(url, extraction.Attempts);
+                CanUseFallback = HasUsableFallback(url);
                 return;
             }
 

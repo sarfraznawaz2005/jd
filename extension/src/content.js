@@ -95,12 +95,32 @@
     icon.addEventListener("click", (event) => {
       event.preventDefault();
       event.stopPropagation();
-      api.runtime
-        .sendMessage({ type: "DOWNLOAD_LINK", url, pageUrl: location.href, mediaKind: kind, extract })
-        .catch(() => {});
+      void sendHandoff(url, kind, extract);
     });
     document.body.appendChild(icon);
     return icon;
+  }
+
+  /**
+   * Hands the icon's target to the desktop app. An extraction hand-off also carries whatever stream the
+   * sniffer has seen for this tab as `fallbackUrl` (TASK-241), so a user whose app cannot extract this site
+   * — no in-house extractor and yt-dlp not enabled (D3) — is offered that stream in the quality picker
+   * rather than a dead end. Resolved at click time, not at attach time: by the time a human clicks, the
+   * player has been fetching for seconds, whereas the sniffer usually has nothing the instant the <video>
+   * element first appears.
+   */
+  async function sendHandoff(url, kind, extract) {
+    const fallback = extract ? await sniffedVideoUrl() : null;
+    api.runtime
+      .sendMessage({
+        type: "DOWNLOAD_LINK",
+        url,
+        pageUrl: location.href,
+        mediaKind: kind,
+        extract,
+        fallbackUrl: fallback?.url ?? null,
+      })
+      .catch(() => {});
   }
 
   /** Positions (or hides) one video's icon over its current viewport rect. */
@@ -119,22 +139,16 @@
   }
 
   /** Asks the background sniffer what real media it has already seen for this tab (TASK-181) — the
-   * fallback for MSE-backed players whose <video src> is a page-local blob: URL. Never returns audio: the
-   * app has no audio-download feature. Prefers the most recently detected item, since for a single-video
-   * page that tracks the actively playing stream as new segments keep arriving. */
+   * fallback for MSE-backed players whose <video src> is a page-local blob: URL. The background picks which
+   * detection to use (TASK-241): the master playlist when it saw one, else the most recent stream, and never
+   * audio, since the app has no audio-download feature. */
   async function sniffedVideoUrl() {
     try {
       const res = await api.runtime.sendMessage({ type: "GET_TAB_MEDIA" });
-      const media = Array.isArray(res?.media) ? res.media : [];
-      for (let i = media.length - 1; i >= 0; i--) {
-        if (media[i]?.kind !== "audio" && media[i]?.url) {
-          return media[i];
-        }
-      }
+      return res?.preferred?.url ? res.preferred : null;
     } catch {
-      // background unreachable — nothing to fall back to
+      return null; // background unreachable — nothing to fall back to
     }
-    return null;
   }
 
   /**

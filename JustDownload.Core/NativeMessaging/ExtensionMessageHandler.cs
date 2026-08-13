@@ -147,6 +147,7 @@ internal sealed partial class ExtensionMessageHandler : INativeMessageHandler
                 Cookies = ReadString(root, "cookies"),
                 MediaKind = ReadString(root, "mediaKind"),
                 Extract = ReadBool(root, "extract"),
+                FallbackUrl = ReadString(root, "fallbackUrl"),
             },
             cancellationToken).ConfigureAwait(false);
 
