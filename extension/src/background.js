@@ -253,15 +253,23 @@ api.runtime.onMessage.addListener((message, sender, sendResponse) => {
       }
       return true; // async response
 
-    case "DOWNLOAD_LINK":
-      void sendDownload(
-        message.url,
-        sender?.tab,
-        message.pageUrl || sender?.tab?.url || null,
-        message.mediaKind,
-        message.extract === true,
-      ).then((forwarded) => sendResponse({ ok: true, forwarded }));
+    case "DOWNLOAD_LINK": {
+      // For an extraction hand-off the payload is a *page* URL, and only the background script knows the
+      // top-level page: content.js runs in every frame (all_frames), and a nested frame's own
+      // location.href is often just the bare origin — a Facebook reel player frame reports
+      // "https://www.facebook.com/" instead of the reel URL, which the extractor can do nothing with.
+      // sender.tab.url is always the top-level page, so it wins for both the URL and the referrer, with
+      // message.url as the fallback when there is no tab context. A non-extract payload is a
+      // sniffed/direct media URL that is already frame-correct and is passed through untouched.
+      const extract = message.extract === true;
+      const topUrl = sender?.tab?.url || null;
+      const url = extract && topUrl ? topUrl : message.url;
+      const pageUrl = extract && topUrl ? topUrl : message.pageUrl || topUrl || null;
+      void sendDownload(url, sender?.tab, pageUrl, message.mediaKind, extract).then((forwarded) =>
+        sendResponse({ ok: true, forwarded }),
+      );
       return true; // async response
+    }
 
     case "MEDIA_DETECTED": {
       // A media element the content script found in the DOM (TASK-068 AC0).
