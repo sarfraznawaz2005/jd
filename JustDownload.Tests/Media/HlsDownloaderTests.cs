@@ -58,6 +58,33 @@ public sealed class HlsDownloaderTests : IDisposable
     }
 
     [Fact]
+    public async Task DownloadAsync_ExtXMap_PrependsInitializationSegment()
+    {
+        // Regression: Twitter/X (and every CMAF stream) puts the ftyp/moov boxes in the #EXT-X-MAP
+        // initialization segment. Downloading only the .m4s fragments produced a file players rejected with
+        // "trun track id unknown, no tfhd was found", so the init segment must lead the concat input.
+        const string playlistUrl = "https://cdn/f/media.m3u8";
+        byte[] init = Encoding.ASCII.GetBytes("FTYP-MOOV-INIT");
+        byte[] f0 = Encoding.ASCII.GetBytes("FRAGMENT-ZERO");
+        byte[] f1 = Encoding.ASCII.GetBytes("FRAGMENT-ONE");
+
+        var transport = new MapTransport()
+            .AddText(playlistUrl,
+                "#EXTM3U\n#EXT-X-MAP:URI=\"init.mp4\"\n#EXTINF:3,\nf0.m4s\n#EXTINF:3,\nf1.m4s\n#EXT-X-ENDLIST\n")
+            .AddBytes("https://cdn/f/init.mp4", init)
+            .AddBytes("https://cdn/f/f0.m4s", f0)
+            .AddBytes("https://cdn/f/f1.m4s", f1);
+
+        HlsDownloadResult result = await Build(transport).DownloadAsync(new Uri(playlistUrl), _workDir);
+
+        result.SegmentFiles.Should().HaveCount(3, "the init segment leads the two media fragments");
+        (await File.ReadAllBytesAsync(result.SegmentFiles[0])).Should().Equal(init);
+        (await File.ReadAllBytesAsync(result.SegmentFiles[1])).Should().Equal(f0);
+        (await File.ReadAllBytesAsync(result.SegmentFiles[2])).Should().Equal(f1);
+        result.TotalBytes.Should().Be(init.Length + f0.Length + f1.Length);
+    }
+
+    [Fact]
     public async Task DownloadAsync_Aes128_ExplicitIv_DecryptsToPlaintext()
     {
         byte[] key = RandomNumberGenerator.GetBytes(16);
@@ -144,6 +171,21 @@ public sealed class HlsDownloaderTests : IDisposable
         Func<Task> act = () => Build(transport).DownloadAsync(new Uri(playlistUrl), _workDir);
 
         await act.Should().ThrowAsync<HlsExtractionException>().WithMessage("*no segments*");
+    }
+
+    [Fact]
+    public async Task DownloadAsync_UnreachableInitializationSegment_Throws_RatherThanEmittingFragmentsAlone()
+    {
+        // The failure mode this must never regress into: silently skipping an unfetchable init segment and
+        // returning fragments that concatenate into an unplayable file (CLAUDE.md §5, no silent failures).
+        const string playlistUrl = "https://cdn/g/media.m3u8";
+        var transport = new MapTransport()
+            .AddText(playlistUrl, "#EXTM3U\n#EXT-X-MAP:URI=\"init.mp4\"\n#EXTINF:3,\nf0.m4s\n#EXT-X-ENDLIST\n")
+            .AddBytes("https://cdn/g/f0.m4s", Encoding.ASCII.GetBytes("FRAGMENT"));
+
+        Func<Task> act = () => Build(transport).DownloadAsync(new Uri(playlistUrl), _workDir);
+
+        await act.Should().ThrowAsync<HlsExtractionException>().WithMessage("*init.mp4*");
     }
 
     [Fact]

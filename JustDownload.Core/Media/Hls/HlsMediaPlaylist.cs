@@ -9,8 +9,16 @@ namespace JustDownload.Core.Media.Hls;
 /// <param name="TargetDuration">The maximum segment duration (from <c>#EXT-X-TARGETDURATION</c>).</param>
 /// <param name="MediaSequence">The media sequence number of the first segment (from <c>#EXT-X-MEDIA-SEQUENCE</c>, default 0).</param>
 /// <param name="IsEndList">Whether <c>#EXT-X-ENDLIST</c> was present (a finished VOD playlist).</param>
+/// <param name="InitializationSegment">
+/// The <c>#EXT-X-MAP</c> initialization segment, or <see langword="null"/> for a plain MPEG-TS playlist that
+/// has none. Fragmented-MP4 (CMAF) streams — what Twitter/X and most modern CDNs serve — carry the
+/// <c>ftyp</c>/<c>moov</c> boxes here rather than in the media segments; concatenating the <c>.m4s</c>
+/// fragments without prepending it yields a file no player can read ("no tfhd was found"), so it is part of
+/// the download, not optional metadata.
+/// </param>
 public sealed record HlsMediaPlaylist(
     IReadOnlyList<HlsSegment> Segments,
     int TargetDuration,
     long MediaSequence,
-    bool IsEndList);
+    bool IsEndList,
+    Uri? InitializationSegment = null);

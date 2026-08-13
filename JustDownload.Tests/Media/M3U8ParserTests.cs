@@ -133,6 +133,51 @@ public sealed class M3U8ParserTests
         media.Segments[1].Encryption.Method.Should().Be(HlsKeyMethod.None);
     }
 
+    [Fact]
+    public void ParseMedia_ParsesExtXMapInitializationSegment()
+    {
+        // Fragmented-MP4 (CMAF) shape, as Twitter/X serves: the ftyp/moov boxes live in the #EXT-X-MAP
+        // initialization segment, and the .m4s fragments are undecodable without it.
+        const string content =
+            "#EXTM3U\n" +
+            "#EXT-X-VERSION:6\n" +
+            "#EXT-X-MAP:URI=\"/vid/avc1/0/0/396x270/init.mp4\"\n" +
+            "#EXTINF:3.000,\n" +
+            "/vid/avc1/0/3000/396x270/a.m4s\n" +
+            "#EXTINF:3.000,\n" +
+            "/vid/avc1/3000/6000/396x270/b.m4s\n" +
+            "#EXT-X-ENDLIST\n";
+
+        HlsMediaPlaylist media = M3U8Parser.ParseMedia(content, MasterUri);
+
+        media.InitializationSegment.Should().Be(new Uri("https://cdn.example.com/vid/avc1/0/0/396x270/init.mp4"));
+        media.Segments.Should().HaveCount(2, "the EXT-X-MAP line is not itself a media segment");
+        media.Segments.Select(s => s.Uri.ToString()).Should().ContainInOrder(
+            "https://cdn.example.com/vid/avc1/0/3000/396x270/a.m4s",
+            "https://cdn.example.com/vid/avc1/3000/6000/396x270/b.m4s");
+    }
+
+    [Fact]
+    public void ParseMedia_WithoutExtXMap_LeavesInitializationSegmentNull()
+    {
+        const string content = "#EXTM3U\n#EXTINF:6,\nseg0.ts\n#EXT-X-ENDLIST\n";
+
+        M3U8Parser.ParseMedia(content, MasterUri).InitializationSegment.Should().BeNull(
+            "a plain MPEG-TS playlist carries its own headers in every segment");
+    }
+
+    [Fact]
+    public void ParseMedia_KeepsOnlyTheFirstExtXMap()
+    {
+        const string content =
+            "#EXTM3U\n" +
+            "#EXT-X-MAP:URI=\"first.mp4\"\n#EXTINF:6,\na.m4s\n" +
+            "#EXT-X-MAP:URI=\"second.mp4\"\n#EXTINF:6,\nb.m4s\n#EXT-X-ENDLIST\n";
+
+        M3U8Parser.ParseMedia(content, MasterUri).InitializationSegment
+            .Should().Be(new Uri("https://cdn.example.com/video/first.mp4"));
+    }
+
     [Theory]
     [InlineData("0x0A0B", new byte[] { 0x0A, 0x0B })]
     [InlineData("ABCD", new byte[] { 0xAB, 0xCD })]

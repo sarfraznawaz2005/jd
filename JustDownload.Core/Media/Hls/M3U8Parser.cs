@@ -14,6 +14,7 @@ public static class M3U8Parser
     private const string KeyTag = "#EXT-X-KEY:";
     private const string InfTag = "#EXTINF:";
     private const string MediaSequenceTag = "#EXT-X-MEDIA-SEQUENCE:";
+    private const string MapTag = "#EXT-X-MAP:";
     private const string TargetDurationTag = "#EXT-X-TARGETDURATION:";
     private const string EndListTag = "#EXT-X-ENDLIST";
 
@@ -85,6 +86,7 @@ public static class M3U8Parser
         bool isEndList = false;
 
         HlsEncryption currentKey = HlsEncryption.None;
+        Uri? initializationSegment = null;
         double pendingDuration = 0;
         bool haveInf = false;
 
@@ -113,6 +115,12 @@ public static class M3U8Parser
             {
                 currentKey = ParseKey(line[KeyTag.Length..], baseUri);
             }
+            else if (line.StartsWith(MapTag, StringComparison.Ordinal))
+            {
+                // Only the first #EXT-X-MAP is kept: a second one re-initialises the decoder mid-stream, which
+                // this byte-append pipeline cannot express, and silently appending it would corrupt the output.
+                initializationSegment ??= ParseMap(line[MapTag.Length..], baseUri);
+            }
             else if (line.StartsWith(EndListTag, StringComparison.Ordinal))
             {
                 isEndList = true;
@@ -138,7 +146,15 @@ public static class M3U8Parser
             }
         }
 
-        return new HlsMediaPlaylist(segments, targetDuration, startSequence, isEndList);
+        return new HlsMediaPlaylist(segments, targetDuration, startSequence, isEndList, initializationSegment);
+    }
+
+    private static Uri? ParseMap(string attributeText, Uri baseUri)
+    {
+        Dictionary<string, string> attributes = ParseAttributes(attributeText);
+        return attributes.TryGetValue("URI", out string? uriValue) && uriValue.Length > 0
+            ? ResolveUri(uriValue, baseUri)
+            : null;
     }
 
     private static HlsEncryption ParseKey(string attributeText, Uri baseUri)

@@ -14,6 +14,13 @@ namespace JustDownload.Core.Media.Hls;
 /// the key tag omits one (RFC 8216 §5.2, AC2) — and reports segment-count progress (AC3). Decrypted
 /// segments are written in playlist order as <c>seg00000.ts</c>, <c>seg00001.ts</c>, … ready for concat
 /// (TASK-038). Cancellation is honoured promptly.
+/// <para>
+/// When the playlist declares an <c>#EXT-X-MAP</c> initialization segment (fragmented-MP4/CMAF, as served by
+/// Twitter/X and most modern CDNs) it is fetched first and returned as the first entry of
+/// <see cref="HlsDownloadResult.SegmentFiles"/>, so the concatenated output starts with the
+/// <c>ftyp</c>/<c>moov</c> boxes the fragments depend on. Without it the joined <c>.m4s</c> fragments decode
+/// to nothing — ffprobe reports "trun track id unknown, no tfhd was found".
+/// </para>
 /// </summary>
 internal sealed partial class HlsDownloader : IHlsDownloader
 {
@@ -61,11 +68,25 @@ internal sealed partial class HlsDownloader : IHlsDownloader
 
         EnsureSupportedEncryption(playlist);
 
+        // Fetched before the segments so a missing/unreachable init segment fails fast, rather than after
+        // paying for the whole stream.
+        string? initializationFile = null;
+        long initializationBytes = 0;
+        if (playlist.InitializationSegment is { } initializationUri)
+        {
+            byte[] initialization = await FetchBytesAsync(initializationUri, headers, cancellationToken)
+                .ConfigureAwait(false);
+            initializationFile = Path.Combine(workingDirectory, "init.mp4");
+            await File.WriteAllBytesAsync(initializationFile, initialization, cancellationToken)
+                .ConfigureAwait(false);
+            initializationBytes = initialization.Length;
+        }
+
         var keyCache = new ConcurrentDictionary<Uri, Task<byte[]>>();
         var segmentFiles = new string[playlist.Segments.Count];
         int totalSegments = playlist.Segments.Count;
         int completed = 0;
-        long downloadedBytes = 0;
+        long downloadedBytes = initializationBytes;
 
         using var throttle = new SemaphoreSlim(Math.Max(1, _options.MaxParallelSegments));
         var tasks = new List<Task>(totalSegments);
@@ -105,7 +126,8 @@ internal sealed partial class HlsDownloader : IHlsDownloader
         await Task.WhenAll(tasks).ConfigureAwait(false);
 
         LogDownloaded(_logger, totalSegments, mediaPlaylistUri);
-        return new HlsDownloadResult(segmentFiles, Interlocked.Read(ref downloadedBytes));
+        string[] files = initializationFile is null ? segmentFiles : [initializationFile, .. segmentFiles];
+        return new HlsDownloadResult(files, Interlocked.Read(ref downloadedBytes));
     }
 
     private static void EnsureSupportedEncryption(HlsMediaPlaylist playlist)

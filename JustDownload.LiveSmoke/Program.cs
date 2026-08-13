@@ -2,6 +2,7 @@ using JustDownload.Core;
 using JustDownload.Core.Data;
 using JustDownload.Core.Media;
 using JustDownload.Core.Media.Extraction;
+using JustDownload.Core.Media.Hls;
 using JustDownload.Core.Settings;
 using JustDownload.LiveSmoke;
 using Microsoft.Data.Sqlite;
@@ -47,6 +48,19 @@ try
 {
     var services = new ServiceCollection();
     services.AddSingleton<IDatabasePathProvider>(new SmokeDatabasePathProvider(tempDataDir));
+
+    // This harness points JUSTDOWNLOAD_DATA_DIR at a throwaway directory so it never touches the user's real
+    // database — but AppDataPaths honours that same variable, so AddJustDownloadMedia's default
+    // YtDlpOptions.VendorDirectory would resolve to the (empty) temp directory and the yt-dlp probe below
+    // would report "not provisioned" even on a machine where the user HAS downloaded it. Registering the
+    // option first (Core uses TryAddSingleton, so this one wins) points the locator at the real app-data
+    // vendor directory, making the probe reflect what the running app actually sees.
+    services.AddSingleton(new YtDlpOptions
+    {
+        VendorDirectory = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "JustDownload", "yt-dlp"),
+    });
+
     services.AddJustDownloadCore();
     await using ServiceProvider provider = services.BuildServiceProvider();
     await provider.InitializeJustDownloadCoreAsync();
@@ -73,6 +87,15 @@ try
 
     var scenarios = new List<Scenario>
     {
+        // --- The three exact URLs the user reported failing on 2026-08-14, kept verbatim so a re-run
+        // reproduces his case rather than an equivalent-looking substitute.
+        new("YouTube", "USER-REPORTED failing URL", "https://www.youtube.com/watch?v=CqlDf9ba4jA",
+            "Reported symptom: quality picker opened, then \"Couldn't find downloadable media at this URL.\""),
+        new("Twitter/X", "USER-REPORTED failing URL", "https://x.com/unicodef1wn/status/2087461469881336049/video/1",
+            "Reported symptom: plain New-download dialog (no quality picker), output file not playable."),
+        new("Facebook", "USER-REPORTED failing URL", "https://www.facebook.com/reel/2044478973099445",
+            "Reported symptom: quality picker opened, then \"Couldn't find downloadable media at this URL.\""),
+
         // --- YouTube (task item 6): 2-3 real public URLs, one chosen to stress the extractor differently
         // from the simplest case, to try to reproduce the "sometimes couldn't find downloadable media"
         // report. YouTubeMediaExtractor (JustDownload.Core/Media/YouTube/YouTubeMediaExtractor.cs) only
@@ -127,6 +150,13 @@ try
             "Confirmed real — cited as a live example in Instagram's own utools.readme.io API reference."),
     };
 
+    // The yt-dlp fallback declines instantly, without even calling the locator, while VideoCaptureEnabled is
+    // off (YtDlpMediaExtractor.cs:80-83). Opting in BEFORE the scenarios matters: with the default-off
+    // toggle every scenario below would report "yt-dlp declined" for a reason that has nothing to do with
+    // the URL, hiding the one result this harness exists to establish.
+    await settings.UpdateAsync(s => s with { VideoCaptureEnabled = true });
+    Console.WriteLine($"VideoCaptureEnabled flipped on for this run (real ISettingsService): {settings.Current.VideoCaptureEnabled}.");
+
     Console.WriteLine();
     Console.WriteLine("--- Full-pipeline scenarios (every registered extractor tried, in real priority order) ---");
     foreach (Scenario scenario in scenarios)
@@ -138,9 +168,7 @@ try
     // the outcome once the user opts in? Flip the real settings toggle through the real ISettingsService
     // (not a hand-rolled substitute), then call the real YtDlpMediaExtractor directly.
     Console.WriteLine();
-    Console.WriteLine("--- yt-dlp fallback probe (VideoCaptureEnabled flipped on via the real ISettingsService) ---");
-    await settings.UpdateAsync(s => s with { VideoCaptureEnabled = true });
-    Console.WriteLine($"VideoCaptureEnabled is now: {settings.Current.VideoCaptureEnabled}.");
+    Console.WriteLine("--- yt-dlp direct probe (isolating the fallback from the rest of the chain) ---");
 
     IMediaExtractor? ytDlpExtractor = registry.Extractors.FirstOrDefault(e => e.Name == "yt-dlp");
     if (ytDlpExtractor is null)
@@ -157,6 +185,46 @@ try
     {
         await RunSingleExtractorAsync(ytDlpExtractor, "Twitter/X", "https://x.com/RodneyMKirabo/status/1954770955336585444");
         await RunSingleExtractorAsync(ytDlpExtractor, "Instagram", "https://www.instagram.com/reel/C4PYiJQubeR/");
+    }
+
+    // --- Real HLS pipeline, end to end (fragmented-MP4 / #EXT-X-MAP). Twitter/X serves CMAF: the media
+    // playlist declares an #EXT-X-MAP initialization segment holding the ftyp/moov boxes, and the media
+    // segments are .m4s fragments that are meaningless without it. This drives the real DI-wired
+    // IHlsDownloader + IHlsConcatenator and reports the first MP4 box of the concatenated output —
+    // "ftyp" means the init segment was included, "styp" means it was dropped and the file is unplayable.
+    Console.WriteLine();
+    Console.WriteLine("--- Real HLS pipeline end-to-end (fragmented-MP4 / EXT-X-MAP) ---");
+    var hlsDownloader = provider.GetRequiredService<IHlsDownloader>();
+    var hlsConcatenator = provider.GetRequiredService<IHlsConcatenator>();
+    const string hlsPlaylistUrl =
+        "https://video.twimg.com/amplify_video/2087460753578098688/pl/avc1/396x270/0HkqU7YAO_9dKEpe.m3u8";
+    string hlsWorkDirectory = Path.Combine(Path.GetTempPath(), "jd-livesmoke-hls");
+    Console.WriteLine($"  Playlist: {hlsPlaylistUrl}");
+    try
+    {
+        HlsDownloadResult hls = await hlsDownloader.DownloadAsync(new Uri(hlsPlaylistUrl), hlsWorkDirectory);
+        string hlsOutput = Path.Combine(hlsWorkDirectory, "output.mp4");
+        await hlsConcatenator.ConcatenateAsync(hls.SegmentFiles, hlsOutput);
+
+        var header = new byte[8];
+        int headerBytes;
+        await using (FileStream stream = File.OpenRead(hlsOutput))
+        {
+            headerBytes = await stream.ReadAsync(header);
+        }
+
+        string firstBox = headerBytes == header.Length
+            ? System.Text.Encoding.ASCII.GetString(header, 4, 4)
+            : "(file too short)";
+        Console.WriteLine($"  files concatenated: {hls.SegmentFiles.Count} (including the init segment when present)");
+        Console.WriteLine($"  output bytes:       {new FileInfo(hlsOutput).Length}");
+        Console.WriteLine($"  first MP4 box:      '{firstBox}'  (expect 'ftyp'; 'styp' = EXT-X-MAP init segment missing -> unplayable)");
+        Console.WriteLine($"  output file:        {hlsOutput}   (verify with: ffprobe \"{hlsOutput}\")");
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"  HLS pipeline THREW {ex.GetType().Name}: {ex.Message}");
+        Console.WriteLine("  (Twitter media-playlist URLs expire — a 403/404 here means the URL went stale, not a pipeline bug.)");
     }
 
     Console.WriteLine();
