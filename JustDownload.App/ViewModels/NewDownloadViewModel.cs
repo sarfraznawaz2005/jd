@@ -52,6 +52,7 @@ public sealed partial class NewDownloadViewModel : ViewModelBase, IDisposable
     private readonly IDownloadActions _actions;
     private readonly IDuplicateDownloadCheck _duplicateCheck;
     private readonly ISecretStore _secrets;
+    private readonly ITosNoticeGate _tosGate;
     private readonly ILogger<NewDownloadViewModel> _logger;
 
     // The user editing a field pins it, so re-detection never clobbers a manual choice.
@@ -213,6 +214,7 @@ public sealed partial class NewDownloadViewModel : ViewModelBase, IDisposable
         IDownloadActions actions,
         IDuplicateDownloadCheck duplicateCheck,
         ISecretStore secrets,
+        ITosNoticeGate tosGate,
         ILogger<NewDownloadViewModel> logger,
         TimeSpan? detectTimeout = null)
     {
@@ -225,6 +227,7 @@ public sealed partial class NewDownloadViewModel : ViewModelBase, IDisposable
         ArgumentNullException.ThrowIfNull(actions);
         ArgumentNullException.ThrowIfNull(duplicateCheck);
         ArgumentNullException.ThrowIfNull(secrets);
+        ArgumentNullException.ThrowIfNull(tosGate);
         ArgumentNullException.ThrowIfNull(logger);
         _probe = probe;
         _mediaRegistry = mediaRegistry;
@@ -235,6 +238,7 @@ public sealed partial class NewDownloadViewModel : ViewModelBase, IDisposable
         _actions = actions;
         _duplicateCheck = duplicateCheck;
         _secrets = secrets;
+        _tosGate = tosGate;
         _logger = logger;
         _detectTimeout = detectTimeout ?? DefaultDetectTimeout;
 
@@ -622,6 +626,16 @@ public sealed partial class NewDownloadViewModel : ViewModelBase, IDisposable
                     + (_mediaFailure is null ? string.Empty : " " + _mediaFailure);
                 return;
             }
+        }
+
+        // The one-time "may violate site ToS" notice (CLAUDE.md §5) gates the media *download*, so it is shown
+        // here — at the moment the user commits — rather than inside DetectAsync, which runs automatically on
+        // every debounced keystroke and on focus loss and would pop a modal legal dialog mid-typing.
+        if (_detectedMedia is not null && !await _tosGate.ConfirmAsync().ConfigureAwait(true))
+        {
+            UrlWarning = "Download cancelled — the notice about downloading media from third-party sites "
+                + "wasn't accepted. Nothing was queued.";
+            return;
         }
 
         FileCategory category = ResolveCategory();

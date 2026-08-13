@@ -1,8 +1,12 @@
 namespace JustDownload.App.Services;
 
 /// <summary>
-/// Gates media extraction on the one-time "may violate site ToS" notice (docs/LEGAL.md, CLAUDE.md §5,
-/// TASK-160). Consulted right before extraction actually runs — never before plain HTTP/FTP downloads.
+/// Gates media downloads on the one-time "may violate site ToS" notice (docs/LEGAL.md, CLAUDE.md §5,
+/// TASK-160). Consulted at the point the user commits to media: either right before extraction runs
+/// (<see cref="JustDownload.App.ViewModels.MediaVariantPickerViewModel"/>, where the user deliberately opened
+/// the picker) or right before an extraction-backed download is enqueued
+/// (<see cref="JustDownload.App.ViewModels.NewDownloadViewModel"/>, whose detection runs automatically while
+/// typing and must not raise a modal there). Never consulted for plain HTTP/FTP downloads.
 /// </summary>
 public interface ITosNoticeGate
 {

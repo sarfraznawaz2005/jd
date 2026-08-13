@@ -32,9 +32,14 @@ public sealed class NewDownloadViewModelTests
         public IDownloadActions Actions { get; } = Substitute.For<IDownloadActions>();
         public IDuplicateDownloadCheck DuplicateCheck { get; } = Substitute.For<IDuplicateDownloadCheck>();
         public ISecretStore Secrets { get; } = Substitute.For<ISecretStore>();
+        public ITosNoticeGate TosGate { get; } = Substitute.For<ITosNoticeGate>();
 
         public Harness()
         {
+            // The real gate is a no-op returning true once the notice has been suppressed (TosNoticeGate);
+            // accepting by default keeps every pre-existing test exercising the enqueue path.
+            TosGate.ConfirmAsync(Arg.Any<CancellationToken>()).Returns(Task.FromResult(true));
+
             Settings.Current.Returns(new AppSettings { ConnectionsPerDownload = 8 });
             DuplicateCheck.CheckAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<long?>(), Arg.Any<CancellationToken>())
                 .Returns(DuplicateCheckResult.None);
@@ -50,7 +55,7 @@ public sealed class NewDownloadViewModelTests
 
         public NewDownloadViewModel Build(TimeSpan? detectTimeout = null) =>
             new(Probe, MediaRegistry, Categorizer, Folders, Settings, Manager, Actions, DuplicateCheck, Secrets,
-                NullLogger<NewDownloadViewModel>.Instance, detectTimeout);
+                TosGate, NullLogger<NewDownloadViewModel>.Instance, detectTimeout);
 
         /// <summary>Makes the media-extractor registry recognise <paramref name="url"/> as the given HLS/DASH
         /// <paramref name="source"/> (TASK-241) — mirrors <c>MediaVariantPickerTests.RegistryReturning</c>.</summary>
@@ -398,6 +403,91 @@ public sealed class NewDownloadViewModelTests
         vm.UrlWarning.Should().Contain("playlist");
         closed.Should().BeNull("the dialog must stay open so the user sees why nothing was queued");
     }
+
+    [Fact]
+    public async Task Submit_DetectedMedia_TosNoticeDeclined_EnqueuesNothing_AndKeepsTheDialogOpen()
+    {
+        // CLAUDE.md §5: a media download must show the one-time "may violate site ToS" notice. Declining it
+        // cancels the download — nothing is queued and the dialog stays open with a reason.
+        var h = new Harness();
+        h.TosGate.ConfirmAsync(Arg.Any<CancellationToken>()).Returns(Task.FromResult(false));
+        const string masterUrl = "https://video.twimg.com/ext_tw_video/master.m3u8";
+        h.SetMediaSource(masterUrl, HlsSource(masterUrl));
+        var vm = h.Build();
+        bool? closed = null;
+        vm.CloseRequested += (_, ok) => closed = ok;
+        vm.Url = masterUrl;
+
+        await vm.DetectAsync();
+        await vm.DownloadNowCommand.ExecuteAsync(null);
+
+        await h.TosGate.Received(1).ConfirmAsync(Arg.Any<CancellationToken>());
+        await h.Manager.DidNotReceive().EnqueueAsync(
+            Arg.Any<EnqueueDownloadRequest>(), Arg.Any<CancellationToken>());
+        h.Actions.DidNotReceive().Start(Arg.Any<long>());
+        vm.UrlWarning.Should().Contain("cancelled");
+        closed.Should().BeNull("the dialog must stay open so the user sees why nothing was queued");
+    }
+
+    [Fact]
+    public async Task Submit_DetectedMedia_TosNoticeAccepted_EnqueuesTheMediaRequestUnchanged()
+    {
+        var h = new Harness();
+        h.TosGate.ConfirmAsync(Arg.Any<CancellationToken>()).Returns(Task.FromResult(true));
+        const string masterUrl = "https://video.twimg.com/ext_tw_video/master.m3u8";
+        h.SetMediaSource(masterUrl, HlsSource(masterUrl));
+        h.Manager.EnqueueAsync(Arg.Any<EnqueueDownloadRequest>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(77L));
+        var vm = h.Build();
+        vm.Url = masterUrl;
+
+        await vm.DetectAsync();
+        await vm.DownloadNowCommand.ExecuteAsync(null);
+
+        await h.TosGate.Received(1).ConfirmAsync(Arg.Any<CancellationToken>());
+        await h.Manager.Received(1).EnqueueAsync(
+            Arg.Is<EnqueueDownloadRequest>(r =>
+                r.MediaKind == MediaKind.Hls &&
+                r.Url == new Uri("https://video.twimg.com/ext_tw_video/1080.m3u8") &&
+                r.MediaAudioUrl == null &&
+                r.MediaContainer == MediaContainer.Mkv),
+            Arg.Any<CancellationToken>());
+        h.Actions.Received(1).Start(77L);
+    }
+
+    [Fact]
+    public async Task Submit_PlainProgressiveUrl_NeverConsultsTheTosGate()
+    {
+        // The notice is for media downloads only (CLAUDE.md §5) — an ordinary file must never raise it.
+        var h = new Harness();
+        h.SetProbe("firefox-126.0.dmg", 55_300_000, ranges: true);
+        h.Manager.EnqueueAsync(Arg.Any<EnqueueDownloadRequest>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(1L));
+        var vm = h.Build();
+        vm.Url = "https://download.mozilla.org/firefox-126.0.dmg";
+
+        await vm.DetectAsync();
+        await vm.DownloadNowCommand.ExecuteAsync(null);
+
+        await h.TosGate.DidNotReceive().ConfirmAsync(Arg.Any<CancellationToken>());
+        await h.Manager.Received(1).EnqueueAsync(
+            Arg.Is<EnqueueDownloadRequest>(r => r.MediaKind == null), Arg.Any<CancellationToken>());
+    }
+
+    /// <summary>An HLS master playlist with 480p/1080p variants — the shape the dialog's default selection
+    /// resolves to the 1080p stream (AppSettings.DefaultVideoQuality).</summary>
+    private static MediaSource HlsSource(string masterUrl) => new()
+    {
+        ExtractorName = "hls",
+        Kind = MediaKind.Hls,
+        Url = new Uri(masterUrl),
+        SuggestedFileName = "master",
+        Variants =
+        [
+            new VideoVariant("https://video.twimg.com/ext_tw_video/480.m3u8", 480, 800_000),
+            new VideoVariant("https://video.twimg.com/ext_tw_video/1080.m3u8", 1080, 3_000_000),
+        ],
+    };
 
     [Fact]
     public async Task DetectAsync_ManifestUrl_NetworkFailure_WarnsAboutConnectivity_NotMissingMedia()
