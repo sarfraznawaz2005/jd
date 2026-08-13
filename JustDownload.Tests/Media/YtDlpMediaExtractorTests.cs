@@ -23,10 +23,29 @@ public sealed class YtDlpMediaExtractorTests
 
     private static MediaRequest Request(string url) => new() { Url = new Uri(url) };
 
+    /// <summary>True when <paramref name="args"/> carries <c>--cookies</c> immediately followed by
+    /// <paramref name="expectedPath"/> — used to assert the cookie-file retry argv shape.</summary>
+    private static bool HasCookieArg(IReadOnlyList<string> args, string expectedPath) =>
+        args.Contains("--cookies") && args.Contains(expectedPath) &&
+        args.ToList().IndexOf("--cookies") is int i && i + 1 < args.Count && args[i + 1] == expectedPath;
+
     private static ISettingsService SettingsWith(bool videoCaptureEnabled)
     {
         var settings = Substitute.For<ISettingsService>();
         settings.Current.Returns(new AppSettings { VideoCaptureEnabled = videoCaptureEnabled });
+        return settings;
+    }
+
+    private static ISettingsService SettingsWithCookies(
+        bool videoCaptureEnabled, string? cookieFile = null, string? cookieBrowser = null)
+    {
+        var settings = Substitute.For<ISettingsService>();
+        settings.Current.Returns(new AppSettings
+        {
+            VideoCaptureEnabled = videoCaptureEnabled,
+            YtDlpCookieFilePath = cookieFile,
+            YtDlpCookieBrowser = cookieBrowser,
+        });
         return settings;
     }
 
@@ -427,5 +446,154 @@ public sealed class YtDlpMediaExtractorTests
             SettingsWith(false), Substitute.For<IYtDlpLocator>(), Substitute.For<IYtDlpRunner>());
 
         extractor.Priority.Should().Be(int.MaxValue);
+    }
+
+    [Fact]
+    public async Task TryExtractAsync_NoCookieSetting_InvokesYtDlpWithoutCookiesArg()
+    {
+        ISettingsService settings = SettingsWith(videoCaptureEnabled: true);
+        var locator = Substitute.For<IYtDlpLocator>();
+        locator.LocateAsync(Arg.Any<CancellationToken>()).Returns(LocatedYtDlp);
+        var runner = Substitute.For<IYtDlpRunner>();
+        const string json = """
+            {"id":"abc","formats":[
+              {"format_id":"18","url":"https://cdn.example.com/v18","protocol":"https","vcodec":"avc1.42001E","acodec":"mp4a.40.2","height":360}
+            ]}
+            """;
+        runner.RunAsync(Arg.Any<string>(), Arg.Any<IReadOnlyList<string>>(), Arg.Any<CancellationToken>())
+            .Returns(new YtDlpRunResult(0, json, string.Empty));
+
+        await Build(settings, locator, runner).TryExtractAsync(Request("https://www.youtube.com/watch?v=abc"));
+
+        await runner.Received(1).RunAsync(
+            LocatedYtDlp.ExecutablePath,
+            Arg.Is<IReadOnlyList<string>>(args => !args.Contains("--cookies") && !args.Contains("--cookies-from-browser")),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task TryExtractAsync_CookiePathSet_AndBotError_RetriesWithCookiesArg()
+    {
+        ISettingsService settings = SettingsWithCookies(videoCaptureEnabled: true, cookieFile: "C:/cookies.txt");
+        var locator = Substitute.For<IYtDlpLocator>();
+        locator.LocateAsync(Arg.Any<CancellationToken>()).Returns(LocatedYtDlp);
+        var runner = Substitute.For<IYtDlpRunner>();
+        // First call: bot-detection failure. Second (retry): succeeds.
+        runner.RunAsync(Arg.Any<string>(), Arg.Any<IReadOnlyList<string>>(), Arg.Any<CancellationToken>())
+            .Returns(
+                _ => new YtDlpRunResult(
+                    1, string.Empty, "ERROR: [youtube] abc: Sign in to confirm you're not a bot"),
+                _ => new YtDlpRunResult(0, """
+                    {"id":"abc","formats":[
+                      {"format_id":"18","url":"https://cdn.example.com/v18","protocol":"https","vcodec":"avc1.42001E","acodec":"mp4a.40.2","height":360}
+                    ]}
+                    """, string.Empty));
+
+        MediaSource? source = await Build(settings, locator, runner)
+            .TryExtractAsync(Request("https://www.youtube.com/watch?v=abc"));
+
+        source.Should().NotBeNull("the cookie retry dislodged the bot challenge");
+        source!.Variants.Should().ContainSingle();
+        // Exactly one retry: a second invocation carrying the cookie args.
+        await runner.Received(2).RunAsync(
+            LocatedYtDlp.ExecutablePath, Arg.Any<IReadOnlyList<string>>(), Arg.Any<CancellationToken>());
+        await runner.Received(1).RunAsync(
+            LocatedYtDlp.ExecutablePath,
+            Arg.Is<IReadOnlyList<string>>(args => HasCookieArg(args, "C:/cookies.txt")),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task TryExtractAsync_NonBotError_DoesNotRetry_AndSurfacesTheReason()
+    {
+        ISettingsService settings = SettingsWithCookies(videoCaptureEnabled: true, cookieFile: "C:/cookies.txt");
+        var locator = Substitute.For<IYtDlpLocator>();
+        locator.LocateAsync(Arg.Any<CancellationToken>()).Returns(LocatedYtDlp);
+        var runner = Substitute.For<IYtDlpRunner>();
+        // A non-bot failure (unsupported URL) must NOT trigger a cookie retry even when cookies are set.
+        runner.RunAsync(Arg.Any<string>(), Arg.Any<IReadOnlyList<string>>(), Arg.Any<CancellationToken>())
+            .Returns(new YtDlpRunResult(1, string.Empty, "ERROR: [youtube] abc: Unsupported URL"));
+
+        Func<Task<MediaSource?>> act = () => Build(settings, locator, runner)
+            .TryExtractAsync(Request("https://www.youtube.com/watch?v=abc"));
+
+        (await act.Should().ThrowAsync<MediaExtractionFailedException>())
+            .Which.Message.Should().Be("[youtube] abc: Unsupported URL");
+        await runner.Received(1).RunAsync(
+            Arg.Any<string>(), Arg.Any<IReadOnlyList<string>>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task TryExtractAsync_RetrySucceeds_ReturnsTheResult()
+    {
+        ISettingsService settings = SettingsWithCookies(videoCaptureEnabled: true, cookieFile: "C:/c.txt");
+        var locator = Substitute.For<IYtDlpLocator>();
+        locator.LocateAsync(Arg.Any<CancellationToken>()).Returns(LocatedYtDlp);
+        var runner = Substitute.For<IYtDlpRunner>();
+        runner.RunAsync(Arg.Any<string>(), Arg.Any<IReadOnlyList<string>>(), Arg.Any<CancellationToken>())
+            .Returns(
+                _ => new YtDlpRunResult(1, string.Empty, "ERROR: HTTP Error 429: Too Many Requests"),
+                _ => new YtDlpRunResult(0, """
+                    {"id":"abc","formats":[
+                      {"format_id":"22","url":"https://cdn.example.com/v22","protocol":"https","vcodec":"avc1.640028","acodec":"mp4a.40.2","height":720}
+                    ]}
+                    """, string.Empty));
+
+        MediaSource? source = await Build(settings, locator, runner)
+            .TryExtractAsync(Request("https://www.youtube.com/watch?v=abc"));
+
+        source.Should().NotBeNull();
+        source!.Kind.Should().Be(MediaKind.Progressive);
+        source.Variants.Should().ContainSingle().Which.Height.Should().Be(720);
+    }
+
+    [Fact]
+    public async Task TryExtractAsync_RetryAlsoFails_SurfacesRetryReason_StillOnlyOneRetry()
+    {
+        ISettingsService settings = SettingsWithCookies(videoCaptureEnabled: true, cookieFile: "C:/c.txt");
+        var locator = Substitute.For<IYtDlpLocator>();
+        locator.LocateAsync(Arg.Any<CancellationToken>()).Returns(LocatedYtDlp);
+        var runner = Substitute.For<IYtDlpRunner>();
+        // Both the initial probe and the cookie retry hit the bot wall — the retry's own reason wins.
+        runner.RunAsync(Arg.Any<string>(), Arg.Any<IReadOnlyList<string>>(), Arg.Any<CancellationToken>())
+            .Returns(
+                _ => new YtDlpRunResult(1, string.Empty, "ERROR: [youtube] abc: Sign in to confirm you're not a bot"),
+                _ => new YtDlpRunResult(1, string.Empty, "ERROR: [youtube] abc: Sign in to confirm you're not a bot"));
+
+        Func<Task<MediaSource?>> act = () => Build(settings, locator, runner)
+            .TryExtractAsync(Request("https://www.youtube.com/watch?v=abc"));
+
+        (await act.Should().ThrowAsync<MediaExtractionFailedException>())
+            .Which.Message.Should().Be("[youtube] abc: Sign in to confirm you're not a bot");
+        await runner.Received(2).RunAsync(
+            Arg.Any<string>(), Arg.Any<IReadOnlyList<string>>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task TryExtractAsync_CookieBrowserSet_AndBotError_RetriesWithCookiesFromBrowserArg()
+    {
+        // Both cookie sources may be set; the browser variant is exercised separately from the file one.
+        ISettingsService settings = SettingsWithCookies(videoCaptureEnabled: true, cookieBrowser: "chrome");
+        var locator = Substitute.For<IYtDlpLocator>();
+        locator.LocateAsync(Arg.Any<CancellationToken>()).Returns(LocatedYtDlp);
+        var runner = Substitute.For<IYtDlpRunner>();
+        runner.RunAsync(Arg.Any<string>(), Arg.Any<IReadOnlyList<string>>(), Arg.Any<CancellationToken>())
+            .Returns(
+                _ => new YtDlpRunResult(1, string.Empty, "ERROR: Please use --cookies-from-browser"),
+                _ => new YtDlpRunResult(0, """
+                    {"id":"abc","formats":[
+                      {"format_id":"18","url":"https://cdn.example.com/v18","protocol":"https","vcodec":"avc1.42001E","acodec":"mp4a.40.2","height":360}
+                    ]}
+                    """, string.Empty));
+
+        MediaSource? source = await Build(settings, locator, runner)
+            .TryExtractAsync(Request("https://www.youtube.com/watch?v=abc"));
+
+        source.Should().NotBeNull();
+        await runner.Received(1).RunAsync(
+            LocatedYtDlp.ExecutablePath,
+            Arg.Is<IReadOnlyList<string>>(args =>
+                args.Contains("--cookies-from-browser") && args.Contains("chrome")),
+            Arg.Any<CancellationToken>());
     }
 }

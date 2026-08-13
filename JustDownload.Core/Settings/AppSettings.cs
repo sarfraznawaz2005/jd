@@ -161,6 +161,26 @@ public sealed record AppSettings
     public bool VideoCaptureEnabled { get; init; }
 
     /// <summary>
+    /// Optional Netscape-format cookie file passed to yt-dlp as <c>--cookies &lt;path&gt;</c> (TASK-...).
+    /// Used only as a one-shot fallback when a yt-dlp probe fails with a bot-detection-style error
+    /// (e.g. "Sign in to confirm you're not a bot", HTTP 429, "use cookies"); when set, the extractor
+    /// retries the probe exactly once with this cookie file before surfacing the failure. This is the
+    /// preferred cookie fallback — a self-contained, portable file the user exports and points at.
+    /// <see langword="null"/>/empty disables it, leaving yt-dlp's behaviour identical to today.
+    /// </summary>
+    public string? YtDlpCookieFilePath { get; init; }
+
+    /// <summary>
+    /// Optional browser name (e.g. <c>chrome</c>, <c>firefox</c>, <c>brave</c>) whose live cookie store
+    /// yt-dlp reads via <c>--cookies-from-browser &lt;browser&gt;</c> as a fallback for the same
+    /// bot-detection errors. Less portable than a cookie file (the browser must be installed, and some OSes
+    /// need a keyring to decrypt its cookies), so <see cref="YtDlpCookieFilePath"/> is the recommended
+    /// option; both may be set at once and are passed together on the retry. <see langword="null"/>/empty
+    /// disables it.
+    /// </summary>
+    public string? YtDlpCookieBrowser { get; init; }
+
+    /// <summary>
     /// Master toggle for the GitHub Releases update check (TASK-080, PRD 6.3). Gates whether checking for
     /// updates is available at all — no network call is made, not even by the manual "Check for Updates"
     /// button, while this is off. Opt-in — default <see langword="false"/>.

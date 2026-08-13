@@ -42,6 +42,15 @@ namespace JustDownload.Core.Media.YtDlp;
 /// one). The registry records that as a failed attempt and carries on, and the UI can finally tell the user
 /// "yt-dlp: Sign in to confirm you're not a bot" instead of a generic "no media found" (CLAUDE.md §5).
 /// </para>
+/// <para>
+/// When the user has configured a cookie source (<see cref="AppSettings.YtDlpCookieFilePath"/> and/or
+/// <see cref="AppSettings.YtDlpCookieBrowser"/>) as a bot-detection fallback, a probe that fails with a
+/// bot-style error (the sign-in wall, HTTP 429, an explicit "use cookies" hint — matched
+/// case-insensitively against a few known substrings) is retried exactly once with
+/// <c>--cookies</c>/<c>--cookies-from-browser</c> appended. No cookie source configured, or any non-bot
+/// failure, leaves the behaviour byte-identical to before: a single probe, no cookie argv, and the same
+/// reason surfaced. The retry never loops.
+/// </para>
 /// </summary>
 internal sealed partial class YtDlpMediaExtractor : IMediaExtractor
 {
@@ -93,8 +102,34 @@ internal sealed partial class YtDlpMediaExtractor : IMediaExtractor
             return null; // Not provisioned. Provisioning is an explicit user action, never implicit here.
         }
 
+        // Built once: the base probe (no cookies) — identical to the pre-cookie behaviour — and the
+        // cookie args, which are appended only on the one-shot bot-detection retry below. When no cookie
+        // source is configured this array is empty and the retry branch is never taken.
+        string[] cookieArgs = BuildCookieArguments(_settings.Current);
         string[] arguments = [.. BaseArguments, request.Url.AbsoluteUri];
 
+        try
+        {
+            return await RunAndMapAsync(ytDlp, arguments, request, cancellationToken).ConfigureAwait(false);
+        }
+        catch (MediaExtractionFailedException ex)
+            when (cookieArgs.Length > 0 && IsBotDetectionReason(ex.Message))
+        {
+            // yt-dlp hit a bot challenge (sign-in wall, HTTP 429, "use cookies"). The user supplied a
+            // cookie source as the fallback for exactly this — retry once, with cookies, then surface
+            // whatever the retry says either way. No loop: a second failure just propagates out.
+            LogCookieFallback(_logger, request.Url, ex.Message);
+            return await RunAndMapAsync(ytDlp, [.. arguments, .. cookieArgs], request, cancellationToken)
+                .ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>Probes once with the given argv and either maps a <see cref="MediaSource"/> or throws a
+    /// <see cref="MediaExtractionFailedException"/> carrying the reason (launch failure, non-zero exit, or
+    /// unreadable/no-usable-format output) — never returns <see langword="null"/>.</summary>
+    private async Task<MediaSource> RunAndMapAsync(
+        YtDlpInfo ytDlp, string[] arguments, MediaRequest request, CancellationToken cancellationToken)
+    {
         YtDlpRunResult result;
         try
         {
@@ -121,6 +156,46 @@ internal sealed partial class YtDlpMediaExtractor : IMediaExtractor
 
         return TryMap(result.StandardOutput, request.Url);
     }
+
+    /// <summary>
+    /// Builds the <c>--cookies &lt;path&gt;</c> / <c>--cookies-from-browser &lt;browser&gt;</c> argv for the
+    /// bot-detection fallback, in that order. Returns an empty array when neither cookie source is
+    /// configured, so the retry branch in <see cref="TryExtractAsync"/> is never taken and yt-dlp's
+    /// behaviour is byte-identical to before this feature existed.
+    /// </summary>
+    private static string[] BuildCookieArguments(AppSettings settings)
+    {
+        var args = new List<string>(capacity: 4);
+
+        string? cookieFile = settings.YtDlpCookieFilePath;
+        if (!string.IsNullOrWhiteSpace(cookieFile))
+        {
+            args.Add("--cookies");
+            args.Add(cookieFile);
+        }
+
+        string? browser = settings.YtDlpCookieBrowser;
+        if (!string.IsNullOrWhiteSpace(browser))
+        {
+            args.Add("--cookies-from-browser");
+            args.Add(browser);
+        }
+
+        return [.. args];
+    }
+
+    /// <summary>
+    /// Heuristic: does this failure reason look like YouTube's bot-detection wall, an HTTP 429, or an
+    /// explicit "use cookies" hint? These are the cases the user's supplied cookie source is meant to
+    /// dislodge. Matched case-insensitively against a handful of known substrings (the reason comes from
+    /// yt-dlp's last <c>ERROR:</c> stderr line, stripped of its prefix).
+    /// </summary>
+    private static bool IsBotDetectionReason(string reason) =>
+        reason.Contains("confirm you're not a bot", StringComparison.OrdinalIgnoreCase) ||
+        reason.Contains("429", StringComparison.OrdinalIgnoreCase) ||
+        reason.Contains("too many requests", StringComparison.OrdinalIgnoreCase) ||
+        reason.Contains("cookies", StringComparison.OrdinalIgnoreCase) ||
+        reason.Contains("bot", StringComparison.OrdinalIgnoreCase);
 
     private MediaSource TryMap(string standardOutput, Uri requestUrl)
     {
@@ -290,6 +365,9 @@ internal sealed partial class YtDlpMediaExtractor : IMediaExtractor
 
     [LoggerMessage(EventId = 1, Level = LogLevel.Debug, Message = "yt-dlp failed to run for {Url}; declining.")]
     private static partial void LogRunFailed(ILogger logger, Uri url, Exception exception);
+
+    [LoggerMessage(EventId = 5, Level = LogLevel.Debug, Message = "yt-dlp hit a bot-detection error for {Url} ({Reason}); retrying once with configured cookies.")]
+    private static partial void LogCookieFallback(ILogger logger, Uri url, string reason);
 
     [LoggerMessage(EventId = 2, Level = LogLevel.Debug, Message = "yt-dlp exited {ExitCode} for {Url}: {Error}")]
     private static partial void LogNonZeroExit(ILogger logger, Uri url, int exitCode, string error);
