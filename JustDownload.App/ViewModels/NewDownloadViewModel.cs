@@ -501,15 +501,19 @@ public sealed partial class NewDownloadViewModel : ViewModelBase, IDisposable
     }
 
     /// <summary>
-    /// Recognises an HLS/DASH manifest by its URL extension (TASK-241 bug fix) and, only then, asks the
-    /// registry to actually parse it — the same extractors the extension-driven quality picker uses
-    /// (<see cref="IMediaExtractorRegistry"/>), so master-playlist/variant parsing is never duplicated here.
-    /// Every other URL (the overwhelming majority pasted/typed into this dialog) never reaches the registry
-    /// at all, so ordinary progressive downloads are entirely unaffected (AC2) and no heavier extractor
-    /// (YouTube/Facebook/yt-dlp) ever runs against a non-manifest link.
+    /// Routes a URL to the media-extractor registry when it either looks like an HLS/DASH manifest
+    /// (TASK-241 bug fix) or sits on a known video host (<c>youtube.com</c>/<c>x.com</c>/<c>twitter.com</c>/
+    /// <c>facebook.com</c>/<c>fb.watch</c>/<c>instagram.com</c> and their subdomains, TASK-265) — so a pasted
+    /// YouTube/X/Facebook/Instagram <em>page</em> URL is now attempted by the in-house extractors and, if they
+    /// decline, by yt-dlp, and any failure reason (bot challenge, "couldn't extract", network) is surfaced by
+    /// <see cref="MediaExtractionMessage.TryDescribeFailure"/> instead of being swallowed. The host allowlist
+    /// (gated through <see cref="MediaHosts.IsKnownVideoHost"/>) is mandatory because yt-dlp is a catch-all
+    /// that would spawn a subprocess for <em>any</em> URL — without it, an ordinary progressive link would be
+    /// handed to the registry too and breach AC2. URLs on no known video host and with no manifest extension
+    /// still take the exact same plain-probe path as before and never touch the registry at all.
     /// </summary>
     private Task<MediaExtractionResult> TryDetectMediaAsync(Uri uri, CancellationToken cancellationToken) =>
-        LooksLikeMediaManifest(uri)
+        LooksLikeMediaManifest(uri) || MediaHosts.IsKnownVideoHost(uri)
             ? _mediaRegistry.ExtractAsync(new MediaRequest { Url = uri }, cancellationToken)
             : Task.FromResult(MediaExtractionResult.None);
 

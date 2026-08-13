@@ -3,6 +3,19 @@
 Architectural and design decisions made during development.
 All agents should read this before starting work and log new decisions here.
 
+## New Download dialog: video-host page URLs now routed through the extraction registry, gated by a host allowlist
+**When**: 2026-08-14
+
+TASK-265. A pasted YouTube / X(twitter.com) / Facebook / Instagram *page* URL used to short-circuit straight to the plain IResourceProbe path (NewDownloadViewModel.TryDetectMediaAsync only consulted IMediaExtractorRegistry when LooksLikeMediaManifest(uri) — an .m3u8/.m3u/.mpd), so the per-extractor decline/failure reasons built in b52e1b9 were never seen for those URLs and extraction failures were unexplained.
+
+Fix: the gate is now `LooksLikeMediaManifest(uri) || MediaHosts.IsKnownVideoHost(uri)`. New internal `JustDownload.Core/Media/Extraction/MediaHosts.cs` exposes `IsKnownVideoHost(Uri)` — a coarse `OrdinalIgnoreCase` host allowlist covering youtube.com/youtu.be (+ subdomains), x.com/twitter.com (+ subdomains), facebook.com/fb.watch (+ subdomains), instagram.com (+ subdomains) — mirroring the browser extension's `EXTRACTABLE_HOSTS` (extended for x.com in c421dec and instagram.com in d768653). The per-extractor `LooksLikeX` methods remain the precise recognizers; the allowlist is only the "should we even try" gate. For a video-host page URL the registry runs; if no extractor returns a `MediaSource`, `extraction.Source` is null and the existing `_mediaFailure = MediaExtractionMessage.TryDescribeFailure(uri, extraction.Attempts)` branch (NewDownloadViewModel.cs:425) maps the attempts — including a yt-dlp "Sign in to confirm you're not a bot" failure — into `UrlWarning`. No new explanation code added.
+
+The allowlist is MANDATORY, not a nicety: `YtDlpMediaExtractor` is a catch-all with `Priority = int.MaxValue` and no host check, so it would spawn `yt-dlp --dump-json` for *any* URL handed to the registry. Routing an arbitrary pasted file URL to the registry would therefore launch yt-dlp on every plain-file paste, breaching AC2 ("no heavier extractor ever runs against a non-manifest link"). A plain non-video-host URL (e.g. example.com/file.zip) still does NOT call `ExtractAsync` — proven by a regression test asserting `DidNotReceive`.
+
+`MediaHosts` is `internal`; because it's consumed by `JustDownload.App`, `JustDownload.Core.csproj` now has `<InternalsVisibleTo Include="JustDownload.Tests" />` joined by a new `<InternalsVisibleTo Include="JustDownload.App" />` (Tests already had access). No interface change (`IMediaExtractor.CanHandle` was explicitly not added) — surgical.
+
+**Impact**: JustDownload.Core/Media/Extraction/MediaHosts.cs (new), JustDownload.Core/JustDownload.Core.csproj (InternalsVisibleTo App), JustDownload.App/ViewModels/NewDownloadViewModel.cs (gate + doc comment), JustDownload.Tests/App/NewDownloadViewModelTests.cs (5 new tests: YouTube/X/Facebook page URLs consult the registry; plain non-video-host URL does not; failed attempt on a video-host URL surfaces the attributed reason, not the generic "couldn't find"). 54/54 NewDownloadViewModelTests green.
+
 ## Media extractors: suggested filename from real title, not opaque id
 **When**: 2026-08-13 18:24:18
 

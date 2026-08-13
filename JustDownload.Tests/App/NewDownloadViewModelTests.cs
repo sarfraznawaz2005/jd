@@ -7,6 +7,7 @@ using JustDownload.Core.Media;
 using JustDownload.Core.Media.Extraction;
 using JustDownload.Core.Security;
 using JustDownload.Core.Settings;
+using JustDownload.App.Formatting;
 using JustDownload.Core.Transport;
 using JustDownload.Core.Transport.Proxy;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -296,6 +297,94 @@ public sealed class NewDownloadViewModelTests
                 r.MediaKind == null &&
                 r.Url == new Uri("https://download.mozilla.org/firefox-126.0.dmg")),
             Arg.Any<CancellationToken>());
+    }
+
+    // ---- Video-host page URL routing through the registry (TASK-265) ----
+    // A pasted YouTube / X / Facebook / Instagram *page* URL used to short-circuit straight to the plain
+    // probe path, so the per-extractor decline/failure reasons were never seen for them. Now the
+    // MediaHosts allowlist lets such URLs reach the registry too.
+
+    [Fact]
+    public async Task DetectAsync_YouTubeWatchUrl_ConsultsMediaRegistry()
+    {
+        var h = new Harness();
+        h.SetProbe("video.mp4", 1000, ranges: true);
+        var vm = h.Build();
+        vm.Url = "https://www.youtube.com/watch?v=dQw4w9WgXcQ";
+
+        await vm.DetectAsync();
+
+        await h.MediaRegistry.Received(1).ExtractAsync(
+            Arg.Is<MediaRequest>(r => r.Url == new Uri("https://www.youtube.com/watch?v=dQw4w9WgXcQ")),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task DetectAsync_XStatusUrl_ConsultsMediaRegistry()
+    {
+        var h = new Harness();
+        h.SetProbe("video.mp4", 1000, ranges: true);
+        var vm = h.Build();
+        vm.Url = "https://x.com/SomeUser/status/1234567890";
+
+        await vm.DetectAsync();
+
+        await h.MediaRegistry.Received(1).ExtractAsync(
+            Arg.Is<MediaRequest>(r => r.Url == new Uri("https://x.com/SomeUser/status/1234567890")),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task DetectAsync_FacebookReelUrl_ConsultsMediaRegistry()
+    {
+        var h = new Harness();
+        h.SetProbe("video.mp4", 1000, ranges: true);
+        var vm = h.Build();
+        vm.Url = "https://www.facebook.com/reel/9876543210";
+
+        await vm.DetectAsync();
+
+        await h.MediaRegistry.Received(1).ExtractAsync(
+            Arg.Is<MediaRequest>(r => r.Url == new Uri("https://www.facebook.com/reel/9876543210")),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task DetectAsync_PlainNonVideoHostUrl_NeverConsultsMediaRegistry()
+    {
+        // AC2 regression for the new gate: a plain file URL on a host outside the allowlist must still
+        // never reach the registry — only a pasted video-host page URL now does.
+        var h = new Harness();
+        h.SetProbe("firefox-126.0.dmg", 55_300_000, ranges: true);
+        var vm = h.Build();
+        vm.Url = "https://example.com/file.zip";
+
+        await vm.DetectAsync();
+
+        vm.FileName.Should().Be("firefox-126.0.dmg");
+        await h.MediaRegistry.DidNotReceive().ExtractAsync(Arg.Any<MediaRequest>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task DetectAsync_VideoHostUrl_ExtractorFailure_SurfacesExplanationNotGenericNotFound()
+    {
+        // The whole point: a failed attempt (yt-dlp disabled, no in-house match) on a video-host page URL
+        // now reaches the explanation path, so UrlWarning carries the attributed reason instead of the
+        // generic "couldn't find" string.
+        var h = new Harness();
+        h.SetMediaExtractionFailure(
+            MediaExtractionAttempt.Failed("yt-dlp", "Sign in to confirm you're not a bot"));
+        h.SetProbe("video.mp4", 1000, ranges: true);
+        var vm = h.Build();
+        vm.Url = "https://www.youtube.com/watch?v=dQw4w9WgXcQ";
+
+        await vm.DetectAsync();
+
+        vm.UrlWarning.Should().NotBeNull("a failure reached through the registry is explained, not swallowed");
+        vm.UrlWarning.Should().Contain("yt-dlp").And.Contain("bot",
+            "the att's own reason must be what the user sees");
+        vm.UrlWarning.Should().NotBe(MediaExtractionMessage.NoMediaFound,
+            "the generic 'no media found' must not replace the real diagnosis");
     }
 
     [Fact]

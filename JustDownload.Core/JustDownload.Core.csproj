@@ -20,6 +20,12 @@
     <!-- The test project verifies internal seams (e.g. the settings storage-key contract) directly. -->
     <InternalsVisibleTo Include="JustDownload.Tests" />
     <!--
+      The App's New Download dialog gates page URLs through the internal MediaHosts allowlist before
+      handing them to the extractor registry (TASK-265). First-party consumer of the engine, same as
+      Tests, so the internal gate stays internal rather than being promoted to public surface.
+    -->
+    <InternalsVisibleTo Include="JustDownload.App" />
+    <!--
       NSubstitute (Castle DynamicProxy) needs this to fake an internal interface (e.g.
       IMacKeychainInterop, TASK-113) — without it, Substitute.For<T>() on an internal type throws at
       runtime because the dynamically generated proxy assembly can't see internal members.
