@@ -123,7 +123,12 @@
   // player's own chunk fetches, so the captured URL addresses one slice ("range=0-1310719"), not the
   // stream — handing that to the engine downloads a fragment. Stripping them restores the whole-stream
   // URL the engine can then Range-request itself.
-  const CHUNK_PARAMS = ["range", "rn", "rbuf"];
+  // `bytestart`/`byteend` are Instagram/Facebook's own byte-serving equivalent on fbcdn.net URLs (TASK-242):
+  // best-effort only — whether stripping them actually makes the CDN serve the full file, rather than
+  // erroring or still defaulting to a small chunk, is unverified here (this sandbox cannot reach
+  // facebook.com/instagram.com at all) and needs live verification. It only matters if the fallbackUrl
+  // button is used, since instagram.com is now extracted via the page URL instead by default.
+  const CHUNK_PARAMS = ["range", "rn", "rbuf", "bytestart", "byteend"];
 
   // Sites the desktop app has a dedicated extractor for (TASK-232), mirroring Core's YouTubeMediaExtractor
   // and FacebookMediaExtractor host rules. On these the extension deliberately does NOT try to guess a
@@ -138,7 +143,20 @@
   // enabled the page is declined by every extractor — which is why an extraction hand-off also carries
   // `fallbackUrl` (see buildDownloadMessage): the stream the sniffer already saw, offered in the picker
   // instead of a dead end.
-  const EXTRACTABLE_HOSTS = ["youtube.com", "youtu.be", "facebook.com", "fb.watch", "x.com", "twitter.com"];
+  // instagram.com joined this list (TASK-242) for the same reason: Instagram's player fetches video through
+  // a custom byte-serving query string (`bytestart`/`byteend`) on the CDN URL rather than the standard HTTP
+  // Range header, so whatever the sniffer captured is one small chunk, not the stream — handing it off as a
+  // direct download silently saved a ~14KB unplayable fMP4 fragment. There is also no in-house Instagram
+  // extractor in JustDownload.Core, so this relies on the same fallbackUrl mechanism as x.com/twitter.com.
+  const EXTRACTABLE_HOSTS = [
+    "youtube.com",
+    "youtu.be",
+    "facebook.com",
+    "fb.watch",
+    "x.com",
+    "twitter.com",
+    "instagram.com",
+  ];
 
   /** Whether the desktop app has a site extractor for this page's host, so the page URL is worth handing off. */
   function isExtractablePage(url) {

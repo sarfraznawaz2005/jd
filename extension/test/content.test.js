@@ -337,3 +337,38 @@ test("the icon on a non-extractable page targets the master the background picke
   const sent = sentMessages.find((m) => m.type === "DOWNLOAD_LINK");
   assert.equal(sent.url, "https://cdn.example.com/master.m3u8", "content.js uses the background's choice");
 });
+
+// --- instagram.com routing + no-regression fallback (TASK-242) --------------------------------------
+
+const REEL_URL = "https://www.instagram.com/reels/Dbnng9EBBfr/";
+const IG_CDN_URL =
+  "https://instagram.fkhi28-1.fna.fbcdn.net/o1/v/t2/f2/m78/clip.mp4?_nc_cat=110&bytestart=15876&byteend=30194";
+
+test("an instagram.com reel page routes through extraction (TASK-242)", async () => {
+  const video = makeMediaElement("video", "blob:https://www.instagram.com/abc");
+  const { appended, sentMessages } = await runContentScript([video], {
+    href: REEL_URL,
+    tabMedia: [{ url: IG_CDN_URL, kind: "video" }],
+  });
+
+  assert.equal(appended.length, 1);
+  await appended[0].clickAndSettle();
+  const sent = sentMessages.find((m) => m.type === "DOWNLOAD_LINK");
+  assert.equal(sent.url, REEL_URL, "the page URL goes to the app's extractor pipeline");
+  assert.equal(sent.extract, true);
+});
+
+test("an instagram.com extraction hand-off carries the sniffed CDN URL as a fallback (TASK-242)", async () => {
+  // Without this, adding instagram.com to EXTRACTABLE_HOSTS would be a straight regression for anyone whose
+  // app has no yt-dlp: there is no in-house Instagram extractor, so the page is declined by everything and
+  // the user loses the sniffed (if fragment-only) download they had before.
+  const video = makeMediaElement("video", "blob:https://www.instagram.com/abc");
+  const { appended, sentMessages } = await runContentScript([video], {
+    href: REEL_URL,
+    tabMedia: [{ url: IG_CDN_URL, kind: "video" }],
+  });
+
+  await appended[0].clickAndSettle();
+  const sent = sentMessages.find((m) => m.type === "DOWNLOAD_LINK");
+  assert.equal(sent.fallbackUrl, IG_CDN_URL, "the stream the sniffer saw travels with the page hand-off");
+});

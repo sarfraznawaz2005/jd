@@ -48,6 +48,13 @@ test("normalizeMediaUrl strips per-chunk params so one stream is one entry (TASK
   assert.equal(JD.normalizeMediaUrl("not a url"), "not a url", "unparseable input is returned as-is");
 });
 
+test("normalizeMediaUrl strips Instagram/Facebook's byte-serving params, keeping unrelated ones (TASK-242)", () => {
+  const stripped = JD.normalizeMediaUrl(
+    "https://instagram.fkhi28-1.fna.fbcdn.net/o1/v/t2/clip.mp4?_nc_cat=110&bytestart=15876&byteend=30194",
+  );
+  assert.equal(stripped, "https://instagram.fkhi28-1.fna.fbcdn.net/o1/v/t2/clip.mp4?_nc_cat=110");
+});
+
 test("isBlacklisted matches host and subdomains (TASK-069 AC0)", () => {
   const list = ["example.com", "videos.test"];
   assert.equal(JD.isBlacklisted("https://example.com/a", list), true);
@@ -219,6 +226,15 @@ test("isExtractablePage covers x.com/twitter.com (TASK-241)", () => {
   assert.equal(JD.isExtractablePage("https://twitter.com/someone/status/123"), true);
   assert.equal(JD.isExtractablePage("https://mobile.twitter.com/someone/status/123"), true, "subdomains count");
   assert.equal(JD.isExtractablePage("https://notx.com/status/1"), false, "no false suffix match");
+});
+
+test("isExtractablePage covers instagram.com (TASK-242)", () => {
+  // Instagram serves video via a custom bytestart/byteend query string on the CDN URL rather than standard
+  // HTTP Range, so the sniffer only ever sees one small buffered chunk. Like Twitter, there is no in-house
+  // Instagram extractor, so the page URL routes through yt-dlp (if enabled) with a fallbackUrl safety net.
+  assert.equal(JD.isExtractablePage("https://www.instagram.com/reels/Dbnng9EBBfr/"), true);
+  assert.equal(JD.isExtractablePage("https://instagram.com/reels/Dbnng9EBBfr/"), true);
+  assert.equal(JD.isExtractablePage("https://notinstagram.com/reels/1"), false, "no false suffix match");
 });
 
 test("buildDownloadMessage carries a fallback stream URL, normalizing absent ones to null (TASK-241)", () => {
