@@ -3,6 +3,21 @@
 Architectural and design decisions made during development.
 All agents should read this before starting work and log new decisions here.
 
+## Actionable extraction-failure hints in the picker and New Download dialog (TASK-...)
+**When**: 2026-08-14
+
+The raw failure reason already surfaces as `MediaExtractionMessage.TryDescribeFailure` → `Message` (picker) / `UrlWarning` (New Download). But a known, fixable cause (yt-dlp missing a JS runtime; yt-dlp bot-detection/rate-limit) deserves a clickable hint below that text, not just the reason string.
+
+Design (D5 kept: Core stays display-free):
+- New `JustDownload.App/Formatting/ExtractionHint.cs`: `ExtractionHintKind { None, InstallJsRuntime, TryCookies }`, `ExtractionHint(Kind, Text, ActionUri)` record, and a pure `static ExtractionHintClassifier.Classify(IReadOnlyList<MediaExtractionAttempt> attempts)`. It scans attempts where `Outcome == Failed || NetworkFailure`, substring-matches (case-insensitive) the already-redacted reason — JS runtime: "javascript runtime" / "js runtime" / "deno"; bot/cookies: "confirm you're not a bot" / "too many requests" / "429" / "cookies" — and returns the first match, JS-runtime taking priority. `InstallJsRuntime` → deno.land, `TryCookies` → the yt-dlp cookies wiki (#cookies). Returns null for declines or unrelated failures. The classifier deliberately does NOT re-sanitize — the reason is already redacted by `ExtractionReasonSanitizer` at attempt construction (CLAUDE.md §5).
+- `IProcessLauncher` gained `void OpenUrl(string url)` (UseShellExecute = true) in addition to the existing no-shell `Launch` — the clean home for opening the hint links; `Launch` semantics untouched.
+- Both VMs gained an `IProcessLauncher launcher` constructor param (DI already resolves it; it's a singleton) plus `[ObservableProperty] private ExtractionHint? _hint;`, set the hint alongside the failure message and cleared it wherever `Message`/`UrlWarning`/`DetectionMessage` clear. Both expose `Task OpenHintAsync()` (never throws, fire-and-forget) that calls `_launcher.OpenUrl(Hint.ActionUri)`.
+- XAML: a `HyperlinkButton` bound to `Hint.Text`, `IsVisible` on `Hint != null` (ObjectConverters.IsNotNull), `Click="OnOpenHint"`, styled `Classes="App Ghost"` to read as a link, added in both dialogs below the failure text.
+
+The cookie hint deliberately points to the yt-dlp wiki and says "Settings → Video, once that UI lands" — the cookie settings controls were left for a separate task (only the AppSettings keys `media.video_capture_cookie_file` / `media.video_capture_cookie_browser` exist). No cookie settings UI was built here. Full `dotnet build -c Release` 0 warn/0 err; targeted tests green (MediaVariantPickerTests, NewDownloadViewModelTests, new ExtractionHintTests).
+
+**Impact**: NEW JustDownload.App/Formatting/ExtractionHint.cs. CHANGED JustDownload.App/Services/IProcessLauncher.cs (+OpenUrl), JustDownload.App/ViewModels/MediaVariantPickerViewModel.cs & NewDownloadViewModel.cs (launcher dep + Hint + OpenHintAsync), both *.Window.axaml(.cs) (HyperlinkButton + handler), three test harnesses updated for the new ctor param, JustDownload.Tests/App/ExtractionHintTests.cs (new). Build/VM construction goes through DI (GetRequiredService) so only test harnesses needed a manual ctor update.
+
 ## New Download dialog: video-host page URLs now routed through the extraction registry, gated by a host allowlist
 **When**: 2026-08-14
 

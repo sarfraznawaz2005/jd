@@ -36,6 +36,9 @@
         <TextBlock Text="{Binding UrlWarning}" TextWrapping="Wrap" FontSize="11.5"
                    Foreground="{DynamicResource RedBrush}" />
       </Border>
+      <HyperlinkButton Content="{Binding Hint.Text}"
+                      IsVisible="{Binding Hint, Converter={x:Static ObjectConverters.IsNotNull}}"
+                      Classes="App Ghost" Click="OnOpenHint" />
     </StackPanel>
 
     <!-- File name + Category -->

@@ -111,6 +111,14 @@ public partial class NewDownloadWindow : Window
 
     private void OnCloseRequested(object? sender, bool enqueued) => Close(enqueued);
 
+    private async void OnOpenHint(object? sender, RoutedEventArgs e)
+    {
+        if (DataContext is NewDownloadViewModel vm)
+        {
+            await vm.OpenHintAsync();
+        }
+    }
+
     private async void OnBrowse(object? sender, RoutedEventArgs e)
     {
         if (DataContext is not NewDownloadViewModel vm)

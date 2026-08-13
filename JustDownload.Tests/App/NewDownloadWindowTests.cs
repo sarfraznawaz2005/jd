@@ -38,7 +38,8 @@ public sealed class NewDownloadWindowTests
             Substitute.For<IDuplicateDownloadCheck>(),
             Substitute.For<ISecretStore>(),
             Substitute.For<ITosNoticeGate>(),
-            NullLogger<NewDownloadViewModel>.Instance);
+            NullLogger<NewDownloadViewModel>.Instance,
+            Substitute.For<IProcessLauncher>());
     }
 
     [AvaloniaFact]

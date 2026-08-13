@@ -70,5 +70,13 @@ public partial class MediaVariantPickerWindow : Window
         }
     }
 
+    private async void OnOpenHint(object? sender, RoutedEventArgs e)
+    {
+        if (DataContext is MediaVariantPickerViewModel vm)
+        {
+            await vm.OpenHintAsync();
+        }
+    }
+
     private void OnCancel(object? sender, RoutedEventArgs e) => Close(false);
 }

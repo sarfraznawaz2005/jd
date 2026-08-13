@@ -48,6 +48,7 @@ public sealed partial class MediaVariantPickerViewModel : ViewModelBase
     private readonly ITosNoticeGate _tosGate;
     private readonly IGlobalErrorHandler _errors;
     private readonly ILogger<MediaVariantPickerViewModel> _logger;
+    private readonly IProcessLauncher _launcher;
     private MediaSource? _source;
     private bool _detecting;
     private Uri? _lastAttemptedUrl;
@@ -60,6 +61,9 @@ public sealed partial class MediaVariantPickerViewModel : ViewModelBase
 
     [ObservableProperty]
     private string? _message;
+
+    [ObservableProperty]
+    private ExtractionHint? _hint;
 
     [ObservableProperty]
     private MediaKind? _kind;
@@ -88,7 +92,8 @@ public sealed partial class MediaVariantPickerViewModel : ViewModelBase
         IDownloadFolderProvider folders,
         ITosNoticeGate tosGate,
         IGlobalErrorHandler errors,
-        ILogger<MediaVariantPickerViewModel> logger)
+        ILogger<MediaVariantPickerViewModel> logger,
+        IProcessLauncher launcher)
     {
         ArgumentNullException.ThrowIfNull(registry);
         ArgumentNullException.ThrowIfNull(settings);
@@ -98,6 +103,7 @@ public sealed partial class MediaVariantPickerViewModel : ViewModelBase
         ArgumentNullException.ThrowIfNull(tosGate);
         ArgumentNullException.ThrowIfNull(errors);
         ArgumentNullException.ThrowIfNull(logger);
+        ArgumentNullException.ThrowIfNull(launcher);
         _registry = registry;
         _settings = settings;
         _manager = manager;
@@ -106,6 +112,7 @@ public sealed partial class MediaVariantPickerViewModel : ViewModelBase
         _tosGate = tosGate;
         _errors = errors;
         _logger = logger;
+        _launcher = launcher;
         _selectedContainer = settings.Current.DefaultContainer;
     }
 
@@ -173,6 +180,21 @@ public sealed partial class MediaVariantPickerViewModel : ViewModelBase
 
         Url = FallbackUrl;
         return RedetectAsync();
+    }
+
+    /// <summary>
+    /// Opens the hint's target URL (deno.land / the yt-dlp cookies wiki) in the OS default browser. Deliberately
+    /// never throws — like the existing async-void-safe affordances, the click is fire-and-forget and an open
+    /// failure must not surface as an unobserved exception.
+    /// </summary>
+    public Task OpenHintAsync()
+    {
+        if (Hint is { } h && !string.IsNullOrWhiteSpace(h.ActionUri))
+        {
+            _launcher.OpenUrl(h.ActionUri);
+        }
+
+        return Task.CompletedTask;
     }
 
     private async Task DetectAsync(bool force)
@@ -345,6 +367,7 @@ public sealed partial class MediaVariantPickerViewModel : ViewModelBase
 
         IsLoading = true;
         Message = null;
+        Hint = null;
         CanUseFallback = false;
         _source = null;
         Variants.Clear();
@@ -363,6 +386,7 @@ public sealed partial class MediaVariantPickerViewModel : ViewModelBase
                 // Say why, not just "nothing found": a DNS/connectivity failure and a yt-dlp bot challenge
                 // used to be indistinguishable from "this page has no video" (CLAUDE.md §5).
                 Message = MediaExtractionMessage.Describe(url, extraction.Attempts);
+                Hint = ExtractionHintClassifier.Classify(extraction.Attempts);
                 CanUseFallback = HasUsableFallback(url);
                 return;
             }

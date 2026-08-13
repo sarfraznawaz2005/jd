@@ -1,6 +1,7 @@
 using Avalonia.Headless.XUnit;
 using FluentAssertions;
 using JustDownload.App.Services;
+using JustDownload.App.Formatting;
 using JustDownload.App.ViewModels;
 using JustDownload.App.Views;
 using JustDownload.Core.Categorization;
@@ -75,7 +76,8 @@ public sealed class MediaVariantPickerTests
             folders,
             tosGate ?? AlwaysAllows(),
             errors ?? Substitute.For<IGlobalErrorHandler>(),
-            NullLogger<MediaVariantPickerViewModel>.Instance);
+            NullLogger<MediaVariantPickerViewModel>.Instance,
+            Substitute.For<IProcessLauncher>());
     }
 
     private static MediaSource HlsSource(params int[] heights) => new()
@@ -684,6 +686,60 @@ public sealed class MediaVariantPickerTests
         await vm.LoadAsync(new Uri("https://www.youtube.com/watch?v=CqlDf9ba4jA"));
 
         vm.Message.Should().Contain("yt-dlp: Sign in to confirm you're not a bot");
+    }
+
+    [Fact]
+    public async Task LoadAsync_JsRuntimeFailure_SetsInstallJsRuntimeHint()
+    {
+        // AC2: the raw reason still shows (above), but a clickable hint is added for the known, fixable cause.
+        MediaVariantPickerViewModel vm = Build(
+            RegistryFor(NothingFound(
+                MediaExtractionAttempt.Failed(
+                    "yt-dlp",
+                    "No supported JavaScript runtime could be found. YouTube extraction without a JS runtime has been deprecated"))),
+            SettingsWith(VideoQuality.P720, MediaContainer.Mkv));
+
+        await vm.LoadAsync(new Uri("https://www.youtube.com/watch?v=CqlDf9ba4jA"));
+
+        vm.Hint.Should().NotBeNull();
+        vm.Hint!.Kind.Should().Be(ExtractionHintKind.InstallJsRuntime);
+        vm.Hint.ActionUri.Should().StartWith("https://deno.land/");
+    }
+
+    [Fact]
+    public async Task LoadAsync_EveryExtractorDeclined_LeavesHintNull()
+    {
+        MediaVariantPickerViewModel vm = Build(
+            RegistryFor(NothingFound(
+                MediaExtractionAttempt.Declined("hls"),
+                MediaExtractionAttempt.Declined("progressive"))),
+            SettingsWith(VideoQuality.P720, MediaContainer.Mkv));
+
+        await vm.LoadAsync(new Uri("https://example.com/article"));
+
+        vm.Hint.Should().BeNull("a plain decline has no actionable hint");
+    }
+
+    [Fact]
+    public async Task OpenHintAsync_InvokesProcessLauncherWithTheHintUri()
+    {
+        var launcher = Substitute.For<IProcessLauncher>();
+        var registry = RegistryFor(NothingFound(
+            MediaExtractionAttempt.Failed(
+                "yt-dlp",
+                "No supported JavaScript runtime could be found. YouTube extraction without a JS runtime has been deprecated")));
+        var folders = Substitute.For<IDownloadFolderProvider>();
+        folders.GetFolderForCategory(Arg.Any<FileCategory>()).Returns(@"C:\Downloads\Video");
+        var vm = new MediaVariantPickerViewModel(
+            registry, SettingsWith(VideoQuality.P720, MediaContainer.Mkv),
+            Substitute.For<IDownloadManager>(), Substitute.For<IDownloadActions>(), folders,
+            AlwaysAllows(), Substitute.For<IGlobalErrorHandler>(),
+            NullLogger<MediaVariantPickerViewModel>.Instance, launcher);
+
+        await vm.LoadAsync(new Uri("https://www.youtube.com/watch?v=CqlDf9ba4jA"));
+        await vm.OpenHintAsync();
+
+        launcher.Received(1).OpenUrl(Arg.Is<string>(u => u.StartsWith("https://deno.land/")));
     }
 
     [Fact]

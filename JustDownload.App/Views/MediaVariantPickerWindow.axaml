@@ -27,6 +27,11 @@
                IsVisible="{Binding Message, Converter={x:Static ObjectConverters.IsNotNull}}"
                Foreground="{DynamicResource TextDimBrush}" />
 
+    <!-- Actionable hint for a known, fixable extraction failure (missing JS runtime / bot-detection) -->
+    <HyperlinkButton Content="{Binding Hint.Text}"
+                    IsVisible="{Binding Hint, Converter={x:Static ObjectConverters.IsNotNull}}"
+                    Classes="App Ghost" Click="OnOpenHint" />
+
     <!-- Fallback to the stream the browser extension sniffed, when the page itself extracted nothing -->
     <Button Classes="App Ghost" HorizontalAlignment="Left"
             Content="Use the stream your browser detected"

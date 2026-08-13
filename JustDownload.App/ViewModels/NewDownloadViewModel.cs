@@ -54,6 +54,7 @@ public sealed partial class NewDownloadViewModel : ViewModelBase, IDisposable
     private readonly ISecretStore _secrets;
     private readonly ITosNoticeGate _tosGate;
     private readonly ILogger<NewDownloadViewModel> _logger;
+    private readonly IProcessLauncher _launcher;
 
     // The user editing a field pins it, so re-detection never clobbers a manual choice.
     private bool _fileNameTouched;
@@ -89,6 +90,9 @@ public sealed partial class NewDownloadViewModel : ViewModelBase, IDisposable
     [NotifyPropertyChangedFor(nameof(UrlError))]
     [NotifyPropertyChangedFor(nameof(CanSubmit))]
     private string _url = string.Empty;
+
+    [ObservableProperty]
+    private ExtractionHint? _hint;
 
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(DownloadNowCommand))]
@@ -216,6 +220,7 @@ public sealed partial class NewDownloadViewModel : ViewModelBase, IDisposable
         ISecretStore secrets,
         ITosNoticeGate tosGate,
         ILogger<NewDownloadViewModel> logger,
+        IProcessLauncher launcher,
         TimeSpan? detectTimeout = null)
     {
         ArgumentNullException.ThrowIfNull(probe);
@@ -229,6 +234,7 @@ public sealed partial class NewDownloadViewModel : ViewModelBase, IDisposable
         ArgumentNullException.ThrowIfNull(secrets);
         ArgumentNullException.ThrowIfNull(tosGate);
         ArgumentNullException.ThrowIfNull(logger);
+        ArgumentNullException.ThrowIfNull(launcher);
         _probe = probe;
         _mediaRegistry = mediaRegistry;
         _categorizer = categorizer;
@@ -240,6 +246,7 @@ public sealed partial class NewDownloadViewModel : ViewModelBase, IDisposable
         _secrets = secrets;
         _tosGate = tosGate;
         _logger = logger;
+        _launcher = launcher;
         _detectTimeout = detectTimeout ?? DefaultDetectTimeout;
 
         Categories = BuildCategoryOptions();
@@ -392,6 +399,7 @@ public sealed partial class NewDownloadViewModel : ViewModelBase, IDisposable
         DetectionMessageIsError = false;
         IsResumable = false;
         UrlWarning = null;
+        Hint = null;
         DuplicateWarning = null;
         _mediaFailure = null;
 
@@ -426,6 +434,7 @@ public sealed partial class NewDownloadViewModel : ViewModelBase, IDisposable
             if (_mediaFailure is not null)
             {
                 UrlWarning = _mediaFailure;
+                Hint = ExtractionHintClassifier.Classify(extraction.Attempts);
             }
 
             ResourceProbeResult result = await _probe.ProbeAsync(uri, headers: null, cts.Token).ConfigureAwait(true);
@@ -595,6 +604,21 @@ public sealed partial class NewDownloadViewModel : ViewModelBase, IDisposable
     {
         _referrer = referrer;
         _cookies = cookies;
+    }
+
+    /// <summary>
+    /// Opens the hint's target URL (deno.land / the yt-dlp cookies wiki) in the OS default browser. Deliberately
+    /// never throws — like the existing async-void-safe affordances, the click is fire-and-forget and an open
+    /// failure must not surface as an unobserved exception.
+    /// </summary>
+    public Task OpenHintAsync()
+    {
+        if (Hint is { } h && !string.IsNullOrWhiteSpace(h.ActionUri))
+        {
+            _launcher.OpenUrl(h.ActionUri);
+        }
+
+        return Task.CompletedTask;
     }
 
     /// <summary>Enqueues the download and starts it immediately ("Download now").</summary>
@@ -910,6 +934,7 @@ public sealed partial class NewDownloadViewModel : ViewModelBase, IDisposable
     partial void OnUrlChanged(string value)
     {
         UrlWarning = null;
+        Hint = null;
         DetectionMessage = null;
         DetectionMessageIsError = false;
         _detectedMedia = null;

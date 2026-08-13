@@ -34,6 +34,7 @@ public sealed class NewDownloadViewModelTests
         public IDuplicateDownloadCheck DuplicateCheck { get; } = Substitute.For<IDuplicateDownloadCheck>();
         public ISecretStore Secrets { get; } = Substitute.For<ISecretStore>();
         public ITosNoticeGate TosGate { get; } = Substitute.For<ITosNoticeGate>();
+        public IProcessLauncher Launcher { get; } = Substitute.For<IProcessLauncher>();
 
         public Harness()
         {
@@ -56,7 +57,7 @@ public sealed class NewDownloadViewModelTests
 
         public NewDownloadViewModel Build(TimeSpan? detectTimeout = null) =>
             new(Probe, MediaRegistry, Categorizer, Folders, Settings, Manager, Actions, DuplicateCheck, Secrets,
-                TosGate, NullLogger<NewDownloadViewModel>.Instance, detectTimeout);
+                TosGate, NullLogger<NewDownloadViewModel>.Instance, Launcher, detectTimeout);
 
         /// <summary>Makes the media-extractor registry recognise <paramref name="url"/> as the given HLS/DASH
         /// <paramref name="source"/> (TASK-241) — mirrors <c>MediaVariantPickerTests.RegistryReturning</c>.</summary>
@@ -385,6 +386,55 @@ public sealed class NewDownloadViewModelTests
             "the att's own reason must be what the user sees");
         vm.UrlWarning.Should().NotBe(MediaExtractionMessage.NoMediaFound,
             "the generic 'no media found' must not replace the real diagnosis");
+
+        // AC3: the bot-detection reason also gets a clickable cookie hint below the warning.
+        vm.Hint.Should().NotBeNull();
+        vm.Hint!.Kind.Should().Be(ExtractionHintKind.TryCookies);
+        vm.Hint.ActionUri.Should().Contain("yt-dlp").And.Contain("cookies");
+    }
+
+    [Fact]
+    public async Task DetectAsync_PlainProgressiveUrl_LeavesHintNull()
+    {
+        // A plain non-video-host URL never reaches the registry (AC2) and has no media failure — no hint.
+        var h = new Harness();
+        h.SetProbe("firefox-126.0.dmg", 55_300_000, ranges: true);
+        var vm = h.Build();
+        vm.Url = "https://download.mozilla.org/firefox-126.0.dmg";
+
+        await vm.DetectAsync();
+
+        vm.Hint.Should().BeNull("a clean progressive URL carries no extraction hint");
+    }
+
+    [Fact]
+    public async Task DetectAsync_AllExtractorsDeclined_LeavesHintNull()
+    {
+        var h = new Harness();
+        h.SetMediaExtractionFailure(MediaExtractionAttempt.Declined("hls"), MediaExtractionAttempt.Declined("dash"));
+        h.SetProbe("x.m3u8", 334, ranges: true);
+        var vm = h.Build();
+        vm.Url = "https://video.twimg.com/amplify_video/pl/x.m3u8";
+
+        await vm.DetectAsync();
+
+        vm.Hint.Should().BeNull("a plain decline is not a failure worth hinting about");
+    }
+
+    [Fact]
+    public async Task OpenHintAsync_InvokesProcessLauncherWithTheHintUri()
+    {
+        var h = new Harness();
+        h.SetMediaExtractionFailure(
+            MediaExtractionAttempt.Failed("yt-dlp", "Sign in to confirm you're not a bot"));
+        h.SetProbe("video.mp4", 1000, ranges: true);
+        var vm = h.Build();
+        vm.Url = "https://www.youtube.com/watch?v=dQw4w9WgXcQ";
+
+        await vm.DetectAsync();
+        await vm.OpenHintAsync();
+
+        h.Launcher.Received(1).OpenUrl(Arg.Is<string>(u => u.Contains("yt-dlp") && u.Contains("cookies")));
     }
 
     [Fact]
