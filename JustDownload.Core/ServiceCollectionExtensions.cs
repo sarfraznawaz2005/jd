@@ -14,6 +14,7 @@ using JustDownload.Core.Media.Extraction;
 using JustDownload.Core.Media.Facebook;
 using JustDownload.Core.Media.Hls;
 using JustDownload.Core.Media.Streams;
+using JustDownload.Core.Media.Twitter;
 using JustDownload.Core.Media.YouTube;
 using JustDownload.Core.Media.YtDlp;
 using JustDownload.Core.NativeMessaging;
@@ -482,6 +483,8 @@ public static class ServiceCollectionExtensions
         // before the generic catch-alls via their low Priority.
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IMediaExtractor, YouTubeMediaExtractor>());
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IMediaExtractor, FacebookMediaExtractor>());
+        // Twitter/X best-effort extractor (D3): public syndication API, no auth/cookies/bot-evasion.
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IMediaExtractor, TwitterMediaExtractor>());
 
         // Optional yt-dlp fallback extractor (TASK-163, D3): the true last resort, registered with
         // Priority = int.MaxValue so it always runs after every extractor above, including Progressive's
