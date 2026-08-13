@@ -7,6 +7,7 @@ using JustDownload.App.ViewModels;
 using JustDownload.App.Views;
 using JustDownload.Core.Categorization;
 using JustDownload.Core.Lifecycle;
+using JustDownload.Core.Media.Extraction;
 using JustDownload.Core.Security;
 using JustDownload.Core.Settings;
 using JustDownload.Core.Transport;
@@ -28,6 +29,7 @@ public sealed class NewDownloadWindowTests
         folders.GetFolderForCategory(Arg.Any<FileCategory>()).Returns(@"C:\Downloads\Programs");
         return new NewDownloadViewModel(
             probe ?? Substitute.For<IResourceProbe>(),
+            Substitute.For<IMediaExtractorRegistry>(),
             Substitute.For<IFileCategorizer>(),
             folders,
             settings,

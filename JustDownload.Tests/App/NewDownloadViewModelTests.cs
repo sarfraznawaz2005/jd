@@ -3,6 +3,8 @@ using JustDownload.App.Services;
 using JustDownload.App.ViewModels;
 using JustDownload.Core.Categorization;
 using JustDownload.Core.Lifecycle;
+using JustDownload.Core.Media;
+using JustDownload.Core.Media.Extraction;
 using JustDownload.Core.Security;
 using JustDownload.Core.Settings;
 using JustDownload.Core.Transport;
@@ -22,6 +24,7 @@ public sealed class NewDownloadViewModelTests
     private sealed class Harness
     {
         public IResourceProbe Probe { get; } = Substitute.For<IResourceProbe>();
+        public IMediaExtractorRegistry MediaRegistry { get; } = Substitute.For<IMediaExtractorRegistry>();
         public IFileCategorizer Categorizer { get; } = Substitute.For<IFileCategorizer>();
         public IDownloadFolderProvider Folders { get; } = Substitute.For<IDownloadFolderProvider>();
         public ISettingsService Settings { get; } = Substitute.For<ISettingsService>();
@@ -42,8 +45,15 @@ public sealed class NewDownloadViewModelTests
         }
 
         public NewDownloadViewModel Build(TimeSpan? detectTimeout = null) =>
-            new(Probe, Categorizer, Folders, Settings, Manager, Actions, DuplicateCheck, Secrets,
+            new(Probe, MediaRegistry, Categorizer, Folders, Settings, Manager, Actions, DuplicateCheck, Secrets,
                 NullLogger<NewDownloadViewModel>.Instance, detectTimeout);
+
+        /// <summary>Makes the media-extractor registry recognise <paramref name="url"/> as the given HLS/DASH
+        /// <paramref name="source"/> (TASK-241) — mirrors <c>MediaVariantPickerTests.RegistryReturning</c>.</summary>
+        public void SetMediaSource(string url, MediaSource source) =>
+            MediaRegistry.ExtractAsync(
+                    Arg.Is<MediaRequest>(r => r.Url == new Uri(url)), Arg.Any<CancellationToken>())
+                .Returns(Task.FromResult<MediaSource?>(source));
 
         public void SetProbe(string fileName, long? size, bool ranges) =>
             Probe.ProbeAsync(Arg.Any<Uri>(), Arg.Any<IReadOnlyList<KeyValuePair<string, string>>?>(), Arg.Any<CancellationToken>())
@@ -165,6 +175,83 @@ public sealed class NewDownloadViewModelTests
         vm.UrlWarning.Should().BeNull();
         vm.DetectionMessage.Should().NotBeNull();
         vm.DuplicateWarning.Should().BeNull();
+    }
+
+    // ---- HLS/DASH manifest routing (TASK-241 bug fix) ----
+
+    [Fact]
+    public async Task DetectAsync_HlsMasterPlaylistUrl_DetectsAsHls_AndEnqueuesTheChosenVariant_NotTheRawManifest()
+    {
+        // Repro (user-reported): an extension-sniffed Twitter/X .m3u8 master playlist submitted via the New
+        // Download dialog used to be probed like a plain file — the raw "#EXTM3U ... #EXT-X-STREAM-INF" text
+        // itself got saved as the "video". It must instead be recognised as HLS and routed through the real
+        // extractor path, enqueuing the resolved variant stream with MediaKind.Hls so DownloadManager takes
+        // the segments->concat path instead of a plain HTTP GET of the manifest.
+        var h = new Harness();
+        const string masterUrl = "https://video.twimg.com/ext_tw_video/master.m3u8";
+        var source = new MediaSource
+        {
+            ExtractorName = "hls",
+            Kind = MediaKind.Hls,
+            Url = new Uri(masterUrl),
+            SuggestedFileName = "master",
+            Variants =
+            [
+                new VideoVariant("https://video.twimg.com/ext_tw_video/480.m3u8", 480, 800_000),
+                new VideoVariant("https://video.twimg.com/ext_tw_video/1080.m3u8", 1080, 3_000_000),
+            ],
+        };
+        h.SetMediaSource(masterUrl, source);
+        h.Manager.EnqueueAsync(Arg.Any<EnqueueDownloadRequest>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(99L));
+        var vm = h.Build();
+        vm.Url = masterUrl;
+
+        await vm.DetectAsync();
+
+        // AppSettings.DefaultVideoQuality defaults to 1080p (JustDownload.Core.Settings.AppSettings), so the
+        // 1080p variant is pre-selected exactly like the quality picker's own default selection.
+        vm.FileName.Should().Be("master.mkv", "the default container is MKV (AppSettings.DefaultContainer)");
+        vm.SaveToFolder.Should().Be(@"C:\Users\me\Downloads\Video");
+        vm.CanSubmit.Should().BeTrue();
+
+        await vm.DownloadNowCommand.ExecuteAsync(null);
+
+        await h.Manager.Received(1).EnqueueAsync(
+            Arg.Is<EnqueueDownloadRequest>(r =>
+                r.MediaKind == MediaKind.Hls &&
+                r.Url == new Uri("https://video.twimg.com/ext_tw_video/1080.m3u8")),
+            Arg.Any<CancellationToken>());
+        await h.Probe.DidNotReceive().ProbeAsync(
+            Arg.Any<Uri>(), Arg.Any<IReadOnlyList<KeyValuePair<string, string>>?>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task DetectAsync_PlainProgressiveUrl_NeverConsultsMediaRegistry_AndBehavesExactlyAsBefore()
+    {
+        // AC2 regression: a URL that isn't recognisable as an HLS/DASH manifest by extension must never reach
+        // the media-extractor registry at all — the plain IResourceProbe path (and MediaKind == null on
+        // enqueue) is entirely unaffected by TASK-241's fix.
+        var h = new Harness();
+        h.SetProbe("firefox-126.0.dmg", 55_300_000, ranges: true);
+        h.Manager.EnqueueAsync(Arg.Any<EnqueueDownloadRequest>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(1L));
+        var vm = h.Build();
+        vm.Url = "https://download.mozilla.org/firefox-126.0.dmg";
+
+        await vm.DetectAsync();
+
+        vm.FileName.Should().Be("firefox-126.0.dmg");
+        vm.DetectionMessage.Should().Contain("resumable");
+        await h.MediaRegistry.DidNotReceive().ExtractAsync(Arg.Any<MediaRequest>(), Arg.Any<CancellationToken>());
+
+        await vm.DownloadNowCommand.ExecuteAsync(null);
+
+        await h.Manager.Received(1).EnqueueAsync(
+            Arg.Is<EnqueueDownloadRequest>(r =>
+                r.MediaKind == null &&
+                r.Url == new Uri("https://download.mozilla.org/firefox-126.0.dmg")),
+            Arg.Any<CancellationToken>());
     }
 
     [Fact]

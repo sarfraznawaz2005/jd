@@ -7,6 +7,8 @@ using JustDownload.App.Formatting;
 using JustDownload.App.Services;
 using JustDownload.Core.Categorization;
 using JustDownload.Core.Lifecycle;
+using JustDownload.Core.Media;
+using JustDownload.Core.Media.Extraction;
 using JustDownload.Core.Security;
 using JustDownload.Core.Settings;
 using JustDownload.Core.Transport;
@@ -42,6 +44,7 @@ public sealed partial class NewDownloadViewModel : ViewModelBase, IDisposable
     private readonly TimeSpan _detectTimeout;
 
     private readonly IResourceProbe _probe;
+    private readonly IMediaExtractorRegistry _mediaRegistry;
     private readonly IFileCategorizer _categorizer;
     private readonly IDownloadFolderProvider _folders;
     private readonly ISettingsService _settings;
@@ -56,6 +59,17 @@ public sealed partial class NewDownloadViewModel : ViewModelBase, IDisposable
     private bool _folderTouched;
     private long? _detectedSize;
     private CancellationTokenSource? _detectCts;
+
+    /// <summary>
+    /// The resolved routing for a URL <see cref="DetectAsync"/> recognised as an HLS/DASH manifest rather
+    /// than a plain file (bug fix: such URLs used to be probed as if they were the video itself and the raw
+    /// manifest text got saved as the "video"). <see langword="null"/> for an ordinary progressive URL, in
+    /// which case <see cref="SubmitAsync"/> falls back to its original plain-download behavior unchanged.
+    /// </summary>
+    private DetectedMedia? _detectedMedia;
+
+    /// <summary>The variant/audio URLs and container chosen for a detected HLS/DASH source (TASK-241).</summary>
+    private sealed record DetectedMedia(MediaKind Kind, Uri Url, Uri? AudioUrl, MediaContainer Container);
 
     // Auth context from a browser-extension hand-off (TASK-091); applied to the enqueue, never shown.
     private string? _referrer;
@@ -184,6 +198,7 @@ public sealed partial class NewDownloadViewModel : ViewModelBase, IDisposable
 
     public NewDownloadViewModel(
         IResourceProbe probe,
+        IMediaExtractorRegistry mediaRegistry,
         IFileCategorizer categorizer,
         IDownloadFolderProvider folders,
         ISettingsService settings,
@@ -195,6 +210,7 @@ public sealed partial class NewDownloadViewModel : ViewModelBase, IDisposable
         TimeSpan? detectTimeout = null)
     {
         ArgumentNullException.ThrowIfNull(probe);
+        ArgumentNullException.ThrowIfNull(mediaRegistry);
         ArgumentNullException.ThrowIfNull(categorizer);
         ArgumentNullException.ThrowIfNull(folders);
         ArgumentNullException.ThrowIfNull(settings);
@@ -204,6 +220,7 @@ public sealed partial class NewDownloadViewModel : ViewModelBase, IDisposable
         ArgumentNullException.ThrowIfNull(secrets);
         ArgumentNullException.ThrowIfNull(logger);
         _probe = probe;
+        _mediaRegistry = mediaRegistry;
         _categorizer = categorizer;
         _folders = folders;
         _settings = settings;
@@ -365,8 +382,26 @@ public sealed partial class NewDownloadViewModel : ViewModelBase, IDisposable
         IsResumable = false;
         UrlWarning = null;
         DuplicateWarning = null;
+        _detectedMedia = null;
         try
         {
+            // HLS/DASH manifest URLs (e.g. an extension-sniffed Twitter/X .m3u8) must never be probed as if
+            // they were the video file itself — that just downloads the raw playlist/manifest text (bug fix,
+            // TASK-241). Checked first and only for URLs that look like a manifest, so every other URL takes
+            // the exact same plain-probe path as before.
+            MediaSource? media = await TryDetectMediaAsync(uri, cts.Token).ConfigureAwait(true);
+            if (cts.IsCancellationRequested)
+            {
+                return;
+            }
+
+            if (media is { Kind: not MediaKind.Progressive })
+            {
+                ApplyMediaDetection(media);
+                await CheckForDuplicateAsync(cts.Token).ConfigureAwait(true);
+                return;
+            }
+
             ResourceProbeResult result = await _probe.ProbeAsync(uri, headers: null, cts.Token).ConfigureAwait(true);
             if (cts.IsCancellationRequested || result is null)
             {
@@ -438,6 +473,88 @@ public sealed partial class NewDownloadViewModel : ViewModelBase, IDisposable
     }
 
     /// <summary>
+    /// Recognises an HLS/DASH manifest by its URL extension (TASK-241 bug fix) and, only then, asks the
+    /// registry to actually parse it — the same extractors the extension-driven quality picker uses
+    /// (<see cref="IMediaExtractorRegistry"/>), so master-playlist/variant parsing is never duplicated here.
+    /// Every other URL (the overwhelming majority pasted/typed into this dialog) never reaches the registry
+    /// at all, so ordinary progressive downloads are entirely unaffected (AC2) and no heavier extractor
+    /// (YouTube/Facebook/yt-dlp) ever runs against a non-manifest link.
+    /// </summary>
+    private Task<MediaSource?> TryDetectMediaAsync(Uri uri, CancellationToken cancellationToken) =>
+        LooksLikeMediaManifest(uri)
+            ? _mediaRegistry.ExtractAsync(new MediaRequest { Url = uri }, cancellationToken)
+            : Task.FromResult<MediaSource?>(null);
+
+    private static bool LooksLikeMediaManifest(Uri uri)
+    {
+        string extension = Path.GetExtension(uri.AbsolutePath);
+        return extension.Equals(".m3u8", StringComparison.OrdinalIgnoreCase)
+            || extension.Equals(".m3u", StringComparison.OrdinalIgnoreCase)
+            || extension.Equals(".mpd", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Routes a recognised HLS/DASH <paramref name="source"/> to the real media download path (TASK-241 bug
+    /// fix) instead of the plain progressive one: picks a variant/audio rendition the same way the quality
+    /// picker's default selection does, so <see cref="SubmitAsync"/> can hand the engine a concrete stream
+    /// URL and <see cref="MediaKind"/> (<see cref="DownloadManager"/> then takes the segments-&gt;concat/mux
+    /// path — never the raw-file HTTP GET that used to save the manifest text itself as the "video").
+    /// </summary>
+    private void ApplyMediaDetection(MediaSource source)
+    {
+        VideoVariant? chosenVideo = source.Variants.Count > 0
+            ? VideoQualitySelector.Select(source.Variants, _settings.Current.DefaultVideoQuality)
+            : null;
+        AudioVariant? chosenAudio = source.AudioVariants.Count > 0
+            ? AudioQualitySelector.Select(source.AudioVariants)
+            : null;
+
+        Uri downloadUri = chosenVideo is not null ? new Uri(chosenVideo.Id) : source.Url;
+        MediaContainer container = _settings.Current.DefaultContainer;
+        _detectedMedia = new DetectedMedia(
+            source.Kind, downloadUri, chosenAudio is not null ? new Uri(chosenAudio.Id) : null, container);
+
+        // Media sizes aren't known until the segments are actually fetched (TASK-154) — unlike a plain probe,
+        // there is no Content-Length to report up front.
+        _detectedSize = null;
+
+        if (!_fileNameTouched)
+        {
+            SetFileNameQuietly(MediaFileName(source.SuggestedFileName, downloadUri, container));
+        }
+
+        // Media downloads always land in the Video category/folder, matching the quality picker (AC1).
+        if (!_folderTouched)
+        {
+            SetFolderQuietly(_folders.GetFolderForCategory(FileCategory.Video));
+        }
+
+        IsResumable = false; // HLS/DASH has no byte-level resume yet (DownloadManager.RunMediaDownloadAsync).
+        DetectionMessage = "Adaptive stream detected — will be downloaded and processed automatically.";
+    }
+
+    /// <summary>Mirrors <see cref="MediaVariantPickerViewModel"/>'s own file-naming rule for a media download,
+    /// so a download started from either dialog names its output the same way.</summary>
+    private static string MediaFileName(string? suggestedName, Uri videoUrl, MediaContainer container)
+    {
+        string baseName = !string.IsNullOrWhiteSpace(suggestedName)
+            ? Path.GetFileNameWithoutExtension(suggestedName)
+            : Path.GetFileNameWithoutExtension(videoUrl.AbsolutePath);
+        if (string.IsNullOrWhiteSpace(baseName))
+        {
+            baseName = "video";
+        }
+
+        string extension = container switch
+        {
+            MediaContainer.Mp4 => ".mp4",
+            MediaContainer.Webm => ".webm",
+            _ => ".mkv",
+        };
+        return baseName + extension;
+    }
+
+    /// <summary>
     /// Applies the auth context from a browser-extension hand-off (TASK-091) so the enqueued download carries
     /// the captured referrer and cookies. The cookies are passed to the engine (which stores them in the OS
     /// keychain) and are not displayed in the dialog.
@@ -470,7 +587,9 @@ public sealed partial class NewDownloadViewModel : ViewModelBase, IDisposable
         FileCategory category = ResolveCategory();
         var request = new EnqueueDownloadRequest
         {
-            Url = uri,
+            // A detected HLS/DASH source (TASK-241 bug fix) downloads its chosen variant URL, not whatever
+            // was pasted in the URL box (that's the master playlist/manifest, not a fetchable video file).
+            Url = _detectedMedia?.Url ?? uri,
             DestinationDirectory = SaveToFolder.Trim(),
             FileName = FileName.Trim(),
             TotalBytes = _detectedSize,
@@ -481,6 +600,9 @@ public sealed partial class NewDownloadViewModel : ViewModelBase, IDisposable
             Cookies = _cookies,
             Proxy = await BuildProxyOverrideAsync().ConfigureAwait(true),
             AlternateUrls = ParseAlternateUrls(),
+            MediaKind = _detectedMedia?.Kind,
+            MediaAudioUrl = _detectedMedia?.AudioUrl,
+            MediaContainer = _detectedMedia?.Container,
         };
 
         long id = await _manager.EnqueueAsync(request).ConfigureAwait(true);
@@ -723,8 +845,13 @@ public sealed partial class NewDownloadViewModel : ViewModelBase, IDisposable
         _ => $"This link may not be downloadable — the server returned {statusCode}.",
     };
 
-    // Editing the URL invalidates the previous probe's verdict until the next detect runs.
-    partial void OnUrlChanged(string value) => UrlWarning = null;
+    // Editing the URL invalidates the previous probe's verdict until the next detect runs — including a
+    // stale media-source detection, which would otherwise still enqueue the *previous* URL's variant.
+    partial void OnUrlChanged(string value)
+    {
+        UrlWarning = null;
+        _detectedMedia = null;
+    }
 
     partial void OnFileNameChanged(string value)
     {
