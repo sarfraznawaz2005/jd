@@ -138,6 +138,9 @@
           <TextBlock Text="{Binding ErrorMessage}"
                      IsVisible="{Binding ErrorMessage, Converter={x:Static ObjectConverters.IsNotNull}}"
                      FontSize="11" Foreground="{DynamicResource RedBrush}" TextWrapping="Wrap" />
+          <TextBlock Text="{Binding DenoWarning}"
+                     IsVisible="{Binding DenoWarning, Converter={x:Static ObjectConverters.IsNotNull}}"
+                     FontSize="11" Foreground="{DynamicResource TextDimBrush}" TextWrapping="Wrap" />
         </StackPanel>
       </StackPanel>
     </DataTemplate>

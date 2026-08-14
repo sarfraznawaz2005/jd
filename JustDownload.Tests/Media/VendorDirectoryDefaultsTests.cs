@@ -40,6 +40,17 @@ public sealed class VendorDirectoryDefaultsTests
     }
 
     [Fact]
+    public void DenoOptions_VendorDirectory_HasARealDefault_NotNull()
+    {
+        using ServiceProvider provider = new ServiceCollection().AddJustDownloadCore().BuildServiceProvider();
+
+        var options = provider.GetRequiredService<DenoOptions>();
+
+        options.VendorDirectory.Should().NotBeNullOrWhiteSpace();
+        options.VendorDirectory.Should().EndWith("deno");
+    }
+
+    [Fact]
     public void VendorDirectory_IsStableAcrossFreshServiceProviders_SimulatingARestart()
     {
         // The exact bug: a fresh ServiceProvider (a fresh process, in production) must resolve to the same

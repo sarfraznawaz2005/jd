@@ -55,6 +55,15 @@ namespace JustDownload.Core.Media.YtDlp;
 /// byte-identical to before: a single probe, no cookie argv, and the same reason surfaced. The retry never
 /// loops.
 /// </para>
+/// <para>
+/// yt-dlp needs a JS runtime to solve YouTube's signature/JS challenges — per yt-dlp's own EJS wiki page,
+/// "only deno is enabled by default" among the runtimes it supports, and without one it silently drops the
+/// <c>web</c> client, losing signature-protected formats. When <see cref="IDenoLocator"/> finds a Deno
+/// install, <c>--js-runtimes deno:&lt;path&gt;</c> is appended explicitly to every probe (base and cookie
+/// retry) — never relying on yt-dlp's own "same folder as yt-dlp.exe" auto-detection, which is
+/// Windows-only and undocumented-fragile. When Deno isn't located, nothing is added: today's behaviour (and
+/// its "no JS runtime" warning) is unchanged, purely additive.
+/// </para>
 /// </summary>
 internal sealed partial class YtDlpMediaExtractor : IMediaExtractor
 {
@@ -73,18 +82,25 @@ internal sealed partial class YtDlpMediaExtractor : IMediaExtractor
 
     private readonly ISettingsService _settings;
     private readonly IYtDlpLocator _locator;
+    private readonly IDenoLocator _denoLocator;
     private readonly IYtDlpRunner _runner;
     private readonly ILogger<YtDlpMediaExtractor> _logger;
 
     public YtDlpMediaExtractor(
-        ISettingsService settings, IYtDlpLocator locator, IYtDlpRunner runner, ILogger<YtDlpMediaExtractor> logger)
+        ISettingsService settings,
+        IYtDlpLocator locator,
+        IDenoLocator denoLocator,
+        IYtDlpRunner runner,
+        ILogger<YtDlpMediaExtractor> logger)
     {
         ArgumentNullException.ThrowIfNull(settings);
         ArgumentNullException.ThrowIfNull(locator);
+        ArgumentNullException.ThrowIfNull(denoLocator);
         ArgumentNullException.ThrowIfNull(runner);
         ArgumentNullException.ThrowIfNull(logger);
         _settings = settings;
         _locator = locator;
+        _denoLocator = denoLocator;
         _runner = runner;
         _logger = logger;
     }
@@ -115,9 +131,14 @@ internal sealed partial class YtDlpMediaExtractor : IMediaExtractor
             return null; // Not provisioned. Provisioning is an explicit user action, never implicit here.
         }
 
+        // Explicit --js-runtimes wiring (not yt-dlp's fragile auto-detection): only added when Deno is
+        // actually located, so this stays a no-op until the user provisions it.
+        DenoInfo? deno = await _denoLocator.LocateAsync(cancellationToken).ConfigureAwait(false);
+        string[] denoArguments = deno is not null ? ["--js-runtimes", $"deno:{deno.ExecutablePath}"] : [];
+
         // The base probe carries no cookie argv — identical to the pre-cookie behaviour. Cookies are
         // resolved only inside the bot-detection catch below, so the happy path pays nothing for them.
-        string[] arguments = [.. BaseArguments, request.Url.AbsoluteUri];
+        string[] arguments = [.. BaseArguments, .. denoArguments, request.Url.AbsoluteUri];
 
         try
         {

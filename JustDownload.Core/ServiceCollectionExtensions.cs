@@ -453,6 +453,17 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<IYtDlpProvisioner, YtDlpProvisioner>();
         services.TryAddSingleton<IYtDlpRunner, YtDlpRunner>();
 
+        // Deno (the JS-runtime yt-dlp needs for YouTube's signature/JS challenges): same downloaded-on-
+        // demand, integrity-pinned, vendor-directory pattern as ffmpeg/yt-dlp above. Provisioning piggybacks
+        // on the existing "Download yt-dlp" action (D3) rather than a separate button/setting.
+        services.TryAddSingleton(sp => new DenoOptions
+        {
+            VendorDirectory = Path.Combine(AppDataPaths.Directory(sp.GetRequiredService<IAppInfoProvider>()), "deno"),
+        });
+        services.TryAddSingleton<IDenoLocator, DenoLocator>();
+        services.TryAddSingleton(DenoManifest.Default);
+        services.TryAddSingleton<IDenoProvisioner, DenoProvisioner>();
+
         // Pluggable extractor registry (TASK-036, D3): generic extractors register at startup and are tried
         // in priority order; the registry degrades gracefully when nothing recognises a URL. Specific
         // extractors (HLS/DASH) are appended by their own tasks.

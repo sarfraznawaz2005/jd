@@ -8,6 +8,7 @@ using JustDownload.Core.Security;
 using JustDownload.Core.Settings;
 using JustDownload.Core.Transport.Proxy;
 using JustDownload.Core.Updates;
+using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 using Xunit;
 
@@ -99,7 +100,8 @@ public sealed class SettingsViewModelTests
             Substitute.For<JustDownload.Core.NativeMessaging.IExtensionContactTracker>(),
             Substitute.For<ISecretStore>(), transfer, Substitute.For<IProxyTester>(),
             Substitute.For<JustDownload.Core.IPortableEnvironment>(), Substitute.For<JustDownload.Core.Security.ISavedCredentialsService>(),
-            Substitute.For<JustDownload.Core.Media.IYtDlpLocator>(), Substitute.For<JustDownload.Core.Media.IYtDlpProvisioner>(), Autostart(),
+            Substitute.For<JustDownload.Core.Media.IYtDlpLocator>(), Substitute.For<JustDownload.Core.Media.IYtDlpProvisioner>(),
+            Substitute.For<JustDownload.Core.Media.IDenoProvisioner>(), NullLogger<VideoSettingsViewModel>.Instance, Autostart(),
             Substitute.For<JustDownload.Core.Updates.IUpdateChecker>(), Substitute.For<JustDownload.Core.Abstractions.IAppVersionProvider>(),
             Substitute.For<JustDownload.Core.Logging.IErrorLogPathProvider>(), Substitute.For<IFileRevealer>());
 
@@ -756,14 +758,17 @@ public sealed class SettingsViewModelTests
         ISettingsService settings = Settings();
         var locator = Substitute.For<IYtDlpLocator>();
         locator.LocateAsync(Arg.Any<CancellationToken>()).Returns((YtDlpInfo?)null);
-        var vm = new VideoSettingsViewModel(settings, locator, Substitute.For<IYtDlpProvisioner>());
+        var vm = new VideoSettingsViewModel(
+            settings, locator, Substitute.For<IYtDlpProvisioner>(),
+            Substitute.For<IDenoProvisioner>(), NullLogger<VideoSettingsViewModel>.Instance);
 
         vm.VideoCaptureEnabled.Should().BeFalse("gates the yt-dlp fallback; off by default (AC0)");
         vm.VideoCaptureEnabled = true;
         Persisted(settings, new AppSettings()).VideoCaptureEnabled.Should().BeTrue();
 
         var hydrated = new VideoSettingsViewModel(
-            Settings(new AppSettings { VideoCaptureEnabled = true }), locator, Substitute.For<IYtDlpProvisioner>());
+            Settings(new AppSettings { VideoCaptureEnabled = true }), locator, Substitute.For<IYtDlpProvisioner>(),
+            Substitute.For<IDenoProvisioner>(), NullLogger<VideoSettingsViewModel>.Instance);
         hydrated.VideoCaptureEnabled.Should().BeTrue();
     }
 
@@ -772,14 +777,18 @@ public sealed class SettingsViewModelTests
     {
         var locatorMissing = Substitute.For<IYtDlpLocator>();
         locatorMissing.LocateAsync(Arg.Any<CancellationToken>()).Returns((YtDlpInfo?)null);
-        var missing = new VideoSettingsViewModel(Settings(), locatorMissing, Substitute.For<IYtDlpProvisioner>());
+        var missing = new VideoSettingsViewModel(
+            Settings(), locatorMissing, Substitute.For<IYtDlpProvisioner>(),
+            Substitute.For<IDenoProvisioner>(), NullLogger<VideoSettingsViewModel>.Instance);
         await Task.Delay(10); // let the constructor's fire-and-forget status check complete
         missing.Status.Should().Be(YtDlpStatus.NotInstalled);
         missing.StatusText.Should().Be("Not installed");
 
         var locatorFound = Substitute.For<IYtDlpLocator>();
         locatorFound.LocateAsync(Arg.Any<CancellationToken>()).Returns(new YtDlpInfo("/usr/bin/yt-dlp", "2026.06.09"));
-        var found = new VideoSettingsViewModel(Settings(), locatorFound, Substitute.For<IYtDlpProvisioner>());
+        var found = new VideoSettingsViewModel(
+            Settings(), locatorFound, Substitute.For<IYtDlpProvisioner>(),
+            Substitute.For<IDenoProvisioner>(), NullLogger<VideoSettingsViewModel>.Instance);
         await Task.Delay(10);
         found.Status.Should().Be(YtDlpStatus.Ready);
         found.StatusText.Should().Be("Ready (yt-dlp 2026.06.09)");
@@ -792,7 +801,9 @@ public sealed class SettingsViewModelTests
         locator.LocateAsync(Arg.Any<CancellationToken>()).Returns((YtDlpInfo?)null);
         var provisioner = Substitute.For<IYtDlpProvisioner>();
         provisioner.EnsureAsync(Arg.Any<CancellationToken>()).Returns(new YtDlpInfo(@"C:\vendor\yt-dlp.exe", "2026.06.09"));
-        var vm = new VideoSettingsViewModel(Settings(), locator, provisioner);
+        var vm = new VideoSettingsViewModel(
+            Settings(), locator, provisioner,
+            Substitute.For<IDenoProvisioner>(), NullLogger<VideoSettingsViewModel>.Instance);
         await Task.Delay(10);
 
         await vm.DownloadCommand.ExecuteAsync(null);
@@ -810,7 +821,9 @@ public sealed class SettingsViewModelTests
         var provisioner = Substitute.For<IYtDlpProvisioner>();
         provisioner.EnsureAsync(Arg.Any<CancellationToken>())
             .Returns(Task.FromException<YtDlpInfo?>(new YtDlpException("yt-dlp download failed its integrity check.")));
-        var vm = new VideoSettingsViewModel(Settings(), locator, provisioner);
+        var vm = new VideoSettingsViewModel(
+            Settings(), locator, provisioner,
+            Substitute.For<IDenoProvisioner>(), NullLogger<VideoSettingsViewModel>.Instance);
         await Task.Delay(10);
 
         await vm.DownloadCommand.ExecuteAsync(null);
@@ -827,13 +840,56 @@ public sealed class SettingsViewModelTests
         locator.LocateAsync(Arg.Any<CancellationToken>()).Returns((YtDlpInfo?)null);
         var provisioner = Substitute.For<IYtDlpProvisioner>();
         provisioner.EnsureAsync(Arg.Any<CancellationToken>()).Returns((YtDlpInfo?)null);
-        var vm = new VideoSettingsViewModel(Settings(), locator, provisioner);
+        var vm = new VideoSettingsViewModel(
+            Settings(), locator, provisioner,
+            Substitute.For<IDenoProvisioner>(), NullLogger<VideoSettingsViewModel>.Instance);
         await Task.Delay(10);
 
         await vm.DownloadCommand.ExecuteAsync(null);
 
         vm.Status.Should().Be(YtDlpStatus.Error);
         vm.ErrorMessage.Should().NotBeNullOrEmpty();
+    }
+
+    [Fact]
+    public async Task Video_Download_AlsoProvisionsDeno_OnYtDlpSuccess()
+    {
+        var locator = Substitute.For<IYtDlpLocator>();
+        locator.LocateAsync(Arg.Any<CancellationToken>()).Returns((YtDlpInfo?)null);
+        var provisioner = Substitute.For<IYtDlpProvisioner>();
+        provisioner.EnsureAsync(Arg.Any<CancellationToken>()).Returns(new YtDlpInfo(@"C:\vendor\yt-dlp.exe", "2026.06.09"));
+        var denoProvisioner = Substitute.For<IDenoProvisioner>();
+        denoProvisioner.EnsureAsync(Arg.Any<CancellationToken>()).Returns(new DenoInfo(@"C:\vendor\deno.exe", "2.9.5"));
+        var vm = new VideoSettingsViewModel(
+            Settings(), locator, provisioner, denoProvisioner, NullLogger<VideoSettingsViewModel>.Instance);
+        await Task.Delay(10);
+
+        await vm.DownloadCommand.ExecuteAsync(null);
+
+        await denoProvisioner.Received(1).EnsureAsync(Arg.Any<CancellationToken>());
+        vm.Status.Should().Be(YtDlpStatus.Ready, "yt-dlp itself succeeded regardless of Deno");
+        vm.DenoWarning.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Video_Download_DenoFailure_DoesNotFailTheYtDlpResult()
+    {
+        var locator = Substitute.For<IYtDlpLocator>();
+        locator.LocateAsync(Arg.Any<CancellationToken>()).Returns((YtDlpInfo?)null);
+        var provisioner = Substitute.For<IYtDlpProvisioner>();
+        provisioner.EnsureAsync(Arg.Any<CancellationToken>()).Returns(new YtDlpInfo(@"C:\vendor\yt-dlp.exe", "2026.06.09"));
+        var denoProvisioner = Substitute.For<IDenoProvisioner>();
+        denoProvisioner.EnsureAsync(Arg.Any<CancellationToken>())
+            .Returns(Task.FromException<DenoInfo?>(new DenoException("Deno download failed its integrity check.")));
+        var vm = new VideoSettingsViewModel(
+            Settings(), locator, provisioner, denoProvisioner, NullLogger<VideoSettingsViewModel>.Instance);
+        await Task.Delay(10);
+
+        await vm.DownloadCommand.ExecuteAsync(null);
+
+        vm.Status.Should().Be(YtDlpStatus.Ready, "a Deno failure must never mask a successful yt-dlp result");
+        vm.ErrorMessage.Should().BeNull();
+        vm.DenoWarning.Should().Contain("Deno download failed its integrity check.");
     }
 
     // --- Updates (TASK-080) -----------------------------------------------------------------------

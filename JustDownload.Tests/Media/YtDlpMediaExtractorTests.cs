@@ -50,8 +50,17 @@ public sealed class YtDlpMediaExtractorTests
     }
 
     private static YtDlpMediaExtractor Build(
-        ISettingsService settings, IYtDlpLocator locator, IYtDlpRunner runner) =>
-        new(settings, locator, runner, NullLogger<YtDlpMediaExtractor>.Instance);
+        ISettingsService settings, IYtDlpLocator locator, IYtDlpRunner runner, IDenoLocator? denoLocator = null) =>
+        new(settings, locator, denoLocator ?? NoDeno(), runner, NullLogger<YtDlpMediaExtractor>.Instance);
+
+    /// <summary>A Deno locator that finds nothing — the default for every test not exercising the
+    /// --js-runtimes wiring, so this stays purely additive to the rest of the suite.</summary>
+    private static IDenoLocator NoDeno()
+    {
+        var denoLocator = Substitute.For<IDenoLocator>();
+        denoLocator.LocateAsync(Arg.Any<CancellationToken>()).Returns((DenoInfo?)null);
+        return denoLocator;
+    }
 
     [Fact]
     public async Task TryExtractAsync_ToggleOff_ReturnsNull_WithoutCallingLocatorOrRunner()
@@ -673,5 +682,94 @@ public sealed class YtDlpMediaExtractorTests
                 "auto-detection is a best-effort guess; its own failure must not replace the real reason");
         await runner.Received(2).RunAsync(
             Arg.Any<string>(), Arg.Any<IReadOnlyList<string>>(), Arg.Any<CancellationToken>());
+    }
+
+    // --- Deno --js-runtimes wiring ------------------------------------------------------------------
+
+    [Fact]
+    public async Task TryExtractAsync_DenoLocated_AppendsJsRuntimesFlag_ToTheBaseProbe()
+    {
+        ISettingsService settings = SettingsWith(videoCaptureEnabled: true);
+        var locator = Substitute.For<IYtDlpLocator>();
+        locator.LocateAsync(Arg.Any<CancellationToken>()).Returns(LocatedYtDlp);
+        var denoLocator = Substitute.For<IDenoLocator>();
+        denoLocator.LocateAsync(Arg.Any<CancellationToken>()).Returns(new DenoInfo("/vendor/deno", "2.9.5"));
+        var runner = Substitute.For<IYtDlpRunner>();
+        const string json = """
+            {"id":"abc","formats":[
+              {"format_id":"18","url":"https://cdn.example.com/v18","protocol":"https","vcodec":"avc1.42001E","acodec":"mp4a.40.2","height":360}
+            ]}
+            """;
+        runner.RunAsync(Arg.Any<string>(), Arg.Any<IReadOnlyList<string>>(), Arg.Any<CancellationToken>())
+            .Returns(new YtDlpRunResult(0, json, string.Empty));
+
+        await Build(settings, locator, runner, denoLocator).TryExtractAsync(Request("https://www.youtube.com/watch?v=abc"));
+
+        await runner.Received(1).RunAsync(
+            LocatedYtDlp.ExecutablePath,
+            Arg.Is<IReadOnlyList<string>>(args =>
+                args.Contains("--js-runtimes") && args.Contains("deno:/vendor/deno")),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task TryExtractAsync_DenoNotLocated_OmitsJsRuntimesFlag()
+    {
+        ISettingsService settings = SettingsWith(videoCaptureEnabled: true);
+        var locator = Substitute.For<IYtDlpLocator>();
+        locator.LocateAsync(Arg.Any<CancellationToken>()).Returns(LocatedYtDlp);
+        var runner = Substitute.For<IYtDlpRunner>();
+        const string json = """
+            {"id":"abc","formats":[
+              {"format_id":"18","url":"https://cdn.example.com/v18","protocol":"https","vcodec":"avc1.42001E","acodec":"mp4a.40.2","height":360}
+            ]}
+            """;
+        runner.RunAsync(Arg.Any<string>(), Arg.Any<IReadOnlyList<string>>(), Arg.Any<CancellationToken>())
+            .Returns(new YtDlpRunResult(0, json, string.Empty));
+
+        // Build's default NoDeno() locator is used (denoLocator: null) — today's behaviour, purely additive.
+        await Build(settings, locator, runner).TryExtractAsync(Request("https://www.youtube.com/watch?v=abc"));
+
+        await runner.Received(1).RunAsync(
+            LocatedYtDlp.ExecutablePath,
+            Arg.Is<IReadOnlyList<string>>(args => !args.Contains("--js-runtimes")),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task TryExtractAsync_DenoLocated_AppendsJsRuntimesFlag_ToTheCookieRetryProbe()
+    {
+        ISettingsService settings = SettingsWithCookies(videoCaptureEnabled: true, cookieFile: "C:/cookies.txt");
+        var locator = Substitute.For<IYtDlpLocator>();
+        locator.LocateAsync(Arg.Any<CancellationToken>()).Returns(LocatedYtDlp);
+        var denoLocator = Substitute.For<IDenoLocator>();
+        denoLocator.LocateAsync(Arg.Any<CancellationToken>()).Returns(new DenoInfo("/vendor/deno", "2.9.5"));
+        var runner = Substitute.For<IYtDlpRunner>();
+        // First call: bot-detection failure. Second (cookie retry): succeeds.
+        runner.RunAsync(Arg.Any<string>(), Arg.Any<IReadOnlyList<string>>(), Arg.Any<CancellationToken>())
+            .Returns(
+                _ => new YtDlpRunResult(
+                    1, string.Empty, "ERROR: [youtube] abc: Sign in to confirm you're not a bot"),
+                _ => new YtDlpRunResult(0, """
+                    {"id":"abc","formats":[
+                      {"format_id":"18","url":"https://cdn.example.com/v18","protocol":"https","vcodec":"avc1.42001E","acodec":"mp4a.40.2","height":360}
+                    ]}
+                    """, string.Empty));
+
+        MediaSource? source = await Build(settings, locator, runner, denoLocator)
+            .TryExtractAsync(Request("https://www.youtube.com/watch?v=abc"));
+
+        source.Should().NotBeNull();
+        // Both the base probe and the cookie retry carry --js-runtimes — it's built into the shared argv,
+        // not re-derived per attempt.
+        await runner.Received(2).RunAsync(
+            LocatedYtDlp.ExecutablePath,
+            Arg.Is<IReadOnlyList<string>>(args =>
+                args.Contains("--js-runtimes") && args.Contains("deno:/vendor/deno")),
+            Arg.Any<CancellationToken>());
+        await runner.Received(1).RunAsync(
+            LocatedYtDlp.ExecutablePath,
+            Arg.Is<IReadOnlyList<string>>(args => HasCookieArg(args, "C:/cookies.txt") && args.Contains("--js-runtimes")),
+            Arg.Any<CancellationToken>());
     }
 }

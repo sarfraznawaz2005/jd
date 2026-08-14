@@ -13,6 +13,7 @@ using JustDownload.Core.Security;
 using JustDownload.Core.Settings;
 using JustDownload.Core.Transport.Proxy;
 using JustDownload.Core.Updates;
+using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 using Xunit;
 
@@ -32,6 +33,7 @@ public sealed class SettingsWindowTests
             Substitute.For<ISettingsTransfer>(), Substitute.For<IProxyTester>(),
             Substitute.For<JustDownload.Core.IPortableEnvironment>(), Substitute.For<JustDownload.Core.Security.ISavedCredentialsService>(),
             ytDlpLocator ?? Substitute.For<IYtDlpLocator>(), ytDlpProvisioner ?? Substitute.For<IYtDlpProvisioner>(),
+            Substitute.For<IDenoProvisioner>(), NullLogger<VideoSettingsViewModel>.Instance,
             Substitute.For<IAutostartService>(), updateChecker ?? Substitute.For<IUpdateChecker>(), versionProvider,
             Substitute.For<JustDownload.Core.Logging.IErrorLogPathProvider>(), Substitute.For<IFileRevealer>());
     }
