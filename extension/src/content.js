@@ -111,16 +111,20 @@
    */
   async function sendHandoff(url, kind, extract) {
     const fallback = extract ? await sniffedVideoUrl() : null;
-    api.runtime
-      .sendMessage({
-        type: "DOWNLOAD_LINK",
-        url,
-        pageUrl: location.href,
-        mediaKind: kind,
-        extract,
-        fallbackUrl: fallback?.url ?? null,
-      })
-      .catch(() => {});
+    try {
+      api.runtime
+        .sendMessage({
+          type: "DOWNLOAD_LINK",
+          url,
+          pageUrl: location.href,
+          mediaKind: kind,
+          extract,
+          fallbackUrl: fallback?.url ?? null,
+        })
+        .catch(() => {});
+    } catch {
+      // background unreachable — nothing to hand off to
+    }
   }
 
   /** Positions (or hides) one video's icon over its current viewport rect. */
@@ -217,7 +221,11 @@
       positionIcon(el, icon);
       // Only report real media URLs to the sniffer's store: a page URL is not something GET_TAB_MEDIA
       // should later hand back to another element as a downloadable stream (TASK-232).
-      api.runtime.sendMessage({ type: "MEDIA_DETECTED", url }).catch(() => {});
+      try {
+        api.runtime.sendMessage({ type: "MEDIA_DETECTED", url }).catch(() => {});
+      } catch {
+        // background unreachable — nothing to report to
+      }
       ensureRepositionTimer();
     } finally {
       inFlight.delete(el);
