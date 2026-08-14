@@ -1,7 +1,7 @@
 using Avalonia.Headless.XUnit;
 using FluentAssertions;
-using JustDownload.App.Services;
 using JustDownload.App.Formatting;
+using JustDownload.App.Services;
 using JustDownload.App.ViewModels;
 using JustDownload.App.Views;
 using JustDownload.Core.Categorization;

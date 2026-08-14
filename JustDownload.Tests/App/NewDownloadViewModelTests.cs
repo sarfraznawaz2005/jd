@@ -1,4 +1,5 @@
 using FluentAssertions;
+using JustDownload.App.Formatting;
 using JustDownload.App.Services;
 using JustDownload.App.ViewModels;
 using JustDownload.Core.Categorization;
@@ -7,7 +8,6 @@ using JustDownload.Core.Media;
 using JustDownload.Core.Media.Extraction;
 using JustDownload.Core.Security;
 using JustDownload.Core.Settings;
-using JustDownload.App.Formatting;
 using JustDownload.Core.Transport;
 using JustDownload.Core.Transport.Proxy;
 using Microsoft.Extensions.Logging.Abstractions;
