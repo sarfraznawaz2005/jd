@@ -1,9 +1,12 @@
+using Avalonia.Headless.XUnit;
 using FluentAssertions;
 using JustDownload.App.Services;
+using JustDownload.App.Services.YouTube;
 using JustDownload.App.ViewModels.Settings;
 using JustDownload.Core.Abstractions;
 using JustDownload.Core.Categorization;
 using JustDownload.Core.Media;
+using JustDownload.Core.Media.YtDlp;
 using JustDownload.Core.Security;
 using JustDownload.Core.Settings;
 using JustDownload.Core.Transport.Proxy;
@@ -35,6 +38,27 @@ public sealed class SettingsViewModelTests
         var autostart = Substitute.For<IAutostartService>();
         autostart.IsSupported.Returns(isSupported);
         return autostart;
+    }
+
+    private static IYouTubeSignInService SignInService(bool isSupported = false)
+    {
+        var signIn = Substitute.For<IYouTubeSignInService>();
+        signIn.IsSupported.Returns(isSupported);
+        return signIn;
+    }
+
+    private static IYouTubeSessionStore SessionStore(bool hasSession = false)
+    {
+        var store = Substitute.For<IYouTubeSessionStore>();
+        store.HasSession.Returns(hasSession);
+        return store;
+    }
+
+    private static IYouTubeSignInConsentGate ConsentGate(bool confirmed = true)
+    {
+        var gate = Substitute.For<IYouTubeSignInConsentGate>();
+        gate.ConfirmAsync(Arg.Any<CancellationToken>()).Returns(confirmed);
+        return gate;
     }
 
     private static AppSettings Persisted(ISettingsService settings, AppSettings seed)
@@ -101,7 +125,8 @@ public sealed class SettingsViewModelTests
             Substitute.For<ISecretStore>(), transfer, Substitute.For<IProxyTester>(),
             Substitute.For<JustDownload.Core.IPortableEnvironment>(), Substitute.For<JustDownload.Core.Security.ISavedCredentialsService>(),
             Substitute.For<JustDownload.Core.Media.IYtDlpLocator>(), Substitute.For<JustDownload.Core.Media.IYtDlpProvisioner>(),
-            Substitute.For<JustDownload.Core.Media.IDenoProvisioner>(), NullLogger<VideoSettingsViewModel>.Instance, Autostart(),
+            Substitute.For<JustDownload.Core.Media.IDenoProvisioner>(), NullLogger<VideoSettingsViewModel>.Instance,
+            SignInService(), SessionStore(), ConsentGate(), Autostart(),
             Substitute.For<JustDownload.Core.Updates.IUpdateChecker>(), Substitute.For<JustDownload.Core.Abstractions.IAppVersionProvider>(),
             Substitute.For<JustDownload.Core.Logging.IErrorLogPathProvider>(), Substitute.For<IFileRevealer>());
 
@@ -760,7 +785,7 @@ public sealed class SettingsViewModelTests
         locator.LocateAsync(Arg.Any<CancellationToken>()).Returns((YtDlpInfo?)null);
         var vm = new VideoSettingsViewModel(
             settings, locator, Substitute.For<IYtDlpProvisioner>(),
-            Substitute.For<IDenoProvisioner>(), NullLogger<VideoSettingsViewModel>.Instance);
+            Substitute.For<IDenoProvisioner>(), NullLogger<VideoSettingsViewModel>.Instance, SignInService(), SessionStore(), ConsentGate());
 
         vm.VideoCaptureEnabled.Should().BeFalse("gates the yt-dlp fallback; off by default (AC0)");
         vm.VideoCaptureEnabled = true;
@@ -768,7 +793,7 @@ public sealed class SettingsViewModelTests
 
         var hydrated = new VideoSettingsViewModel(
             Settings(new AppSettings { VideoCaptureEnabled = true }), locator, Substitute.For<IYtDlpProvisioner>(),
-            Substitute.For<IDenoProvisioner>(), NullLogger<VideoSettingsViewModel>.Instance);
+            Substitute.For<IDenoProvisioner>(), NullLogger<VideoSettingsViewModel>.Instance, SignInService(), SessionStore(), ConsentGate());
         hydrated.VideoCaptureEnabled.Should().BeTrue();
     }
 
@@ -779,7 +804,7 @@ public sealed class SettingsViewModelTests
         locatorMissing.LocateAsync(Arg.Any<CancellationToken>()).Returns((YtDlpInfo?)null);
         var missing = new VideoSettingsViewModel(
             Settings(), locatorMissing, Substitute.For<IYtDlpProvisioner>(),
-            Substitute.For<IDenoProvisioner>(), NullLogger<VideoSettingsViewModel>.Instance);
+            Substitute.For<IDenoProvisioner>(), NullLogger<VideoSettingsViewModel>.Instance, SignInService(), SessionStore(), ConsentGate());
         await Task.Delay(10); // let the constructor's fire-and-forget status check complete
         missing.Status.Should().Be(YtDlpStatus.NotInstalled);
         missing.StatusText.Should().Be("Not installed");
@@ -788,7 +813,7 @@ public sealed class SettingsViewModelTests
         locatorFound.LocateAsync(Arg.Any<CancellationToken>()).Returns(new YtDlpInfo("/usr/bin/yt-dlp", "2026.06.09"));
         var found = new VideoSettingsViewModel(
             Settings(), locatorFound, Substitute.For<IYtDlpProvisioner>(),
-            Substitute.For<IDenoProvisioner>(), NullLogger<VideoSettingsViewModel>.Instance);
+            Substitute.For<IDenoProvisioner>(), NullLogger<VideoSettingsViewModel>.Instance, SignInService(), SessionStore(), ConsentGate());
         await Task.Delay(10);
         found.Status.Should().Be(YtDlpStatus.Ready);
         found.StatusText.Should().Be("Ready (yt-dlp 2026.06.09)");
@@ -803,7 +828,7 @@ public sealed class SettingsViewModelTests
         provisioner.EnsureAsync(Arg.Any<CancellationToken>()).Returns(new YtDlpInfo(@"C:\vendor\yt-dlp.exe", "2026.06.09"));
         var vm = new VideoSettingsViewModel(
             Settings(), locator, provisioner,
-            Substitute.For<IDenoProvisioner>(), NullLogger<VideoSettingsViewModel>.Instance);
+            Substitute.For<IDenoProvisioner>(), NullLogger<VideoSettingsViewModel>.Instance, SignInService(), SessionStore(), ConsentGate());
         await Task.Delay(10);
 
         await vm.DownloadCommand.ExecuteAsync(null);
@@ -823,7 +848,7 @@ public sealed class SettingsViewModelTests
             .Returns(Task.FromException<YtDlpInfo?>(new YtDlpException("yt-dlp download failed its integrity check.")));
         var vm = new VideoSettingsViewModel(
             Settings(), locator, provisioner,
-            Substitute.For<IDenoProvisioner>(), NullLogger<VideoSettingsViewModel>.Instance);
+            Substitute.For<IDenoProvisioner>(), NullLogger<VideoSettingsViewModel>.Instance, SignInService(), SessionStore(), ConsentGate());
         await Task.Delay(10);
 
         await vm.DownloadCommand.ExecuteAsync(null);
@@ -842,7 +867,7 @@ public sealed class SettingsViewModelTests
         provisioner.EnsureAsync(Arg.Any<CancellationToken>()).Returns((YtDlpInfo?)null);
         var vm = new VideoSettingsViewModel(
             Settings(), locator, provisioner,
-            Substitute.For<IDenoProvisioner>(), NullLogger<VideoSettingsViewModel>.Instance);
+            Substitute.For<IDenoProvisioner>(), NullLogger<VideoSettingsViewModel>.Instance, SignInService(), SessionStore(), ConsentGate());
         await Task.Delay(10);
 
         await vm.DownloadCommand.ExecuteAsync(null);
@@ -861,7 +886,7 @@ public sealed class SettingsViewModelTests
         var denoProvisioner = Substitute.For<IDenoProvisioner>();
         denoProvisioner.EnsureAsync(Arg.Any<CancellationToken>()).Returns(new DenoInfo(@"C:\vendor\deno.exe", "2.9.5"));
         var vm = new VideoSettingsViewModel(
-            Settings(), locator, provisioner, denoProvisioner, NullLogger<VideoSettingsViewModel>.Instance);
+            Settings(), locator, provisioner, denoProvisioner, NullLogger<VideoSettingsViewModel>.Instance, SignInService(), SessionStore(), ConsentGate());
         await Task.Delay(10);
 
         await vm.DownloadCommand.ExecuteAsync(null);
@@ -882,7 +907,7 @@ public sealed class SettingsViewModelTests
         denoProvisioner.EnsureAsync(Arg.Any<CancellationToken>())
             .Returns(Task.FromException<DenoInfo?>(new DenoException("Deno download failed its integrity check.")));
         var vm = new VideoSettingsViewModel(
-            Settings(), locator, provisioner, denoProvisioner, NullLogger<VideoSettingsViewModel>.Instance);
+            Settings(), locator, provisioner, denoProvisioner, NullLogger<VideoSettingsViewModel>.Instance, SignInService(), SessionStore(), ConsentGate());
         await Task.Delay(10);
 
         await vm.DownloadCommand.ExecuteAsync(null);
@@ -890,6 +915,75 @@ public sealed class SettingsViewModelTests
         vm.Status.Should().Be(YtDlpStatus.Ready, "a Deno failure must never mask a successful yt-dlp result");
         vm.ErrorMessage.Should().BeNull();
         vm.DenoWarning.Should().Contain("Deno download failed its integrity check.");
+    }
+
+    [Fact]
+    public void Video_YouTubeSignIn_IsSupportedAndHasSession_ReflectTheInjectedServices()
+    {
+        var vm = new VideoSettingsViewModel(
+            Settings(), Substitute.For<IYtDlpLocator>(), Substitute.For<IYtDlpProvisioner>(),
+            Substitute.For<IDenoProvisioner>(), NullLogger<VideoSettingsViewModel>.Instance,
+            SignInService(isSupported: true), SessionStore(hasSession: true), ConsentGate());
+
+        vm.IsYouTubeSignInSupported.Should().BeTrue();
+        vm.HasYouTubeSession.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Video_SignOutOfYouTube_ClearsTheSession_AndReportsStatus()
+    {
+        var sessionStore = SessionStore(hasSession: true);
+        var vm = new VideoSettingsViewModel(
+            Settings(), Substitute.For<IYtDlpLocator>(), Substitute.For<IYtDlpProvisioner>(),
+            Substitute.For<IDenoProvisioner>(), NullLogger<VideoSettingsViewModel>.Instance,
+            SignInService(), sessionStore, ConsentGate());
+
+        await vm.SignOutOfYouTubeCommand.ExecuteAsync(null);
+
+        await sessionStore.Received(1).ClearAsync(Arg.Any<CancellationToken>());
+        vm.HasYouTubeSession.Should().BeFalse();
+        vm.YouTubeSignInStatusMessage.Should().Contain("Signed out");
+    }
+
+    [Fact]
+    public void Video_SignOutOfYouTubeCommand_CannotExecute_WhenNoSessionIsStored()
+    {
+        var vm = new VideoSettingsViewModel(
+            Settings(), Substitute.For<IYtDlpLocator>(), Substitute.For<IYtDlpProvisioner>(),
+            Substitute.For<IDenoProvisioner>(), NullLogger<VideoSettingsViewModel>.Instance,
+            SignInService(), SessionStore(hasSession: false), ConsentGate());
+
+        vm.SignOutOfYouTubeCommand.CanExecute(null).Should().BeFalse();
+    }
+
+    [AvaloniaFact]
+    public async Task Video_SignInToYouTubeAsync_NotSupported_DoesNotOpenTheConsentGateOrModal()
+    {
+        var consentGate = ConsentGate();
+        var signIn = SignInService(isSupported: false);
+        var vm = new VideoSettingsViewModel(
+            Settings(), Substitute.For<IYtDlpLocator>(), Substitute.For<IYtDlpProvisioner>(),
+            Substitute.For<IDenoProvisioner>(), NullLogger<VideoSettingsViewModel>.Instance,
+            signIn, SessionStore(), consentGate);
+
+        await vm.SignInToYouTubeAsync(new Avalonia.Controls.Window());
+
+        await consentGate.DidNotReceive().ConfirmAsync(Arg.Any<CancellationToken>());
+        await signIn.DidNotReceive().SignInAsync(Arg.Any<Avalonia.Controls.Window>(), Arg.Any<CancellationToken>());
+    }
+
+    [AvaloniaFact]
+    public async Task Video_SignInToYouTubeAsync_ConsentDeclined_DoesNotOpenTheModal()
+    {
+        var signIn = SignInService(isSupported: true);
+        var vm = new VideoSettingsViewModel(
+            Settings(), Substitute.For<IYtDlpLocator>(), Substitute.For<IYtDlpProvisioner>(),
+            Substitute.For<IDenoProvisioner>(), NullLogger<VideoSettingsViewModel>.Instance,
+            signIn, SessionStore(), ConsentGate(confirmed: false));
+
+        await vm.SignInToYouTubeAsync(new Avalonia.Controls.Window());
+
+        await signIn.DidNotReceive().SignInAsync(Arg.Any<Avalonia.Controls.Window>(), Arg.Any<CancellationToken>());
     }
 
     // --- Updates (TASK-080) -----------------------------------------------------------------------

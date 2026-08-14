@@ -7,6 +7,7 @@ using Avalonia.Markup.Xaml;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using JustDownload.App.Services;
+using JustDownload.App.Services.YouTube;
 using JustDownload.App.ViewModels;
 using JustDownload.App.Views;
 using JustDownload.Core;
@@ -15,6 +16,7 @@ using JustDownload.Core.Categorization;
 using JustDownload.Core.Data.Repositories;
 using JustDownload.Core.Diagnostics;
 using JustDownload.Core.Lifecycle;
+using JustDownload.Core.Media.YtDlp;
 using JustDownload.Core.NativeMessaging;
 using JustDownload.Core.Settings;
 using JustDownload.Core.Throttling;
@@ -48,6 +50,9 @@ public partial class App : Application
             .AddSingleton<IClipboardService>(_ => new ClipboardService(GetActiveClipboard))
             .AddSingleton<ClipboardMonitor>()
             .AddSingleton<ITosNoticeGate>(sp => new TosNoticeGate(sp.GetRequiredService<ISettingsService>(), _ => ShowTosNoticeAsync()))
+            .AddSingleton<IYouTubeSignInConsentGate>(sp => new YouTubeSignInConsentGate(
+                sp.GetRequiredService<ISettingsService>(), _ => ShowYouTubeSignInConsentAsync()))
+            .AddSingleton<IYouTubeSignInService>(CreateYouTubeSignInService)
             .AddSingleton<IAutostartService>(_ => CreateAutostartService())
             .AddSingleton<AutostartController>()
             .AddSingleton<LogLevelController>()
@@ -592,6 +597,12 @@ public partial class App : Application
             await Services.InitializeJustDownloadCoreAsync().ConfigureAwait(true);
             await Services.GetRequiredService<ISettingsService>().LoadAsync().ConfigureAwait(true);
 
+            // Re-materialize the "Sign in to YouTube" session's cookie file if one is stored but the OS
+            // swept the temp directory since the last run (IYouTubeSessionStore, Windows only in practice —
+            // a no-op everywhere else since nothing ever stores a session there). Must run before any
+            // extraction can, so it sits right after settings load, before the window paints.
+            await Services.GetRequiredService<IYouTubeSessionStore>().EnsureMaterializedAsync().ConfigureAwait(true);
+
             // Apply preferences that are only honored at startup, before the window paints (so a restart
             // opens in the saved theme with no flash) and so the global speed cap is enforced from the start.
             ApplyPersistedPreferences();
@@ -714,6 +725,44 @@ public partial class App : Application
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// Builds the real <see cref="WindowsYouTubeSignInService"/> on Windows, or the documented
+    /// <see cref="UnsupportedYouTubeSignInService"/> fallback elsewhere. <c>WINDOWS_WEBVIEW2</c> is defined
+    /// in JustDownload.App.csproj only when the build machine is Windows (<c>$(OS)==Windows_NT</c>) — the
+    /// same condition that gates the WebView2 package reference and the Windows-only source files, so this
+    /// is the only place a non-Windows build needs to avoid naming the Windows-only type directly.
+    /// </summary>
+    private static IYouTubeSignInService CreateYouTubeSignInService(IServiceProvider services)
+    {
+#if WINDOWS_WEBVIEW2
+        // WINDOWS_WEBVIEW2 is only ever defined when this project is built on Windows (same $(OS) check as
+        // the PackageReference), so this branch never runs elsewhere — the redundant runtime guard below is
+        // only to satisfy CA1416 (the analyzer can't see the preprocessor condition).
+        if (OperatingSystem.IsWindows())
+        {
+            return new WindowsYouTubeSignInService(services.GetRequiredService<IYouTubeSessionStore>());
+        }
+#endif
+        _ = services;
+        return new UnsupportedYouTubeSignInService();
+    }
+
+    /// <summary>
+    /// Shows the one-time "Sign in to YouTube" consent/ban-risk notice over the active window and returns
+    /// the user's choice. Wired into <see cref="IYouTubeSignInConsentGate"/>, mirroring
+    /// <see cref="ShowTosNoticeAsync"/> exactly.
+    /// </summary>
+    private static async Task<YouTubeSignInConsentResult> ShowYouTubeSignInConsentAsync()
+    {
+        var viewModel = new YouTubeSignInConsentViewModel();
+        YouTubeSignInConsentResult result = YouTubeSignInConsentResult.Cancel;
+        viewModel.CloseRequested += (_, chosen) => result = chosen;
+
+        var dialog = new YouTubeSignInConsentWindow { DataContext = viewModel };
+        await ShowWithoutForcingOwnerVisibleAsync(GetActiveWindow(), dialog);
+        return result;
     }
 
     /// <summary>

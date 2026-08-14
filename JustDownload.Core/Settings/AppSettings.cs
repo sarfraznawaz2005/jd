@@ -182,6 +182,25 @@ public sealed record AppSettings
     public string? YtDlpCookieBrowser { get; init; }
 
     /// <summary>
+    /// Opaque OS-keychain reference (§5) for the app-exclusive "Sign in to YouTube" session's captured
+    /// cookies (Windows only, JustDownload.App's WebView2 sign-in modal — D1 one-time exception). Set by
+    /// <see cref="Media.YtDlp.IYouTubeSessionStore.StoreAsync"/> after a successful sign-in, which also
+    /// points <see cref="YtDlpCookieFilePath"/> at the materialized Netscape-format file so the existing
+    /// cookie-file path needs no changes to consume it; cleared by
+    /// <see cref="Media.YtDlp.IYouTubeSessionStore.ClearAsync"/> on sign-out, which clears both. Never the
+    /// cookies themselves — the plaintext lives only in the OS secret vault and, transiently, in the
+    /// materialized file. <see langword="null"/> when no session is stored (the default).
+    /// </summary>
+    public string? YouTubeSessionSecretRef { get; init; }
+
+    /// <summary>
+    /// Whether the one-time "Sign in to YouTube" consent/ban-risk notice has been shown and acknowledged
+    /// (mirrors <see cref="SuppressTosNotice"/>'s pattern). Default <see langword="false"/> — shown once
+    /// before the sign-in modal's first use.
+    /// </summary>
+    public bool YouTubeSignInConsentAcknowledged { get; init; }
+
+    /// <summary>
     /// Master toggle for the GitHub Releases update check (TASK-080, PRD 6.3). Gates whether checking for
     /// updates is available at all — no network call is made, not even by the manual "Check for Updates"
     /// button, while this is off. Opt-in — default <see langword="false"/>.

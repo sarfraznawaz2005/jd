@@ -453,6 +453,15 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<IYtDlpProvisioner, YtDlpProvisioner>();
         services.TryAddSingleton<IYtDlpRunner, YtDlpRunner>();
 
+        // App-exclusive "Sign in to YouTube" session (Windows only, JustDownload.App's WebView2 modal —
+        // D1 one-time exception): stores captured cookies in the OS secret vault and materializes them to
+        // the existing YtDlpCookieFilePath path on demand. Registered unconditionally (it is pure settings
+        // + ISecretStore + file I/O, no WebView2/UI dependency) so it stays testable in Core; nothing ever
+        // populates a session unless the App's Windows-only sign-in modal calls StoreAsync. Depends on the
+        // secret store, so ensure it's registered wherever media is (idempotent, same reasoning as above).
+        services.AddJustDownloadSecrets();
+        services.TryAddSingleton<IYouTubeSessionStore, YouTubeSessionStore>();
+
         // Deno (the JS-runtime yt-dlp needs for YouTube's signature/JS challenges): same downloaded-on-
         // demand, integrity-pinned, vendor-directory pattern as ffmpeg/yt-dlp above. Provisioning piggybacks
         // on the existing "Download yt-dlp" action (D3) rather than a separate button/setting.

@@ -36,6 +36,8 @@ internal static partial class SettingsSerializer
     internal const string VideoCaptureEnabledKey = "media.video_capture_enabled";
     internal const string YtDlpCookieFilePathKey = "media.video_capture_cookie_file";
     internal const string YtDlpCookieBrowserKey = "media.video_capture_cookie_browser";
+    internal const string YouTubeSessionSecretRefKey = "media.youtube_session_secret_ref";
+    internal const string YouTubeSignInConsentAcknowledgedKey = "media.youtube_signin_consent_acknowledged";
     internal const string AutoUpdateEnabledKey = "updates.auto_update_enabled";
     internal const string ProxyKindKey = "proxy.kind";
     internal const string ProxyHostKey = "proxy.host";
@@ -101,6 +103,9 @@ internal static partial class SettingsSerializer
             [VideoCaptureEnabledKey] = settings.VideoCaptureEnabled.ToString(CultureInfo.InvariantCulture),
             [YtDlpCookieFilePathKey] = settings.YtDlpCookieFilePath ?? string.Empty,
             [YtDlpCookieBrowserKey] = settings.YtDlpCookieBrowser ?? string.Empty,
+            [YouTubeSessionSecretRefKey] = settings.YouTubeSessionSecretRef ?? string.Empty,
+            [YouTubeSignInConsentAcknowledgedKey] =
+                settings.YouTubeSignInConsentAcknowledged.ToString(CultureInfo.InvariantCulture),
             [AutoUpdateEnabledKey] = settings.AutoUpdateEnabled.ToString(CultureInfo.InvariantCulture),
             [ProxyKindKey] = settings.ProxyKind.ToString(),
             [ProxyHostKey] = settings.ProxyHost ?? string.Empty,
@@ -184,6 +189,10 @@ internal static partial class SettingsSerializer
             VideoCaptureEnabled = ParseBool(stored, VideoCaptureEnabledKey, defaults.VideoCaptureEnabled, logger),
             YtDlpCookieFilePath = ParseOptionalString(stored, YtDlpCookieFilePathKey, defaults.YtDlpCookieFilePath),
             YtDlpCookieBrowser = ParseOptionalString(stored, YtDlpCookieBrowserKey, defaults.YtDlpCookieBrowser),
+            YouTubeSessionSecretRef =
+                ParseOptionalString(stored, YouTubeSessionSecretRefKey, defaults.YouTubeSessionSecretRef),
+            YouTubeSignInConsentAcknowledged = ParseBool(
+                stored, YouTubeSignInConsentAcknowledgedKey, defaults.YouTubeSignInConsentAcknowledged, logger),
             AutoUpdateEnabled = ParseBool(stored, AutoUpdateEnabledKey, defaults.AutoUpdateEnabled, logger),
             ProxyKind = ParseEnum(stored, ProxyKindKey, defaults.ProxyKind, logger),
             ProxyHost = ParseOptionalString(stored, ProxyHostKey, defaults.ProxyHost),

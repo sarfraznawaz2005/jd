@@ -3,11 +3,13 @@ using Avalonia.Headless.XUnit;
 using Avalonia.VisualTree;
 using FluentAssertions;
 using JustDownload.App.Services;
+using JustDownload.App.Services.YouTube;
 using JustDownload.App.ViewModels.Settings;
 using JustDownload.App.Views;
 using JustDownload.Core.Abstractions;
 using JustDownload.Core.Categorization;
 using JustDownload.Core.Media;
+using JustDownload.Core.Media.YtDlp;
 using JustDownload.Core.NativeMessaging;
 using JustDownload.Core.Security;
 using JustDownload.Core.Settings;
@@ -34,6 +36,7 @@ public sealed class SettingsWindowTests
             Substitute.For<JustDownload.Core.IPortableEnvironment>(), Substitute.For<JustDownload.Core.Security.ISavedCredentialsService>(),
             ytDlpLocator ?? Substitute.For<IYtDlpLocator>(), ytDlpProvisioner ?? Substitute.For<IYtDlpProvisioner>(),
             Substitute.For<IDenoProvisioner>(), NullLogger<VideoSettingsViewModel>.Instance,
+            Substitute.For<IYouTubeSignInService>(), Substitute.For<IYouTubeSessionStore>(), Substitute.For<IYouTubeSignInConsentGate>(),
             Substitute.For<IAutostartService>(), updateChecker ?? Substitute.For<IUpdateChecker>(), versionProvider,
             Substitute.For<JustDownload.Core.Logging.IErrorLogPathProvider>(), Substitute.For<IFileRevealer>());
     }

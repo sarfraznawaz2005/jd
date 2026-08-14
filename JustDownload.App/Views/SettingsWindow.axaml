@@ -141,6 +141,20 @@
           <TextBlock Text="{Binding DenoWarning}"
                      IsVisible="{Binding DenoWarning, Converter={x:Static ObjectConverters.IsNotNull}}"
                      FontSize="11" Foreground="{DynamicResource TextDimBrush}" TextWrapping="Wrap" />
+
+          <TextBlock Text="Sign in to YouTube" Classes="StatKey" Margin="0,10,0,0" />
+          <TextBlock Text="Lets yt-dlp use an app-exclusive signed-in session instead of your regular browser's cookies. Automated, account-linked access carries a real ban-risk, per yt-dlp's own documented warning — you'll be asked to confirm before signing in."
+                     Classes="SettingsHint" TextWrapping="Wrap" />
+          <StackPanel Orientation="Horizontal" Spacing="12" IsVisible="{Binding IsYouTubeSignInSupported}">
+            <Button Classes="App Accent" Content="Sign in to YouTube" Click="OnSignInToYouTube"
+                    HorizontalAlignment="Left" IsVisible="{Binding !HasYouTubeSession}" />
+            <Button Classes="App Ghost" Content="Sign out" Command="{Binding SignOutOfYouTubeCommand}"
+                    HorizontalAlignment="Left" IsVisible="{Binding HasYouTubeSession}" />
+            <TextBlock Text="{Binding YouTubeSignInStatusMessage}" VerticalAlignment="Center"
+                       Foreground="{DynamicResource TextDimBrush}" TextWrapping="Wrap" />
+          </StackPanel>
+          <TextBlock Text="Browser sign-in isn't available on this OS yet — use the cookie-file option instead."
+                     IsVisible="{Binding !IsYouTubeSignInSupported}" Classes="SettingsHint" TextWrapping="Wrap" />
         </StackPanel>
       </StackPanel>
     </DataTemplate>

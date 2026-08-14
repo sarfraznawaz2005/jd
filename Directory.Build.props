@@ -19,6 +19,20 @@
   </PropertyGroup>
 
   <!--
+    Microsoft.Web.WebView2 (JustDownload.App's "Sign in to YouTube" modal, Windows-only, D1 one-time
+    exception — see DECISIONS.md) always references its Core+WinForms+Wpf assemblies together for any
+    modern non-WinRT .NET project, which drags in a duplicate WindowsBase reference and trips
+    ResolveAssemblyReference's MSB3277 — both in JustDownload.App itself and in JustDownload.Tests (which
+    references it). Harmless (the assembly actually copied to output is unaffected), downgraded to a
+    message solution-wide here rather than repeated per-csproj so it doesn't linger as a stray
+    "0 warnings" build gate violation (CLAUDE.md §2). No-op on macOS/Linux, where the package isn't
+    referenced at all.
+  -->
+  <PropertyGroup Condition="'$(OS)' == 'Windows_NT'">
+    <MSBuildWarningsAsMessages>$(MSBuildWarningsAsMessages);MSB3277</MSBuildWarningsAsMessages>
+  </PropertyGroup>
+
+  <!--
     Single source of truth for the product version (TASK-159, AC1). Every csproj in the solution picks
     this up implicitly via the SDK (it drives AssemblyVersion/FileVersion/InformationalVersion), and
     build/build-installer.ps1 reads it back with `dotnet msbuild -getProperty:Version` instead of

@@ -25,6 +25,7 @@
     "Microsoft.Extensions.DependencyInjection.Abstractions": "MIT",
     "Microsoft.Extensions.Logging": "MIT",
     "Microsoft.NET.Test.Sdk": "MIT",
+    "Microsoft.Web.WebView2": "BSD-3-Clause",
     "Microsoft.Win32.Registry": "MIT",
     "NSubstitute": "BSD-3-Clause",
     "SharpCompress": "MIT",

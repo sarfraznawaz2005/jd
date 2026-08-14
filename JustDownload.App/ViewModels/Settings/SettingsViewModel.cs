@@ -34,6 +34,9 @@ public sealed partial class SettingsViewModel : ViewModelBase
     private readonly JustDownload.Core.Media.IYtDlpProvisioner _ytDlpProvisioner;
     private readonly JustDownload.Core.Media.IDenoProvisioner _denoProvisioner;
     private readonly Microsoft.Extensions.Logging.ILogger<VideoSettingsViewModel> _videoLogger;
+    private readonly Services.YouTube.IYouTubeSignInService _youTubeSignIn;
+    private readonly JustDownload.Core.Media.YtDlp.IYouTubeSessionStore _youTubeSessionStore;
+    private readonly IYouTubeSignInConsentGate _youTubeSignInConsentGate;
     private readonly IAutostartService _autostart;
     private readonly IUpdateChecker _updateChecker;
     private readonly IAppVersionProvider _appVersion;
@@ -66,6 +69,9 @@ public sealed partial class SettingsViewModel : ViewModelBase
         JustDownload.Core.Media.IYtDlpProvisioner ytDlpProvisioner,
         JustDownload.Core.Media.IDenoProvisioner denoProvisioner,
         Microsoft.Extensions.Logging.ILogger<VideoSettingsViewModel> videoLogger,
+        Services.YouTube.IYouTubeSignInService youTubeSignIn,
+        JustDownload.Core.Media.YtDlp.IYouTubeSessionStore youTubeSessionStore,
+        IYouTubeSignInConsentGate youTubeSignInConsentGate,
         IAutostartService autostart,
         IUpdateChecker updateChecker,
         IAppVersionProvider appVersion,
@@ -86,6 +92,9 @@ public sealed partial class SettingsViewModel : ViewModelBase
         ArgumentNullException.ThrowIfNull(ytDlpProvisioner);
         ArgumentNullException.ThrowIfNull(denoProvisioner);
         ArgumentNullException.ThrowIfNull(videoLogger);
+        ArgumentNullException.ThrowIfNull(youTubeSignIn);
+        ArgumentNullException.ThrowIfNull(youTubeSessionStore);
+        ArgumentNullException.ThrowIfNull(youTubeSignInConsentGate);
         ArgumentNullException.ThrowIfNull(autostart);
         ArgumentNullException.ThrowIfNull(updateChecker);
         ArgumentNullException.ThrowIfNull(appVersion);
@@ -105,6 +114,9 @@ public sealed partial class SettingsViewModel : ViewModelBase
         _ytDlpProvisioner = ytDlpProvisioner;
         _denoProvisioner = denoProvisioner;
         _videoLogger = videoLogger;
+        _youTubeSignIn = youTubeSignIn;
+        _youTubeSessionStore = youTubeSessionStore;
+        _youTubeSignInConsentGate = youTubeSignInConsentGate;
         _autostart = autostart;
         _updateChecker = updateChecker;
         _appVersion = appVersion;
@@ -125,7 +137,9 @@ public sealed partial class SettingsViewModel : ViewModelBase
         Sections.Add(new SettingsSectionViewModel("General", "IconSetGeneral", new GeneralSettingsViewModel(_settings, _theme, _portable, _autostart)));
         Sections.Add(new SettingsSectionViewModel(
             "Video", "IconSetVideo",
-            new VideoSettingsViewModel(_settings, _ytDlpLocator, _ytDlpProvisioner, _denoProvisioner, _videoLogger)));
+            new VideoSettingsViewModel(
+                _settings, _ytDlpLocator, _ytDlpProvisioner, _denoProvisioner, _videoLogger,
+                _youTubeSignIn, _youTubeSessionStore, _youTubeSignInConsentGate)));
         Sections.Add(new SettingsSectionViewModel("Connections", "IconSetConnections", new ConnectionsSettingsViewModel(_settings)));
         Sections.Add(new SettingsSectionViewModel("Proxy", "IconSetProxy", new ProxySettingsViewModel(_settings, _secrets, _proxyTester)));
         Sections.Add(new SettingsSectionViewModel(

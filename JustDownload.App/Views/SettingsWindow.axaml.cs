@@ -54,6 +54,21 @@ public partial class SettingsWindow : Window
         }
     }
 
+    /// <summary>
+    /// Runs the "Sign in to YouTube" modal (Windows only) for the Video section's button; a top-level
+    /// concern that needs a real owner <see cref="Window"/>, so it lives here rather than the view-model,
+    /// the same reasoning as <see cref="OnBrowseDefaultFolder"/> above.
+    /// </summary>
+    private async void OnSignInToYouTube(object? sender, RoutedEventArgs e)
+    {
+        if ((sender as Control)?.DataContext is not VideoSettingsViewModel vm)
+        {
+            return;
+        }
+
+        await vm.SignInToYouTubeAsync(this);
+    }
+
     /// <summary>Picks a settings export file and imports it, restoring the saved preferences (TASK-129).</summary>
     private async void OnImportSettings(object? sender, RoutedEventArgs e)
     {

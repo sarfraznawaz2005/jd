@@ -1,7 +1,11 @@
 using System.Net.Http;
+using Avalonia.Controls;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using JustDownload.App.Services;
+using JustDownload.App.Services.YouTube;
 using JustDownload.Core.Media;
+using JustDownload.Core.Media.YtDlp;
 using JustDownload.Core.Settings;
 using Microsoft.Extensions.Logging;
 
@@ -23,6 +27,9 @@ public sealed partial class VideoSettingsViewModel : ViewModelBase
     private readonly IYtDlpProvisioner _provisioner;
     private readonly IDenoProvisioner _denoProvisioner;
     private readonly ILogger<VideoSettingsViewModel> _logger;
+    private readonly IYouTubeSignInService _signIn;
+    private readonly IYouTubeSessionStore _sessionStore;
+    private readonly IYouTubeSignInConsentGate _consentGate;
     private bool _suppress;
 
     [ObservableProperty]
@@ -46,30 +53,53 @@ public sealed partial class VideoSettingsViewModel : ViewModelBase
     [ObservableProperty]
     private string? _denoWarning;
 
+    /// <summary>Whether an app-exclusive "Sign in to YouTube" session (TASK-...) is currently stored.</summary>
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(SignOutOfYouTubeCommand))]
+    private bool _hasYouTubeSession;
+
+    /// <summary>Result of the most recent sign-in/sign-out action, shown beside the buttons.</summary>
+    [ObservableProperty]
+    private string? _youTubeSignInStatusMessage;
+
     public VideoSettingsViewModel(
         ISettingsService settings,
         IYtDlpLocator locator,
         IYtDlpProvisioner provisioner,
         IDenoProvisioner denoProvisioner,
-        ILogger<VideoSettingsViewModel> logger)
+        ILogger<VideoSettingsViewModel> logger,
+        IYouTubeSignInService signIn,
+        IYouTubeSessionStore sessionStore,
+        IYouTubeSignInConsentGate consentGate)
     {
         ArgumentNullException.ThrowIfNull(settings);
         ArgumentNullException.ThrowIfNull(locator);
         ArgumentNullException.ThrowIfNull(provisioner);
         ArgumentNullException.ThrowIfNull(denoProvisioner);
         ArgumentNullException.ThrowIfNull(logger);
+        ArgumentNullException.ThrowIfNull(signIn);
+        ArgumentNullException.ThrowIfNull(sessionStore);
+        ArgumentNullException.ThrowIfNull(consentGate);
         _settings = settings;
         _locator = locator;
         _provisioner = provisioner;
         _denoProvisioner = denoProvisioner;
         _logger = logger;
+        _signIn = signIn;
+        _sessionStore = sessionStore;
+        _consentGate = consentGate;
 
         _suppress = true;
         _videoCaptureEnabled = settings.Current.VideoCaptureEnabled;
         _suppress = false;
 
+        _hasYouTubeSession = sessionStore.HasSession;
+
         _ = RefreshStatusAsync();
     }
+
+    /// <summary>Whether this OS can host the "Sign in to YouTube" modal at all (Windows only, v1).</summary>
+    public bool IsYouTubeSignInSupported => _signIn.IsSupported;
 
     /// <summary>Human-readable yt-dlp status shown beside the download button.</summary>
     public string StatusText => Status switch
@@ -151,9 +181,59 @@ public sealed partial class VideoSettingsViewModel : ViewModelBase
         }
     }
 
+    /// <summary>
+    /// Runs the one-time consent notice (if not already acknowledged) then the "Sign in to YouTube" modal.
+    /// Called from <c>SettingsWindow</c>'s code-behind (like the folder-picker/import-export actions
+    /// beside it) because it needs a real <see cref="Window"/> to own the modal — a top-level concern that
+    /// cannot live in this view-model. A no-op if <see cref="IsYouTubeSignInSupported"/> is false.
+    /// </summary>
+    public async Task SignInToYouTubeAsync(Window owner)
+    {
+        ArgumentNullException.ThrowIfNull(owner);
+        if (!IsYouTubeSignInSupported)
+        {
+            return;
+        }
+
+        YouTubeSignInStatusMessage = null;
+        if (!await _consentGate.ConfirmAsync().ConfigureAwait(true))
+        {
+            return;
+        }
+
+        try
+        {
+            YouTubeSignInResult result = await _signIn.SignInAsync(owner).ConfigureAwait(true);
+            HasYouTubeSession = _sessionStore.HasSession;
+            YouTubeSignInStatusMessage = result.Outcome switch
+            {
+                YouTubeSignInOutcome.Succeeded => "Signed in — an app-exclusive session is stored.",
+                YouTubeSignInOutcome.Failed => result.ErrorMessage,
+                _ => YouTubeSignInStatusMessage,
+            };
+        }
+        catch (Exception ex)
+        {
+            // Last-resort catch — should never reach here given the layers above, but prevents a crash.
+            LogYouTubeSignInFailed(_logger, ex);
+            YouTubeSignInStatusMessage = $"Sign-in failed: {ex.Message}";
+        }
+    }
+
+    [RelayCommand(CanExecute = nameof(HasYouTubeSession))]
+    private async Task SignOutOfYouTubeAsync()
+    {
+        await _sessionStore.ClearAsync().ConfigureAwait(true);
+        HasYouTubeSession = false;
+        YouTubeSignInStatusMessage = "Signed out — the app-exclusive session was removed.";
+    }
+
     [LoggerMessage(EventId = 1, Level = LogLevel.Debug,
         Message = "No Deno build available for this platform; yt-dlp will run without a JS runtime.")]
     private static partial void LogNoDenoSource(ILogger logger);
+
+    [LoggerMessage(EventId = 3, Level = LogLevel.Error, Message = "YouTube sign-in failed unexpectedly.")]
+    private static partial void LogYouTubeSignInFailed(ILogger logger, Exception exception);
 
     [LoggerMessage(EventId = 2, Level = LogLevel.Warning, Message = "Deno provisioning failed after a successful yt-dlp download.")]
     private static partial void LogDenoProvisioningFailed(ILogger logger, Exception exception);

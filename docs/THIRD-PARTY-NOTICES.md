@@ -49,6 +49,13 @@ dependency.
 | Avalonia.Fonts.Inter | 11.3.18 | MIT (bundles the **Inter** typeface, SIL Open Font License 1.1) |
 | Avalonia.Diagnostics | 11.3.18 | MIT (Debug builds only; never shipped in Release) |
 | Microsoft.Extensions.DependencyInjection | 8.0.1 | MIT |
+| Microsoft.Web.WebView2 | 1.0.4129.50 | BSD-3-Clause (Microsoft's modified-BSD license, functionally equivalent) |
+
+`Microsoft.Web.WebView2` (the "Sign in to YouTube" modal, D1 one-time WebView2 exception — see
+DECISIONS.md) is referenced only when the build machine is Windows (`$(OS)==Windows_NT` in
+`JustDownload.App.csproj`), so it never reaches the macOS/Linux build. Zero nuspec dependencies of its own;
+the WebView2 *Runtime* (Chromium engine) is a separate, pre-installed-on-most-Windows component, never
+bundled — same posture as ffmpeg/yt-dlp (D7/D3).
 
 ### `JustDownload.NativeHost`
 
