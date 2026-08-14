@@ -224,6 +224,7 @@ public sealed partial class VideoSettingsViewModel : ViewModelBase
     private async Task SignOutOfYouTubeAsync()
     {
         await _sessionStore.ClearAsync().ConfigureAwait(true);
+        await _signIn.SignOutAsync().ConfigureAwait(true);
         HasYouTubeSession = false;
         YouTubeSignInStatusMessage = "Signed out — the app-exclusive session was removed.";
     }

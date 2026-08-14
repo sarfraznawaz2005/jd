@@ -15,4 +15,7 @@ public interface IYouTubeSignInService
 
     /// <summary>Shows the modal over <paramref name="owner"/> and waits for the user to finish or cancel.</summary>
     Task<YouTubeSignInResult> SignInAsync(Window owner, CancellationToken cancellationToken = default);
+
+    /// <summary>Clears any saved profile data for the sign-in session.</summary>
+    Task SignOutAsync(CancellationToken cancellationToken = default);
 }

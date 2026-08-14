@@ -19,4 +19,6 @@ internal sealed class UnsupportedYouTubeSignInService : IYouTubeSignInService
             YouTubeSignInOutcome.Failed,
             "Browser sign-in isn't available on this OS yet — use the cookie-file option instead."));
     }
+
+    public Task SignOutAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
 }

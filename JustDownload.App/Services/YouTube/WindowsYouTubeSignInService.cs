@@ -1,3 +1,4 @@
+using System.IO;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using Avalonia.Controls;
@@ -65,5 +66,27 @@ internal sealed class WindowsYouTubeSignInService : IYouTubeSignInService
                 YouTubeSignInOutcome.Failed,
                 $"The embedded browser encountered an error: {ex.Message}");
         }
+    }
+
+    public Task SignOutAsync(CancellationToken cancellationToken = default)
+    {
+        string userDataFolder = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            Core.AppInfo.Name,
+            "webview2-youtube-signin");
+
+        try
+        {
+            if (Directory.Exists(userDataFolder))
+            {
+                Directory.Delete(userDataFolder, true);
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // Ignore if the folder is locked or cannot be deleted
+        }
+
+        return Task.CompletedTask;
     }
 }
