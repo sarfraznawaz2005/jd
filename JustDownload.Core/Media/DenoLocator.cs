@@ -62,6 +62,19 @@ internal sealed partial class DenoLocator : IDenoLocator, IDisposable
         }
     }
 
+    public void Invalidate()
+    {
+        _gate.Wait();
+        try
+        {
+            _cached = null;
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
     private IEnumerable<string> Candidates()
     {
         if (!string.IsNullOrWhiteSpace(_options.DenoPath))

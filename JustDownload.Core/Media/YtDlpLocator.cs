@@ -63,6 +63,19 @@ internal sealed partial class YtDlpLocator : IYtDlpLocator, IDisposable
         }
     }
 
+    public void Invalidate()
+    {
+        _gate.Wait();
+        try
+        {
+            _cached = null;
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
     private IEnumerable<string> Candidates()
     {
         if (!string.IsNullOrWhiteSpace(_options.YtDlpPath))

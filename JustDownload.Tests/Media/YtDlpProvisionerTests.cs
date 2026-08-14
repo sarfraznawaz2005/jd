@@ -115,6 +115,74 @@ public sealed class YtDlpProvisionerTests : IDisposable
         result.Should().BeNull("the caller should then surface a 'no build for this platform' message");
     }
 
+    [Fact]
+    public async Task EnsureAsync_UpgradesOwnVendorBinary_WhenOlderThanPinnedManifest()
+    {
+        (byte[] binary, string sha256) = FakeYtDlpBinary();
+        await using var server = new LoopbackHttpServer { Body = binary, ContentType = "application/octet-stream" };
+        var manifest = ManifestFor(server.Url("yt-dlp"), sha256, version: "2026.08.04.234419");
+
+        string exePath = Path.Combine(_vendorDir, ExecutableName);
+        // Simulate a stale binary already sitting in OUR vendor directory (an old provisioner run), then
+        // pretend the download replaces it with the pinned version once the file actually exists.
+        Directory.CreateDirectory(_vendorDir);
+        File.WriteAllBytes(exePath, "stale-binary"u8.ToArray());
+        IYtDlpLocator locator = Substitute.For<IYtDlpLocator>();
+        locator.LocateAsync(Arg.Any<CancellationToken>()).Returns(_ =>
+        {
+            byte[] onDisk = File.ReadAllBytes(exePath);
+            return onDisk.SequenceEqual(binary)
+                ? new YtDlpInfo(exePath, "2026.08.04.234419")
+                : new YtDlpInfo(exePath, "2026.06.09");
+        });
+
+        YtDlpProvisioner provisioner = CreateProvisioner(manifest, locator);
+
+        YtDlpInfo? result = await provisioner.EnsureAsync();
+
+        result.Should().NotBeNull();
+        result!.Version.Should().Be("2026.08.04.234419", "the stale vendor binary must be replaced");
+        File.ReadAllBytes(exePath).Should().BeEquivalentTo(binary, "the pinned binary was actually downloaded and moved in");
+    }
+
+    [Fact]
+    public async Task EnsureAsync_DoesNotRedownload_WhenOwnVendorBinaryAlreadyMatchesPinnedVersion()
+    {
+        string exePath = Path.Combine(_vendorDir, ExecutableName);
+        Directory.CreateDirectory(_vendorDir);
+        File.WriteAllText(exePath, "current");
+        var existing = new YtDlpInfo(exePath, "2026.08.04.234419");
+        IYtDlpLocator locator = Substitute.For<IYtDlpLocator>();
+        locator.LocateAsync(Arg.Any<CancellationToken>()).Returns(existing);
+
+        // An unreachable URL would fail if a download were attempted; it must not be.
+        var manifest = ManifestFor(new Uri("http://127.0.0.1:1/never"), new string('b', 64), version: "2026.08.04.234419");
+        YtDlpProvisioner provisioner = CreateProvisioner(manifest, locator);
+
+        YtDlpInfo? result = await provisioner.EnsureAsync();
+
+        result.Should().BeSameAs(existing);
+        locator.DidNotReceive().Invalidate();
+    }
+
+    [Fact]
+    public async Task EnsureAsync_DoesNotUpgrade_WhenExistingIsAtCustomConfiguredPath()
+    {
+        // Not inside the vendor directory — represents a user-configured YtDlpPath or a PATH-resolved binary.
+        var existing = new YtDlpInfo(Path.Combine(Path.GetTempPath(), "custom-yt-dlp", ExecutableName), "2026.06.09");
+        IYtDlpLocator locator = Substitute.For<IYtDlpLocator>();
+        locator.LocateAsync(Arg.Any<CancellationToken>()).Returns(existing);
+
+        // An unreachable URL would fail if a download were attempted; it must not be.
+        var manifest = ManifestFor(new Uri("http://127.0.0.1:1/never"), new string('b', 64), version: "2026.08.04.234419");
+        YtDlpProvisioner provisioner = CreateProvisioner(manifest, locator);
+
+        YtDlpInfo? result = await provisioner.EnsureAsync();
+
+        result.Should().BeSameAs(existing, "a user-configured/PATH binary must never be auto-upgraded");
+        locator.DidNotReceive().Invalidate();
+    }
+
     private YtDlpProvisioner CreateProvisioner(YtDlpManifest manifest, IYtDlpLocator locator)
     {
         var options = new YtDlpOptions { VendorDirectory = _vendorDir };
@@ -131,8 +199,8 @@ public sealed class YtDlpProvisionerTests : IDisposable
             NullLogger<YtDlpProvisioner>.Instance);
     }
 
-    private static YtDlpManifest ManifestFor(Uri url, string sha256) =>
-        new([new YtDlpDownloadSource(FfmpegManifest.CurrentRuntimeIdentifier, "test", url, sha256)]);
+    private static YtDlpManifest ManifestFor(Uri url, string sha256, string version = "test") =>
+        new([new YtDlpDownloadSource(FfmpegManifest.CurrentRuntimeIdentifier, version, url, sha256)]);
 
     /// <summary>Builds a small fake yt-dlp binary and its SHA-256.</summary>
     private static (byte[] Binary, string Sha256) FakeYtDlpBinary()

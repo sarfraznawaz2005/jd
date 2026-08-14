@@ -59,14 +59,23 @@ internal sealed partial class DenoProvisioner : IDenoProvisioner, IDisposable
 
     public async Task<DenoInfo?> EnsureAsync(CancellationToken cancellationToken = default)
     {
-        // Honour any Deno already on the configured path, the vendor directory, or PATH.
+        bool hasSource = _manifest.TryGetForCurrentPlatform(out DenoDownloadSource source);
+
+        // Honour any Deno already on the configured path, the vendor directory, or PATH — unless it's a
+        // binary WE previously downloaded into the vendor directory and the pinned manifest version has
+        // since moved on, in which case it's upgraded rather than trusted as-is.
         DenoInfo? existing = await _locator.LocateAsync(cancellationToken).ConfigureAwait(false);
         if (existing is not null)
         {
-            return existing;
-        }
+            if (!hasSource || !IsUpgradeNeeded(existing, source))
+            {
+                return existing;
+            }
 
-        if (!_manifest.TryGetForCurrentPlatform(out DenoDownloadSource source))
+            LogUpgrading(_logger, existing.Version, source.Version);
+            _locator.Invalidate();
+        }
+        else if (!hasSource)
         {
             LogNoSource(_logger, FfmpegManifest.CurrentRuntimeIdentifier);
             return null;
@@ -76,9 +85,9 @@ internal sealed partial class DenoProvisioner : IDenoProvisioner, IDisposable
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            // Another caller may have provisioned while we waited.
+            // Another caller may have provisioned/upgraded while we waited.
             existing = await _locator.LocateAsync(cancellationToken).ConfigureAwait(false);
-            if (existing is not null)
+            if (existing is not null && !IsUpgradeNeeded(existing, source))
             {
                 return existing;
             }
@@ -90,6 +99,32 @@ internal sealed partial class DenoProvisioner : IDenoProvisioner, IDisposable
             _gate.Release();
         }
     }
+
+    /// <summary>
+    /// True only for a binary WE provisioned (living at the vendor-directory path) whose reported version
+    /// differs from the pinned manifest version. A user-configured <see cref="DenoOptions.DenoPath"/> or a
+    /// PATH-resolved Deno is never auto-upgraded — that would silently override an explicit user choice.
+    /// </summary>
+    private bool IsUpgradeNeeded(DenoInfo existing, DenoDownloadSource source) =>
+        IsOwnVendorBinary(existing.ExecutablePath) &&
+        !string.Equals(existing.Version, NormalizeVersion(source.Version), StringComparison.Ordinal);
+
+    private bool IsOwnVendorBinary(string executablePath)
+    {
+        string vendorDir = _options.VendorDirectory ?? Path.Combine(AppDataPaths.Directory(_appInfo), "deno");
+        string ownPath = Path.Combine(vendorDir, ExecutableName);
+        return string.Equals(
+            Path.GetFullPath(executablePath),
+            Path.GetFullPath(ownPath),
+            OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
+    }
+
+    /// <summary>Strips the release tag's leading <c>v</c> (e.g. <c>v2.9.5</c>) to match the plain
+    /// <c>2.9.5</c> format <see cref="DenoLocator.ParseVersion"/> reports from <c>deno --version</c>.</summary>
+    private static string NormalizeVersion(string version) =>
+        version.Length > 1 && (version[0] == 'v' || version[0] == 'V') && char.IsDigit(version[1])
+            ? version[1..]
+            : version;
 
     private async Task<DenoInfo> ProvisionAsync(DenoDownloadSource source, CancellationToken cancellationToken)
     {
@@ -118,6 +153,11 @@ internal sealed partial class DenoProvisioner : IDenoProvisioner, IDisposable
         {
             TryDelete(tempArchive);
         }
+
+        // The binary on disk just changed (fresh download or an upgrade over a stale one) — drop any cached
+        // locator result so self-validation below, and any other consumer holding this same singleton
+        // locator, re-reads the new file instead of a pre-upgrade cached DenoInfo.
+        _locator.Invalidate();
 
         DenoInfo? provisioned = await _locator.LocateAsync(cancellationToken).ConfigureAwait(false);
         if (provisioned is null)
@@ -203,4 +243,8 @@ internal sealed partial class DenoProvisioner : IDenoProvisioner, IDisposable
     [LoggerMessage(EventId = 3, Level = LogLevel.Debug,
         Message = "No Deno build is available to download for {RuntimeIdentifier}; yt-dlp will run without a JS runtime.")]
     private static partial void LogNoSource(ILogger logger, string runtimeIdentifier);
+
+    [LoggerMessage(EventId = 4, Level = LogLevel.Information,
+        Message = "Deno {ExistingVersion} is older than the pinned {PinnedVersion}; upgrading.")]
+    private static partial void LogUpgrading(ILogger logger, string existingVersion, string pinnedVersion);
 }

@@ -57,14 +57,24 @@ internal sealed partial class YtDlpProvisioner : IYtDlpProvisioner, IDisposable
 
     public async Task<YtDlpInfo?> EnsureAsync(CancellationToken cancellationToken = default)
     {
-        // Honour any yt-dlp already on the configured path, the vendor directory, or PATH.
+        bool hasSource = _manifest.TryGetForCurrentPlatform(out YtDlpDownloadSource source);
+
+        // Honour any yt-dlp already on the configured path, the vendor directory, or PATH — unless it's a
+        // binary WE previously downloaded into the vendor directory and the pinned manifest version has
+        // since moved on, in which case it's upgraded rather than trusted as-is (a stale in-house yt-dlp
+        // silently defeats manifest pins like the Instagram/YouTube fixes this is pinned for).
         YtDlpInfo? existing = await _locator.LocateAsync(cancellationToken).ConfigureAwait(false);
         if (existing is not null)
         {
-            return existing;
-        }
+            if (!hasSource || !IsUpgradeNeeded(existing, source))
+            {
+                return existing;
+            }
 
-        if (!_manifest.TryGetForCurrentPlatform(out YtDlpDownloadSource source))
+            LogUpgrading(_logger, existing.Version, source.Version);
+            _locator.Invalidate();
+        }
+        else if (!hasSource)
         {
             LogNoSource(_logger, FfmpegManifest.CurrentRuntimeIdentifier);
             return null;
@@ -75,9 +85,9 @@ internal sealed partial class YtDlpProvisioner : IYtDlpProvisioner, IDisposable
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            // Another caller may have provisioned while we waited.
+            // Another caller may have provisioned/upgraded while we waited.
             existing = await _locator.LocateAsync(cancellationToken).ConfigureAwait(false);
-            if (existing is not null)
+            if (existing is not null && !IsUpgradeNeeded(existing, source))
             {
                 return existing;
             }
@@ -88,6 +98,25 @@ internal sealed partial class YtDlpProvisioner : IYtDlpProvisioner, IDisposable
         {
             _gate.Release();
         }
+    }
+
+    /// <summary>
+    /// True only for a binary WE provisioned (living at the vendor-directory path) whose reported version
+    /// differs from the pinned manifest version. A user-configured <see cref="YtDlpOptions.YtDlpPath"/> or a
+    /// PATH-resolved yt-dlp is never auto-upgraded — that would silently override an explicit user choice.
+    /// </summary>
+    private bool IsUpgradeNeeded(YtDlpInfo existing, YtDlpDownloadSource source) =>
+        IsOwnVendorBinary(existing.ExecutablePath) &&
+        !string.Equals(existing.Version, source.Version, StringComparison.Ordinal);
+
+    private bool IsOwnVendorBinary(string executablePath)
+    {
+        string vendorDir = _options.VendorDirectory ?? Path.Combine(AppDataPaths.Directory(_appInfo), "yt-dlp");
+        string ownPath = Path.Combine(vendorDir, ExecutableName);
+        return string.Equals(
+            Path.GetFullPath(executablePath),
+            Path.GetFullPath(ownPath),
+            OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
     }
 
     private async Task<YtDlpInfo> ProvisionAsync(YtDlpDownloadSource source, CancellationToken cancellationToken)
@@ -127,6 +156,11 @@ internal sealed partial class YtDlpProvisioner : IYtDlpProvisioner, IDisposable
         {
             TryDelete(tempFile);
         }
+
+        // The binary on disk just changed (fresh download or an upgrade over a stale one) — drop any cached
+        // locator result so self-validation below, and any other consumer holding this same singleton
+        // locator, re-reads the new file instead of a pre-upgrade cached YtDlpInfo.
+        _locator.Invalidate();
 
         // Self-validate: locating yt-dlp runs `yt-dlp --version` and only succeeds if it exits cleanly.
         YtDlpInfo? provisioned = await _locator.LocateAsync(cancellationToken).ConfigureAwait(false);
@@ -183,4 +217,8 @@ internal sealed partial class YtDlpProvisioner : IYtDlpProvisioner, IDisposable
     [LoggerMessage(EventId = 3, Level = LogLevel.Warning,
         Message = "No yt-dlp build is available to download for {RuntimeIdentifier}.")]
     private static partial void LogNoSource(ILogger logger, string runtimeIdentifier);
+
+    [LoggerMessage(EventId = 4, Level = LogLevel.Information,
+        Message = "yt-dlp {ExistingVersion} is older than the pinned {PinnedVersion}; upgrading.")]
+    private static partial void LogUpgrading(ILogger logger, string existingVersion, string pinnedVersion);
 }

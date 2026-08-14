@@ -12,4 +12,11 @@ public interface IYtDlpLocator
     /// cached after the first successful resolution.
     /// </summary>
     Task<YtDlpInfo?> LocateAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Clears the cached result so the next <see cref="LocateAsync"/> call re-probes the filesystem/PATH
+    /// instead of returning a stale cached entry. Used by <see cref="IYtDlpProvisioner"/> when it replaces
+    /// the vendor-directory binary with a newer pinned version.
+    /// </summary>
+    void Invalidate();
 }

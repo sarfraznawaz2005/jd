@@ -117,6 +117,71 @@ public sealed class DenoProvisionerTests : IDisposable
         result.Should().BeNull("the caller should degrade gracefully — yt-dlp still works without Deno");
     }
 
+    [Fact]
+    public async Task EnsureAsync_UpgradesOwnVendorBinary_WhenOlderThanPinnedManifest()
+    {
+        (byte[] archive, string sha256) = BuildFakeDenoArchive();
+        await using var server = new LoopbackHttpServer { Body = archive, ContentType = "application/zip" };
+        // The manifest's Version carries the "v" release-tag prefix, same as the real DenoManifest.
+        var manifest = ManifestFor(server.Url("deno.zip"), sha256, version: "v2.9.5");
+
+        string exePath = Path.Combine(_vendorDir, ExecutableName);
+        // Simulate a stale binary already sitting in OUR vendor directory (an old provisioner run).
+        Directory.CreateDirectory(_vendorDir);
+        File.WriteAllText(exePath, "stale-deno-binary");
+        IDenoLocator locator = Substitute.For<IDenoLocator>();
+        locator.LocateAsync(Arg.Any<CancellationToken>()).Returns(_ =>
+            File.ReadAllText(exePath) == "fake-deno-binary"
+                ? new DenoInfo(exePath, "2.9.5")
+                : new DenoInfo(exePath, "1.0.0"));
+
+        DenoProvisioner provisioner = CreateProvisioner(manifest, locator);
+
+        DenoInfo? result = await provisioner.EnsureAsync();
+
+        result.Should().NotBeNull();
+        result!.Version.Should().Be("2.9.5", "the stale vendor binary must be replaced with the pinned version");
+        File.ReadAllText(exePath).Should().Be("fake-deno-binary", "the pinned archive was actually downloaded and extracted");
+    }
+
+    [Fact]
+    public async Task EnsureAsync_DoesNotRedownload_WhenOwnVendorBinaryAlreadyMatchesPinnedVersion()
+    {
+        string exePath = Path.Combine(_vendorDir, ExecutableName);
+        Directory.CreateDirectory(_vendorDir);
+        File.WriteAllText(exePath, "current");
+        var existing = new DenoInfo(exePath, "2.9.5");
+        IDenoLocator locator = Substitute.For<IDenoLocator>();
+        locator.LocateAsync(Arg.Any<CancellationToken>()).Returns(existing);
+
+        // An unreachable URL would fail if a download were attempted; it must not be.
+        var manifest = ManifestFor(new Uri("http://127.0.0.1:1/never.zip"), new string('b', 64), version: "v2.9.5");
+        DenoProvisioner provisioner = CreateProvisioner(manifest, locator);
+
+        DenoInfo? result = await provisioner.EnsureAsync();
+
+        result.Should().BeSameAs(existing);
+        locator.DidNotReceive().Invalidate();
+    }
+
+    [Fact]
+    public async Task EnsureAsync_DoesNotUpgrade_WhenExistingIsAtCustomConfiguredPath()
+    {
+        // Not inside the vendor directory — represents a user-configured DenoPath or a PATH-resolved binary.
+        var existing = new DenoInfo(Path.Combine(Path.GetTempPath(), "custom-deno", ExecutableName), "1.0.0");
+        IDenoLocator locator = Substitute.For<IDenoLocator>();
+        locator.LocateAsync(Arg.Any<CancellationToken>()).Returns(existing);
+
+        // An unreachable URL would fail if a download were attempted; it must not be.
+        var manifest = ManifestFor(new Uri("http://127.0.0.1:1/never.zip"), new string('b', 64), version: "v2.9.5");
+        DenoProvisioner provisioner = CreateProvisioner(manifest, locator);
+
+        DenoInfo? result = await provisioner.EnsureAsync();
+
+        result.Should().BeSameAs(existing, "a user-configured/PATH binary must never be auto-upgraded");
+        locator.DidNotReceive().Invalidate();
+    }
+
     private DenoProvisioner CreateProvisioner(DenoManifest manifest, IDenoLocator locator)
     {
         var options = new DenoOptions { VendorDirectory = _vendorDir };
@@ -133,8 +198,8 @@ public sealed class DenoProvisionerTests : IDisposable
             NullLogger<DenoProvisioner>.Instance);
     }
 
-    private static DenoManifest ManifestFor(Uri url, string sha256) =>
-        new([new DenoDownloadSource(FfmpegManifest.CurrentRuntimeIdentifier, "test", url, sha256)]);
+    private static DenoManifest ManifestFor(Uri url, string sha256, string version = "test") =>
+        new([new DenoDownloadSource(FfmpegManifest.CurrentRuntimeIdentifier, version, url, sha256)]);
 
     /// <summary>Builds a minimal zip holding only the executable at its root (Deno's real layout — no
     /// <c>bin/</c> folder), and its hash.</summary>
