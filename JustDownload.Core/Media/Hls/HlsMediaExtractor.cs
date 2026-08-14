@@ -74,6 +74,9 @@ internal sealed partial class HlsMediaExtractor : IMediaExtractor
             IReadOnlyList<VideoVariant> variants = master.Variants
                 .Select(v => new VideoVariant(v.Uri.ToString(), v.Height ?? 0, v.Bandwidth))
                 .ToArray();
+            IReadOnlyList<AudioVariant> audioVariants = master.AudioRenditions
+                .Select(a => new AudioVariant(a.Uri.ToString(), Language: a.Language))
+                .ToArray();
 
             return new MediaSource
             {
@@ -82,6 +85,7 @@ internal sealed partial class HlsMediaExtractor : IMediaExtractor
                 Url = request.Url,
                 SuggestedFileName = DeriveName(request.Url),
                 Variants = variants,
+                AudioVariants = audioVariants,
             };
         }
 
