@@ -98,3 +98,10 @@ Empirically confirmed (not assumed): plain net8.0 already resolves Microsoft.Web
 ResizeController raced Avalonia's own resize/maximize layout pass by querying a raw Win32 GetClientRect against the native child hwnd captured once at creation — WebView2 content stayed pinned at ~480x640 with black fill around it. Switched to sizing from the control's own Avalonia Bounds/SizeChangedEventArgs.NewSize (DIPs) scaled by TopLevel.RenderScaling to physical pixels, the standard NativeControlHost + Win32 interop pattern. Removed the now-unused GetClientRect LibraryImport/RECT struct an…
 
 **Impact**: JustDownload.App/Views/YouTubeSignInWebViewHost.cs (ResizeController signature + OnSizeChanged/InitializeWebViewAsync call sites)
+
+## Extension: explicit JD.isSuppressedHomePage() for home-page icon suppression
+**When**: 2026-08-14 12:44:18
+
+Task assumed YouTube-homepage icon suppression already existed as a pattern to mirror — it did not; it "worked" only by accident (no resolvable video in the feed). Added an explicit, pure host+path check in jdcore.js (HOME_PAGE_PATHS map, hostnameOf-based, www/http(s)/trailing-slash robust) rather than relying on incidental behavior, and extended it to youtube.com/x.com/twitter.com/facebook.com/instagram.com root (and /home for X/Twitter) pages. Re-checked per attach attempt in content.js since …
+
+**Impact**: extension/src/jdcore.js (new isSuppressedHomePage, exported on JD), extension/src/content.js (attachIconTo early-return), extension/test/jdcore.test.js, extension/test/content.test.js
