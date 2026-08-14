@@ -278,8 +278,123 @@ public sealed class MediaVariantPickerTests
 
         await vm.LoadAsync(new Uri("https://cdn/clip.mp4"));
 
-        vm.HasVariants.Should().BeFalse();
+        vm.HasVariants.Should().BeFalse("a one-entry quality dropdown is noise — the message already says it all");
         vm.Message.Should().Contain("direct download");
+        vm.CanConfirm.Should().BeTrue(
+            "TASK-239: the source URL is itself the stream, so the Download button must be usable — it used "
+            + "to stay greyed out forever, making every Facebook/progressive result undownloadable");
+    }
+
+    [Fact]
+    public async Task ConfirmAsync_ProgressiveWithNoVariants_EnqueuesTheSourceUrl()
+    {
+        // TASK-239: the only enqueue path builds the request from SelectedVariant, so a zero-variant source
+        // has to synthesise one from its own URL (mirroring NewDownloadViewModel.ApplyMediaDetection).
+        var source = new MediaSource
+        {
+            ExtractorName = "facebook",
+            Kind = MediaKind.Progressive,
+            Url = new Uri("https://video.fbcdn.net/v/clip.mp4"),
+            SuggestedFileName = "My reel",
+        };
+        var manager = Substitute.For<IDownloadManager>();
+        manager.EnqueueAsync(Arg.Any<EnqueueDownloadRequest>(), Arg.Any<CancellationToken>()).Returns(11L);
+        var actions = Substitute.For<IDownloadActions>();
+        MediaVariantPickerViewModel vm = Build(
+            RegistryReturning(source), SettingsWith(VideoQuality.P1080, MediaContainer.Mp4), manager, actions);
+        await vm.LoadAsync(source.Url);
+
+        await vm.ConfirmAsync();
+
+        await manager.Received(1).EnqueueAsync(
+            Arg.Is<EnqueueDownloadRequest>(r =>
+                r.Url == new Uri("https://video.fbcdn.net/v/clip.mp4")
+                && r.MediaKind == MediaKind.Progressive
+                && r.MediaAudioUrl == null
+                && r.FileName == "My reel.mp4"
+                && r.DestinationDirectory == @"C:\Downloads\Video"),
+            Arg.Any<CancellationToken>());
+        actions.Received(1).Start(11L);
+    }
+
+    [Fact]
+    public async Task ConfirmAsync_HlsMediaPlaylistWithNoVariants_EnqueuesItAsHls()
+    {
+        // A media (non-master) playlist carries no variants to choose between, but HlsDownloader downloads it
+        // directly — it must still route through the media path rather than be undownloadable (TASK-239).
+        var source = new MediaSource
+        {
+            ExtractorName = "hls",
+            Kind = MediaKind.Hls,
+            Url = new Uri("https://cdn.example.com/media.m3u8"),
+        };
+        var manager = Substitute.For<IDownloadManager>();
+        manager.EnqueueAsync(Arg.Any<EnqueueDownloadRequest>(), Arg.Any<CancellationToken>()).Returns(12L);
+        MediaVariantPickerViewModel vm = Build(
+            RegistryReturning(source), SettingsWith(VideoQuality.P1080, MediaContainer.Mkv), manager);
+
+        await vm.LoadAsync(source.Url);
+
+        vm.CanConfirm.Should().BeTrue();
+        vm.Message.Should().NotBeNullOrWhiteSpace(
+            "x.com used to show no message at all next to a dead Download button");
+        vm.Message.Should().NotContain("direct download", "an adaptive stream is not a plain file download");
+
+        await vm.ConfirmAsync();
+
+        await manager.Received(1).EnqueueAsync(
+            Arg.Is<EnqueueDownloadRequest>(r =>
+                r.Url == new Uri("https://cdn.example.com/media.m3u8")
+                && r.MediaKind == MediaKind.Hls
+                && r.FileName == "media.mkv"),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ConfirmAsync_WithVariants_StillEnqueuesTheChosenVariant_NotTheSourceUrl()
+    {
+        // Guards the TASK-239 no-variant fallback from hijacking the normal, variant-bearing path.
+        var manager = Substitute.For<IDownloadManager>();
+        manager.EnqueueAsync(Arg.Any<EnqueueDownloadRequest>(), Arg.Any<CancellationToken>()).Returns(13L);
+        MediaVariantPickerViewModel vm = Build(
+            RegistryReturning(HlsSource(360, 720, 1080)), SettingsWith(VideoQuality.P720, MediaContainer.Mkv), manager);
+        await vm.LoadAsync(MediaUrl);
+
+        vm.SelectedVariant!.Variant.Id.Should().Be("https://cdn/720.m3u8", "the default quality is still pre-selected");
+
+        await vm.ConfirmAsync();
+
+        await manager.Received(1).EnqueueAsync(
+            Arg.Is<EnqueueDownloadRequest>(r => r.Url == new Uri("https://cdn/720.m3u8")),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task LoadAsync_FailedLoadAfterASuccessfulOne_AnnouncesTheEmptiedQualityList()
+    {
+        // TASK-239: HasVariants is computed over an ObservableCollection whose Clear() raises nothing for it,
+        // and only the success path re-announced it — so after a failed re-detect the previous load's Quality
+        // ComboBox stayed on screen, empty.
+        var registry = Substitute.For<IMediaExtractorRegistry>();
+        registry.ExtractAsync(Arg.Any<MediaRequest>(), Arg.Any<CancellationToken>()).Returns(
+            Task.FromResult(new MediaExtractionResult
+            {
+                Source = HlsSource(720, 1080),
+                Attempts = [MediaExtractionAttempt.Accepted("hls")],
+            }),
+            Task.FromResult(NothingFound(MediaExtractionAttempt.Declined("hls"))));
+        MediaVariantPickerViewModel vm = Build(registry, SettingsWith(VideoQuality.P1080, MediaContainer.Mkv));
+        await vm.LoadAsync(MediaUrl);
+        vm.HasVariants.Should().BeTrue("the first load succeeds");
+
+        var notified = new List<string?>();
+        vm.PropertyChanged += (_, e) => notified.Add(e.PropertyName);
+        await vm.LoadAsync(new Uri("https://example.com/page.html"));
+
+        vm.HasVariants.Should().BeFalse();
+        vm.CanConfirm.Should().BeFalse();
+        notified.Should().Contain(nameof(MediaVariantPickerViewModel.HasVariants),
+            "the view only re-reads a computed property when it is told to");
     }
 
     [Fact]

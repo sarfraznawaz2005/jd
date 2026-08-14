@@ -34,9 +34,11 @@ public sealed record AudioOption(AudioVariant Variant, string Label);
 /// The add-video / quality picker (TASK-060, US-10). Given a media URL it runs the extractor registry to
 /// list the available video qualities (and audio renditions for separate streams), then pre-selects the
 /// quality matching the user's <see cref="AppSettings.DefaultVideoQuality"/> (via
-/// <see cref="VideoQualitySelector"/>) and the <see cref="AppSettings.DefaultContainer"/>. Progressive or
-/// unrecognised URLs degrade to a clear message rather than an empty list. Pure view-model logic so it is
-/// unit-testable; the window is a thin shell.
+/// <see cref="VideoQualitySelector"/>) and the <see cref="AppSettings.DefaultContainer"/>. A source with no
+/// quality list (progressive media, a single HLS media playlist) is still downloadable — its own URL is
+/// selected as the stream and a message explains there is nothing to choose; unrecognised URLs degrade to a
+/// clear message rather than an empty list. Pure view-model logic so it is unit-testable; the window is a
+/// thin shell.
 /// </summary>
 public sealed partial class MediaVariantPickerViewModel : ViewModelBase
 {
@@ -412,9 +414,20 @@ public sealed partial class MediaVariantPickerViewModel : ViewModelBase
                 VideoVariant chosen = VideoQualitySelector.Select(source.Variants, _settings.Current.DefaultVideoQuality);
                 SelectedVariant = Variants.FirstOrDefault(o => o.Variant == chosen) ?? Variants[0];
             }
-            else if (source.Kind == MediaKind.Progressive)
+            else
             {
-                Message = "This is a direct download — no quality options.";
+                // A source with no quality list is still downloadable — the source URL *is* the stream
+                // (TASK-239). Without this the picker showed a message and a permanently disabled Download
+                // button for every Facebook/progressive/single-media-playlist result, so those could never
+                // be downloaded at all. Mirrors NewDownloadViewModel.ApplyMediaDetection's
+                // `chosenVideo is not null ? new Uri(chosenVideo.Id) : source.Url` fallback, and reuses
+                // ConfirmAsync unchanged (it still passes MediaKind, so HLS keeps the segment/mux path).
+                // Deliberately not added to Variants: a one-entry quality dropdown is noise, and the
+                // message below already says there is nothing to choose.
+                SelectedVariant = new VariantOption(new VideoVariant(source.Url.ToString(), 0), "Original");
+                Message = source.Kind == MediaKind.Progressive
+                    ? "This is a direct download — no quality options."
+                    : "Single stream — no quality options.";
             }
 
             if (AudioVariants.Count > 0)
@@ -424,9 +437,6 @@ public sealed partial class MediaVariantPickerViewModel : ViewModelBase
                 SelectedAudio = AudioVariants.FirstOrDefault(o => o.Variant == chosenAudio) ?? AudioVariants[0];
             }
 
-            OnPropertyChanged(nameof(HasVariants));
-            OnPropertyChanged(nameof(HasAudio));
-            OnPropertyChanged(nameof(CanConfirm)); // _source is a plain field — nothing else announces it
         }
         catch (OperationCanceledException)
         {
@@ -440,6 +450,13 @@ public sealed partial class MediaVariantPickerViewModel : ViewModelBase
         finally
         {
             IsLoading = false;
+
+            // Raised on every exit path, not just the successful one (TASK-239): these are computed over
+            // the collections cleared above, and ObservableCollection.Clear() announces nothing for them.
+            // A failed load after a successful one used to leave the Quality box on screen and empty.
+            OnPropertyChanged(nameof(HasVariants));
+            OnPropertyChanged(nameof(HasAudio));
+            OnPropertyChanged(nameof(CanConfirm)); // _source is a plain field — nothing else announces it
         }
     }
 
