@@ -1,6 +1,7 @@
 using FluentAssertions;
 using JustDownload.Core.Media.Extraction;
 using JustDownload.Core.Media.Twitter;
+using JustDownload.Core.Transport;
 using JustDownload.Tests.Fakes;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
@@ -25,7 +26,7 @@ public sealed class TwitterMediaExtractorTests
     private static readonly string SyndicationUrl =
         $"https://cdn.syndication.twimg.com/tweet-result?id={TweetId}&token={TwitterSyndicationToken.Generate(TweetId)}&lang=en";
 
-    private static TwitterMediaExtractor Build(MapTransport transport) =>
+    private static TwitterMediaExtractor Build(ITransport transport) =>
         new(transport, NullLogger<TwitterMediaExtractor>.Instance);
 
     private static MediaRequest Request(string url) => new() { Url = new Uri(url) };
@@ -49,6 +50,35 @@ public sealed class TwitterMediaExtractorTests
           ]
         }
         """;
+
+    private static string MasterPlaylistFixture() =>
+        """
+        #EXTM3U
+        #EXT-X-STREAM-INF:BANDWIDTH=832000,RESOLUTION=640x360
+        360p/playlist.m3u8
+        #EXT-X-STREAM-INF:BANDWIDTH=2176000,RESOLUTION=1280x720
+        720p/playlist.m3u8
+        #EXT-X-STREAM-INF:BANDWIDTH=4000000,RESOLUTION=1920x1080
+        1080p/playlist.m3u8
+        """;
+
+    private static string MediaPlaylistFixture() =>
+        """
+        #EXTM3U
+        #EXT-X-TARGETDURATION:10
+        #EXTINF:9.009,
+        segment0.ts
+        #EXT-X-ENDLIST
+        """;
+
+    /// <summary>Throws for one specific URL (simulating a network failure) and delegates every other request.</summary>
+    private sealed class ThrowingForUrlTransport(ITransport inner, string throwForUrl) : ITransport
+    {
+        public Task<ITransportResponse> SendAsync(TransportRequest request, CancellationToken cancellationToken = default) =>
+            string.Equals(request.Uri.ToString(), throwForUrl, StringComparison.Ordinal)
+                ? throw new HttpRequestException("Simulated network failure.")
+                : inner.SendAsync(request, cancellationToken);
+    }
 
     private static string Mp4OnlyFixture() =>
         $$"""
@@ -78,8 +108,62 @@ public sealed class TwitterMediaExtractorTests
         source!.ExtractorName.Should().Be("twitter");
         source.Kind.Should().Be(MediaKind.Hls, "the HLS master is preferred over the MP4 variants");
         source.Url.ToString().Should().Be(MasterUrl);
-        source.Variants.Should().BeEmpty("the existing HLS extractor parses the master — heights are not fabricated here");
+        source.Variants.Should().BeEmpty("the master playlist itself was never stubbed on the transport, so the fetch 404s and degrades gracefully");
         source.SuggestedFileName.Should().Be("Check out this video!");
+    }
+
+    [Fact]
+    public async Task TryExtractAsync_HlsMasterPlaylist_ParsesRealVariantQualities()
+    {
+        var transport = new MapTransport()
+            .AddText(SyndicationUrl, HlsFixture())
+            .AddText(MasterUrl, MasterPlaylistFixture());
+
+        MediaSource? source = await Build(transport)
+            .TryExtractAsync(Request($"https://x.com/someuser/status/{TweetId}"));
+
+        source.Should().NotBeNull();
+        source!.Kind.Should().Be(MediaKind.Hls);
+        source.Url.ToString().Should().Be(MasterUrl);
+        source.Variants.Should().HaveCount(3, "the master playlist advertises three quality variants");
+        source.Variants.Select(v => v.Height).Should().BeEquivalentTo([360, 720, 1080]);
+        source.Variants.Select(v => v.Id).Should().BeEquivalentTo(
+        [
+            "https://video.twimg.com/ext_tw_video/abc/360p/playlist.m3u8",
+            "https://video.twimg.com/ext_tw_video/abc/720p/playlist.m3u8",
+            "https://video.twimg.com/ext_tw_video/abc/1080p/playlist.m3u8",
+        ]);
+    }
+
+    [Fact]
+    public async Task TryExtractAsync_HlsMediaPlaylist_ReturnsHlsWithNoVariants()
+    {
+        var transport = new MapTransport()
+            .AddText(SyndicationUrl, HlsFixture())
+            .AddText(MasterUrl, MediaPlaylistFixture());
+
+        MediaSource? source = await Build(transport)
+            .TryExtractAsync(Request($"https://x.com/someuser/status/{TweetId}"));
+
+        source.Should().NotBeNull();
+        source!.Kind.Should().Be(MediaKind.Hls);
+        source.Url.ToString().Should().Be(MasterUrl);
+        source.Variants.Should().BeEmpty("a media playlist has a single quality — nothing to choose from");
+    }
+
+    [Fact]
+    public async Task TryExtractAsync_HlsMasterFetchThrows_DegradesGracefully_NoException()
+    {
+        var inner = new MapTransport().AddText(SyndicationUrl, HlsFixture());
+        var transport = new ThrowingForUrlTransport(inner, MasterUrl);
+
+        MediaSource? source = await Build(transport)
+            .TryExtractAsync(Request($"https://x.com/someuser/status/{TweetId}"));
+
+        source.Should().NotBeNull("a master-playlist fetch failure must not fail the whole extraction");
+        source!.Kind.Should().Be(MediaKind.Hls);
+        source.Url.ToString().Should().Be(MasterUrl);
+        source.Variants.Should().BeEmpty();
     }
 
     [Fact]

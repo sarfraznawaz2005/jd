@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using JustDownload.Core.Media.Extraction;
+using JustDownload.Core.Media.Hls;
 using JustDownload.Core.Transport;
 using Microsoft.Extensions.Logging;
 
@@ -77,16 +78,19 @@ internal sealed partial class TwitterMediaExtractor : IMediaExtractor
             }
         }
 
-        return TryBuildFromJson(tweetId, json);
+        return await TryBuildFromJsonAsync(request, tweetId, json, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>
     /// Parses the syndication JSON (tolerant — a missing field is skipped, malformed JSON returns
     /// <see langword="null"/>) and builds a <see cref="MediaSource"/>. Prefers the HLS master playlist when
-    /// present (more robust per react-tweet issue #191), else the highest-bitrate MP4; never fabricates
-    /// variant heights (the existing HLS extractor derives real heights from the playlist).
+    /// present (more robust per react-tweet issue #191), else the highest-bitrate MP4. When the HLS URL is a
+    /// master playlist, its real quality variants are fetched and parsed (mirroring <c>HlsMediaExtractor</c>);
+    /// a fetch failure or a media (non-master) playlist degrades to an empty variant list rather than failing
+    /// the whole extraction — the master/media URL is still a valid single-stream download either way.
     /// </summary>
-    private MediaSource? TryBuildFromJson(string tweetId, string? json)
+    private async Task<MediaSource?> TryBuildFromJsonAsync(
+        MediaRequest request, string tweetId, string? json, CancellationToken cancellationToken)
     {
         if (IsTransientEmpty(json))
         {
@@ -172,13 +176,16 @@ internal sealed partial class TwitterMediaExtractor : IMediaExtractor
                 if (string.Equals(contentType, "application/x-mpegURL", StringComparison.OrdinalIgnoreCase) &&
                     Uri.TryCreate(url, UriKind.Absolute, out Uri? hlsUri))
                 {
+                    IReadOnlyList<VideoVariant> hlsVariants = await TryFetchHlsVariantsAsync(
+                        request, hlsUri, cancellationToken).ConfigureAwait(false);
+
                     return new MediaSource
                     {
                         ExtractorName = Name,
                         Kind = MediaKind.Hls,
                         Url = hlsUri,
                         SuggestedFileName = CrossPlatformFileName.Sanitize(text) ?? $"twitter-{tweetId}",
-                        Variants = [],
+                        Variants = hlsVariants,
                         AudioVariants = [],
                     };
                 }
@@ -321,6 +328,61 @@ internal sealed partial class TwitterMediaExtractor : IMediaExtractor
         }
     }
 
+    /// <summary>
+    /// Fetches <paramref name="hlsUri"/> and, if it is a master playlist, parses its real quality variants
+    /// (mirrors <see cref="HlsMediaExtractor"/>'s own master-playlist parsing). Degrades to an empty
+    /// list — never throws, never fails the caller — for a fetch failure (network exception, non-2xx), a
+    /// body that isn't recognisably HLS, or a media (non-master) playlist; the master/media URL itself
+    /// remains a valid single-stream download either way.
+    /// </summary>
+    private async Task<IReadOnlyList<VideoVariant>> TryFetchHlsVariantsAsync(
+        MediaRequest request, Uri hlsUri, CancellationToken cancellationToken)
+    {
+        string text;
+        try
+        {
+            var transportRequest = new TransportRequest
+            {
+                Uri = hlsUri,
+                Method = TransportMethod.Get,
+                Headers = request.Headers,
+            };
+
+            await using ITransportResponse response = await _transport
+                .SendAsync(transportRequest, cancellationToken).ConfigureAwait(false);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                LogHlsMasterFetchFailed(_logger, hlsUri, response.StatusCode);
+                return [];
+            }
+
+            await using Stream stream = await response.OpenContentStreamAsync(cancellationToken)
+                .ConfigureAwait(false);
+            using var reader = new StreamReader(stream);
+            text = await reader.ReadToEndAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex) when (ex is HttpRequestException or IOException or InvalidOperationException)
+        {
+            LogHlsMasterFetchException(_logger, hlsUri, ex);
+            return [];
+        }
+
+        if (!text.Contains("#EXTM3U", StringComparison.Ordinal) || !M3U8Parser.IsMaster(text))
+        {
+            return [];
+        }
+
+        HlsMasterPlaylist master = M3U8Parser.ParseMaster(text, hlsUri);
+        return master.Variants
+            .Select(v => new VideoVariant(v.Uri.ToString(), v.Height ?? 0, v.Bandwidth))
+            .ToArray();
+    }
+
     // The tweet id is the digit run immediately after /status/, ignoring trailing /video/N, /photo/N and
     // query strings — the first match is always the id.
     [GeneratedRegex(@"/status/(\d+)", RegexOptions.CultureInvariant)]
@@ -337,4 +399,10 @@ internal sealed partial class TwitterMediaExtractor : IMediaExtractor
 
     [LoggerMessage(EventId = 4, Level = LogLevel.Debug, Message = "Twitter tweet {TweetId} is a tombstone (protected/age-restricted/removed); declining.")]
     private static partial void LogTombstone(ILogger logger, string tweetId);
+
+    [LoggerMessage(EventId = 5, Level = LogLevel.Debug, Message = "Twitter HLS master fetch of {Url} returned status {StatusCode}; returning it without parsed variants.")]
+    private static partial void LogHlsMasterFetchFailed(ILogger logger, Uri url, int statusCode);
+
+    [LoggerMessage(EventId = 6, Level = LogLevel.Debug, Message = "Could not fetch Twitter HLS master playlist {Url}; returning it without parsed variants.")]
+    private static partial void LogHlsMasterFetchException(ILogger logger, Uri url, Exception exception);
 }
