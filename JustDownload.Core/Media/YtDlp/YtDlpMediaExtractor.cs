@@ -43,17 +43,25 @@ namespace JustDownload.Core.Media.YtDlp;
 /// "yt-dlp: Sign in to confirm you're not a bot" instead of a generic "no media found" (CLAUDE.md §5).
 /// </para>
 /// <para>
-/// A probe that fails with a bot-style error (the sign-in wall, HTTP 429, an explicit "use cookies" hint —
-/// matched case-insensitively against a few known substrings) is retried exactly once with cookies. The
-/// cookie source is the user's configuration when there is one (<see cref="AppSettings.YtDlpCookieFilePath"/>
-/// and/or <see cref="AppSettings.YtDlpCookieBrowser"/>), and otherwise the first installed browser found by
-/// <see cref="DetectBrowserCookieArguments"/> — a zero-config <c>--cookies-from-browser</c> fallback, so the
-/// common case needs no setting at all. Auto-detection is best-effort: when the auto-detected retry also
-/// fails, the ORIGINAL bot-detection reason is surfaced (the guessed browser's own cookie error would only
-/// mislead), whereas an explicitly configured source keeps surfacing the retry's own reason. Any non-bot
-/// failure, or a bot failure with no configured source and no browser detected, leaves the behaviour
-/// byte-identical to before: a single probe, no cookie argv, and the same reason surfaced. The retry never
-/// loops.
+/// A probe that fails with a genuine login-required error (a private, age-restricted, or members-only/
+/// Premium-only video, or an explicit sign-in-to-view-this-content message — matched case-insensitively
+/// against a handful of specific phrases) is retried exactly once with cookies. The generic "confirm
+/// you're not a bot" challenge wall and HTTP 429/rate-limit failures deliberately do NOT trigger this
+/// retry: per yt-dlp issue #17389, sending cookies on a request that would otherwise succeed switches
+/// yt-dlp into the "tv_downgraded" client, whose JS signature its own challenge-solver can't yet handle —
+/// actively breaking a download cookies were supposed to fix — and a guest-session rate limit isn't
+/// dislodged by cookies anyway, only by waiting. The cookie source is the user's configuration when there
+/// is one (<see cref="AppSettings.YtDlpCookieFilePath"/> and/or <see cref="AppSettings.YtDlpCookieBrowser"/>),
+/// and otherwise the first installed browser found by <see cref="DetectBrowserCookieArguments"/> — a
+/// zero-config <c>--cookies-from-browser</c> fallback, so the common case needs no setting at all.
+/// Auto-detection is best-effort: when the auto-detected retry also fails, the ORIGINAL login-required
+/// reason is surfaced (the guessed browser's own cookie error would only mislead), whereas an explicitly
+/// configured source keeps surfacing the retry's own reason. Any non-login failure, or a login failure
+/// with no configured source and no browser detected, leaves the behaviour byte-identical to before: a
+/// single probe, no cookie argv, and the same reason surfaced. The retry never loops. Whenever cookies do
+/// go out, <c>--extractor-args youtube:player_client=default,web_embedded</c> is appended alongside them —
+/// the maintainer-pinned workaround for the #17389 signature bug (accepted caveat: this breaks live-stream
+/// downloads after ~4 minutes, but the app's primary use case is VOD).
 /// </para>
 /// <para>
 /// yt-dlp needs a JS runtime to solve YouTube's signature/JS challenges — per yt-dlp's own EJS wiki page,
@@ -75,8 +83,11 @@ internal sealed partial class YtDlpMediaExtractor : IMediaExtractor
         ["--dump-json", "--no-playlist", "--no-warnings", "--ignore-config"];
 
     // Probed in order on the zero-config cookie fallback; the first one installed wins. yt-dlp accepts
-    // exactly these names for --cookies-from-browser.
-    private static readonly string[] BrowserCookieCandidates = ["chrome", "edge", "firefox", "brave", "opera"];
+    // exactly these names for --cookies-from-browser. Firefox first: yt-dlp maintainer bashonly (issue
+    // #15401) found Chromium browsers on Windows hit an unresolved sqlite cookie-DB lock (issue #7271)
+    // and a DPAPI-decryption dead end needing admin rights — "no plan" to fix otherwise — while yt-dlp's
+    // own FAQ says this method "works best with Firefox."
+    private static readonly string[] BrowserCookieCandidates = ["firefox", "chrome", "edge", "brave", "opera"];
 
     private static readonly JsonSerializerOptions JsonOptions = new() { PropertyNameCaseInsensitive = true };
 
@@ -137,18 +148,19 @@ internal sealed partial class YtDlpMediaExtractor : IMediaExtractor
         string[] denoArguments = deno is not null ? ["--js-runtimes", $"deno:{deno.ExecutablePath}"] : [];
 
         // The base probe carries no cookie argv — identical to the pre-cookie behaviour. Cookies are
-        // resolved only inside the bot-detection catch below, so the happy path pays nothing for them.
+        // resolved only inside the login-required catch below, so the happy path pays nothing for them.
         string[] arguments = [.. BaseArguments, .. denoArguments, request.Url.AbsoluteUri];
 
         try
         {
             return await RunAndMapAsync(ytDlp, arguments, request, cancellationToken).ConfigureAwait(false);
         }
-        catch (MediaExtractionFailedException ex) when (IsBotDetectionReason(ex.Message))
+        catch (MediaExtractionFailedException ex) when (RequiresLoginReason(ex.Message))
         {
-            // yt-dlp hit a bot challenge (sign-in wall, HTTP 429, "use cookies"). Cookies are the fallback
-            // for exactly this: the user's configured source if there is one, otherwise an auto-detected
-            // installed browser. No loop: exactly one retry, whatever happens.
+            // yt-dlp reported the content genuinely requires a signed-in session (private/age-restricted/
+            // members-only/sign-in-to-view). Cookies are the fallback for exactly this: the user's
+            // configured source if there is one, otherwise an auto-detected installed browser. No loop:
+            // exactly one retry, whatever happens.
             string[] cookieArgs = BuildCookieArguments(_settings.Current);
             bool autoDetected = false;
             if (cookieArgs.Length == 0)
@@ -159,13 +171,20 @@ internal sealed partial class YtDlpMediaExtractor : IMediaExtractor
 
             if (cookieArgs.Length == 0)
             {
-                throw; // No configured source and no browser found — surface the bot reason unchanged.
+                throw; // No configured source and no browser found — surface the login-required reason unchanged.
             }
 
             LogCookieFallback(_logger, request.Url, ex.Message, cookieArgs[^1]);
+
+            // yt-dlp issue #17389: cookies switch YouTube into the "tv_downgraded" client, whose JS
+            // signature the challenge-solver can't yet handle — this maintainer-pinned extractor-args
+            // workaround avoids that regression. Always paired with cookies now; never sent without them.
+            string[] cookieAndWorkaroundArgs =
+                [.. cookieArgs, "--extractor-args", "youtube:player_client=default,web_embedded"];
             try
             {
-                return await RunAndMapAsync(ytDlp, [.. arguments, .. cookieArgs], request, cancellationToken)
+                return await RunAndMapAsync(
+                        ytDlp, [.. arguments, .. cookieAndWorkaroundArgs], request, cancellationToken)
                     .ConfigureAwait(false);
             }
             catch (MediaExtractionFailedException cookieEx) when (autoDetected)
@@ -313,17 +332,23 @@ internal sealed partial class YtDlpMediaExtractor : IMediaExtractor
     }
 
     /// <summary>
-    /// Heuristic: does this failure reason look like YouTube's bot-detection wall, an HTTP 429, or an
-    /// explicit "use cookies" hint? These are the cases the user's supplied cookie source is meant to
-    /// dislodge. Matched case-insensitively against a handful of known substrings (the reason comes from
-    /// yt-dlp's last <c>ERROR:</c> stderr line, stripped of its prefix).
+    /// Heuristic: does this failure reason indicate the video genuinely requires a signed-in session to
+    /// access — private, age-restricted, members-only/Premium-only, or an explicit
+    /// sign-in-to-view-this-content message? Deliberately narrow (yt-dlp issue #17389): the generic
+    /// "confirm you're not a bot" challenge wall and HTTP 429/rate-limit failures are NOT matched here,
+    /// because sending cookies on those actually breaks a request that would otherwise succeed (cookies
+    /// switch yt-dlp into the "tv_downgraded" client, whose JS signature its challenge-solver can't yet
+    /// handle) — a false negative here is far safer than a false positive. Matched case-insensitively
+    /// against a handful of specific phrases (the reason comes from yt-dlp's last <c>ERROR:</c> stderr
+    /// line, stripped of its prefix).
     /// </summary>
-    private static bool IsBotDetectionReason(string reason) =>
-        reason.Contains("confirm you're not a bot", StringComparison.OrdinalIgnoreCase) ||
-        reason.Contains("429", StringComparison.OrdinalIgnoreCase) ||
-        reason.Contains("too many requests", StringComparison.OrdinalIgnoreCase) ||
-        reason.Contains("cookies", StringComparison.OrdinalIgnoreCase) ||
-        reason.Contains("bot", StringComparison.OrdinalIgnoreCase);
+    private static bool RequiresLoginReason(string reason) =>
+        reason.Contains("private video", StringComparison.OrdinalIgnoreCase) ||
+        reason.Contains("sign in to confirm your age", StringComparison.OrdinalIgnoreCase) ||
+        reason.Contains("members-only", StringComparison.OrdinalIgnoreCase) ||
+        reason.Contains("sign in to view this content", StringComparison.OrdinalIgnoreCase) ||
+        reason.Contains("login required", StringComparison.OrdinalIgnoreCase) ||
+        reason.Contains("registered users only", StringComparison.OrdinalIgnoreCase);
 
     private MediaSource TryMap(string standardOutput, Uri requestUrl)
     {
@@ -494,10 +519,10 @@ internal sealed partial class YtDlpMediaExtractor : IMediaExtractor
     [LoggerMessage(EventId = 1, Level = LogLevel.Debug, Message = "yt-dlp failed to run for {Url}; declining.")]
     private static partial void LogRunFailed(ILogger logger, Uri url, Exception exception);
 
-    [LoggerMessage(EventId = 5, Level = LogLevel.Debug, Message = "yt-dlp hit a bot-detection error for {Url} ({Reason}); retrying once with cookies from {CookieSource}.")]
+    [LoggerMessage(EventId = 5, Level = LogLevel.Debug, Message = "yt-dlp hit a login-required error for {Url} ({Reason}); retrying once with cookies from {CookieSource}.")]
     private static partial void LogCookieFallback(ILogger logger, Uri url, string reason, string cookieSource);
 
-    [LoggerMessage(EventId = 6, Level = LogLevel.Debug, Message = "The auto-detected browser cookie retry for {Url} also failed ({Reason}); surfacing the original bot-detection reason.")]
+    [LoggerMessage(EventId = 6, Level = LogLevel.Debug, Message = "The auto-detected browser cookie retry for {Url} also failed ({Reason}); surfacing the original login-required reason.")]
     private static partial void LogCookieFallbackFailed(ILogger logger, Uri url, string reason);
 
     [LoggerMessage(EventId = 2, Level = LogLevel.Debug, Message = "yt-dlp exited {ExitCode} for {Url}: {Error}")]

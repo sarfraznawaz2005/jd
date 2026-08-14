@@ -481,17 +481,17 @@ public sealed class YtDlpMediaExtractorTests
     }
 
     [Fact]
-    public async Task TryExtractAsync_CookiePathSet_AndBotError_RetriesWithCookiesArg()
+    public async Task TryExtractAsync_CookiePathSet_AndLoginRequiredError_RetriesWithCookiesArg()
     {
         ISettingsService settings = SettingsWithCookies(videoCaptureEnabled: true, cookieFile: "C:/cookies.txt");
         var locator = Substitute.For<IYtDlpLocator>();
         locator.LocateAsync(Arg.Any<CancellationToken>()).Returns(LocatedYtDlp);
         var runner = Substitute.For<IYtDlpRunner>();
-        // First call: bot-detection failure. Second (retry): succeeds.
+        // First call: genuine login-required failure. Second (retry): succeeds.
         runner.RunAsync(Arg.Any<string>(), Arg.Any<IReadOnlyList<string>>(), Arg.Any<CancellationToken>())
             .Returns(
                 _ => new YtDlpRunResult(
-                    1, string.Empty, "ERROR: [youtube] abc: Sign in to confirm you're not a bot"),
+                    1, string.Empty, "ERROR: [youtube] abc: Private video. Sign in if you've been granted access to this video"),
                 _ => new YtDlpRunResult(0, """
                     {"id":"abc","formats":[
                       {"format_id":"18","url":"https://cdn.example.com/v18","protocol":"https","vcodec":"avc1.42001E","acodec":"mp4a.40.2","height":360}
@@ -501,7 +501,7 @@ public sealed class YtDlpMediaExtractorTests
         MediaSource? source = await Build(settings, locator, runner)
             .TryExtractAsync(Request("https://www.youtube.com/watch?v=abc"));
 
-        source.Should().NotBeNull("the cookie retry dislodged the bot challenge");
+        source.Should().NotBeNull("the cookie retry dislodged the login-required wall");
         source!.Variants.Should().ContainSingle();
         // Exactly one retry: a second invocation carrying the cookie args.
         await runner.Received(2).RunAsync(
@@ -513,13 +513,13 @@ public sealed class YtDlpMediaExtractorTests
     }
 
     [Fact]
-    public async Task TryExtractAsync_NonBotError_DoesNotRetry_AndSurfacesTheReason()
+    public async Task TryExtractAsync_NonLoginError_DoesNotRetry_AndSurfacesTheReason()
     {
         ISettingsService settings = SettingsWithCookies(videoCaptureEnabled: true, cookieFile: "C:/cookies.txt");
         var locator = Substitute.For<IYtDlpLocator>();
         locator.LocateAsync(Arg.Any<CancellationToken>()).Returns(LocatedYtDlp);
         var runner = Substitute.For<IYtDlpRunner>();
-        // A non-bot failure (unsupported URL) must NOT trigger a cookie retry even when cookies are set.
+        // A non-login failure (unsupported URL) must NOT trigger a cookie retry even when cookies are set.
         runner.RunAsync(Arg.Any<string>(), Arg.Any<IReadOnlyList<string>>(), Arg.Any<CancellationToken>())
             .Returns(new YtDlpRunResult(1, string.Empty, "ERROR: [youtube] abc: Unsupported URL"));
 
@@ -541,7 +541,7 @@ public sealed class YtDlpMediaExtractorTests
         var runner = Substitute.For<IYtDlpRunner>();
         runner.RunAsync(Arg.Any<string>(), Arg.Any<IReadOnlyList<string>>(), Arg.Any<CancellationToken>())
             .Returns(
-                _ => new YtDlpRunResult(1, string.Empty, "ERROR: HTTP Error 429: Too Many Requests"),
+                _ => new YtDlpRunResult(1, string.Empty, "ERROR: [youtube] abc: Sign in to confirm your age"),
                 _ => new YtDlpRunResult(0, """
                     {"id":"abc","formats":[
                       {"format_id":"22","url":"https://cdn.example.com/v22","protocol":"https","vcodec":"avc1.640028","acodec":"mp4a.40.2","height":720}
@@ -563,23 +563,23 @@ public sealed class YtDlpMediaExtractorTests
         var locator = Substitute.For<IYtDlpLocator>();
         locator.LocateAsync(Arg.Any<CancellationToken>()).Returns(LocatedYtDlp);
         var runner = Substitute.For<IYtDlpRunner>();
-        // Both the initial probe and the cookie retry hit the bot wall — the retry's own reason wins.
+        // Both the initial probe and the cookie retry hit the login-required wall — the retry's own reason wins.
         runner.RunAsync(Arg.Any<string>(), Arg.Any<IReadOnlyList<string>>(), Arg.Any<CancellationToken>())
             .Returns(
-                _ => new YtDlpRunResult(1, string.Empty, "ERROR: [youtube] abc: Sign in to confirm you're not a bot"),
-                _ => new YtDlpRunResult(1, string.Empty, "ERROR: [youtube] abc: Sign in to confirm you're not a bot"));
+                _ => new YtDlpRunResult(1, string.Empty, "ERROR: [youtube] abc: Private video. Sign in if you've been granted access to this video"),
+                _ => new YtDlpRunResult(1, string.Empty, "ERROR: [youtube] abc: Private video. Sign in if you've been granted access to this video"));
 
         Func<Task<MediaSource?>> act = () => Build(settings, locator, runner)
             .TryExtractAsync(Request("https://www.youtube.com/watch?v=abc"));
 
         (await act.Should().ThrowAsync<MediaExtractionFailedException>())
-            .Which.Message.Should().Be("[youtube] abc: Sign in to confirm you're not a bot");
+            .Which.Message.Should().Be("[youtube] abc: Private video. Sign in if you've been granted access to this video");
         await runner.Received(2).RunAsync(
             Arg.Any<string>(), Arg.Any<IReadOnlyList<string>>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
-    public async Task TryExtractAsync_CookieBrowserSet_AndBotError_RetriesWithCookiesFromBrowserArg()
+    public async Task TryExtractAsync_CookieBrowserSet_AndLoginRequiredError_RetriesWithCookiesFromBrowserArg()
     {
         // Both cookie sources may be set; the browser variant is exercised separately from the file one.
         ISettingsService settings = SettingsWithCookies(videoCaptureEnabled: true, cookieBrowser: "chrome");
@@ -588,7 +588,7 @@ public sealed class YtDlpMediaExtractorTests
         var runner = Substitute.For<IYtDlpRunner>();
         runner.RunAsync(Arg.Any<string>(), Arg.Any<IReadOnlyList<string>>(), Arg.Any<CancellationToken>())
             .Returns(
-                _ => new YtDlpRunResult(1, string.Empty, "ERROR: Please use --cookies-from-browser"),
+                _ => new YtDlpRunResult(1, string.Empty, "ERROR: [youtube] abc: This video is available to registered users only"),
                 _ => new YtDlpRunResult(0, """
                     {"id":"abc","formats":[
                       {"format_id":"18","url":"https://cdn.example.com/v18","protocol":"https","vcodec":"avc1.42001E","acodec":"mp4a.40.2","height":360}
@@ -607,7 +607,7 @@ public sealed class YtDlpMediaExtractorTests
     }
 
     [Fact]
-    public async Task TryExtractAsync_NoCookieSetting_BotError_AutoDetectsBrowser_AndRetriesWithIt()
+    public async Task TryExtractAsync_NoCookieSetting_LoginRequiredError_AutoDetectsBrowser_AndRetriesWithIt()
     {
         ISettingsService settings = SettingsWith(videoCaptureEnabled: true);
         var locator = Substitute.For<IYtDlpLocator>();
@@ -616,7 +616,7 @@ public sealed class YtDlpMediaExtractorTests
         runner.RunAsync(Arg.Any<string>(), Arg.Any<IReadOnlyList<string>>(), Arg.Any<CancellationToken>())
             .Returns(
                 _ => new YtDlpRunResult(
-                    1, string.Empty, "ERROR: [youtube] abc: Sign in to confirm you're not a bot"),
+                    1, string.Empty, "ERROR: [youtube] abc: Private video. Sign in if you've been granted access to this video"),
                 _ => new YtDlpRunResult(0, """
                     {"id":"abc","formats":[
                       {"format_id":"18","url":"https://cdn.example.com/v18","protocol":"https","vcodec":"avc1.42001E","acodec":"mp4a.40.2","height":360}
@@ -627,7 +627,7 @@ public sealed class YtDlpMediaExtractorTests
 
         MediaSource? source = await extractor.TryExtractAsync(Request("https://www.youtube.com/watch?v=abc"));
 
-        source.Should().NotBeNull("the zero-config auto-detected browser cookies dislodged the bot challenge");
+        source.Should().NotBeNull("the zero-config auto-detected browser cookies dislodged the login-required wall");
         await runner.Received(1).RunAsync(
             LocatedYtDlp.ExecutablePath,
             Arg.Is<IReadOnlyList<string>>(args =>
@@ -638,7 +638,7 @@ public sealed class YtDlpMediaExtractorTests
     }
 
     [Fact]
-    public async Task TryExtractAsync_NoCookieSetting_NoBrowserDetected_DoesNotRetry_AndSurfacesBotReason()
+    public async Task TryExtractAsync_NoCookieSetting_NoBrowserDetected_DoesNotRetry_AndSurfacesLoginRequiredReason()
     {
         ISettingsService settings = SettingsWith(videoCaptureEnabled: true);
         var locator = Substitute.For<IYtDlpLocator>();
@@ -646,20 +646,20 @@ public sealed class YtDlpMediaExtractorTests
         var runner = Substitute.For<IYtDlpRunner>();
         runner.RunAsync(Arg.Any<string>(), Arg.Any<IReadOnlyList<string>>(), Arg.Any<CancellationToken>())
             .Returns(new YtDlpRunResult(
-                1, string.Empty, "ERROR: [youtube] abc: Sign in to confirm you're not a bot"));
+                1, string.Empty, "ERROR: [youtube] abc: Private video. Sign in if you've been granted access to this video"));
         YtDlpMediaExtractor extractor = Build(settings, locator, runner);
         extractor.BrowserCookieStoreExists = _ => false;
 
         Func<Task<MediaSource?>> act = () => extractor.TryExtractAsync(Request("https://www.youtube.com/watch?v=abc"));
 
         (await act.Should().ThrowAsync<MediaExtractionFailedException>())
-            .Which.Message.Should().Be("[youtube] abc: Sign in to confirm you're not a bot");
+            .Which.Message.Should().Be("[youtube] abc: Private video. Sign in if you've been granted access to this video");
         await runner.Received(1).RunAsync(
             Arg.Any<string>(), Arg.Any<IReadOnlyList<string>>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
-    public async Task TryExtractAsync_AutoDetectedRetryFails_SurfacesOriginalBotReason_NotTheCookieReason()
+    public async Task TryExtractAsync_AutoDetectedRetryFails_SurfacesOriginalLoginRequiredReason_NotTheCookieReason()
     {
         ISettingsService settings = SettingsWith(videoCaptureEnabled: true);
         var locator = Substitute.For<IYtDlpLocator>();
@@ -669,7 +669,7 @@ public sealed class YtDlpMediaExtractorTests
         runner.RunAsync(Arg.Any<string>(), Arg.Any<IReadOnlyList<string>>(), Arg.Any<CancellationToken>())
             .Returns(
                 _ => new YtDlpRunResult(
-                    1, string.Empty, "ERROR: [youtube] abc: Sign in to confirm you're not a bot"),
+                    1, string.Empty, "ERROR: [youtube] abc: Private video. Sign in if you've been granted access to this video"),
                 _ => new YtDlpRunResult(
                     1, string.Empty, "ERROR: could not copy edge cookie database"));
         YtDlpMediaExtractor extractor = Build(settings, locator, runner);
@@ -678,7 +678,7 @@ public sealed class YtDlpMediaExtractorTests
         Func<Task<MediaSource?>> act = () => extractor.TryExtractAsync(Request("https://www.youtube.com/watch?v=abc"));
 
         (await act.Should().ThrowAsync<MediaExtractionFailedException>())
-            .Which.Message.Should().Be("[youtube] abc: Sign in to confirm you're not a bot",
+            .Which.Message.Should().Be("[youtube] abc: Private video. Sign in if you've been granted access to this video",
                 "auto-detection is a best-effort guess; its own failure must not replace the real reason");
         await runner.Received(2).RunAsync(
             Arg.Any<string>(), Arg.Any<IReadOnlyList<string>>(), Arg.Any<CancellationToken>());
@@ -745,11 +745,11 @@ public sealed class YtDlpMediaExtractorTests
         var denoLocator = Substitute.For<IDenoLocator>();
         denoLocator.LocateAsync(Arg.Any<CancellationToken>()).Returns(new DenoInfo("/vendor/deno", "2.9.5"));
         var runner = Substitute.For<IYtDlpRunner>();
-        // First call: bot-detection failure. Second (cookie retry): succeeds.
+        // First call: genuine login-required failure. Second (cookie retry): succeeds.
         runner.RunAsync(Arg.Any<string>(), Arg.Any<IReadOnlyList<string>>(), Arg.Any<CancellationToken>())
             .Returns(
                 _ => new YtDlpRunResult(
-                    1, string.Empty, "ERROR: [youtube] abc: Sign in to confirm you're not a bot"),
+                    1, string.Empty, "ERROR: [youtube] abc: Private video. Sign in if you've been granted access to this video"),
                 _ => new YtDlpRunResult(0, """
                     {"id":"abc","formats":[
                       {"format_id":"18","url":"https://cdn.example.com/v18","protocol":"https","vcodec":"avc1.42001E","acodec":"mp4a.40.2","height":360}
@@ -770,6 +770,164 @@ public sealed class YtDlpMediaExtractorTests
         await runner.Received(1).RunAsync(
             LocatedYtDlp.ExecutablePath,
             Arg.Is<IReadOnlyList<string>>(args => HasCookieArg(args, "C:/cookies.txt") && args.Contains("--js-runtimes")),
+            Arg.Any<CancellationToken>());
+    }
+
+    // --- Narrowed login-required retry gating (yt-dlp issue #17389) --------------------------------
+
+    [Fact]
+    public async Task TryExtractAsync_GenericBotChallenge_DoesNotRetryWithCookies()
+    {
+        // Issue #17389: sending cookies on the generic "confirm you're not a bot" wall actively breaks a
+        // request that would otherwise succeed (yt-dlp switches to the buggy "tv_downgraded" client), so
+        // this reason must no longer trigger the cookie retry, even with a cookie source configured.
+        ISettingsService settings = SettingsWithCookies(videoCaptureEnabled: true, cookieFile: "C:/cookies.txt");
+        var locator = Substitute.For<IYtDlpLocator>();
+        locator.LocateAsync(Arg.Any<CancellationToken>()).Returns(LocatedYtDlp);
+        var runner = Substitute.For<IYtDlpRunner>();
+        runner.RunAsync(Arg.Any<string>(), Arg.Any<IReadOnlyList<string>>(), Arg.Any<CancellationToken>())
+            .Returns(new YtDlpRunResult(
+                1, string.Empty, "ERROR: [youtube] abc: Sign in to confirm you're not a bot"));
+
+        Func<Task<MediaSource?>> act = () => Build(settings, locator, runner)
+            .TryExtractAsync(Request("https://www.youtube.com/watch?v=abc"));
+
+        (await act.Should().ThrowAsync<MediaExtractionFailedException>())
+            .Which.Message.Should().Be("[youtube] abc: Sign in to confirm you're not a bot");
+        await runner.Received(1).RunAsync(
+            Arg.Any<string>(), Arg.Any<IReadOnlyList<string>>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task TryExtractAsync_LoginRequiredError_TriggersCookieRetry()
+    {
+        ISettingsService settings = SettingsWithCookies(videoCaptureEnabled: true, cookieFile: "C:/cookies.txt");
+        var locator = Substitute.For<IYtDlpLocator>();
+        locator.LocateAsync(Arg.Any<CancellationToken>()).Returns(LocatedYtDlp);
+        var runner = Substitute.For<IYtDlpRunner>();
+        runner.RunAsync(Arg.Any<string>(), Arg.Any<IReadOnlyList<string>>(), Arg.Any<CancellationToken>())
+            .Returns(
+                _ => new YtDlpRunResult(
+                    1, string.Empty, "ERROR: [youtube] abc: This video is available to registered users only"),
+                _ => new YtDlpRunResult(0, """
+                    {"id":"abc","formats":[
+                      {"format_id":"18","url":"https://cdn.example.com/v18","protocol":"https","vcodec":"avc1.42001E","acodec":"mp4a.40.2","height":360}
+                    ]}
+                    """, string.Empty));
+
+        MediaSource? source = await Build(settings, locator, runner)
+            .TryExtractAsync(Request("https://www.youtube.com/watch?v=abc"));
+
+        source.Should().NotBeNull("a genuine login-required reason still dislodges via cookies");
+        await runner.Received(2).RunAsync(
+            Arg.Any<string>(), Arg.Any<IReadOnlyList<string>>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task TryExtractAsync_RateLimitError_DoesNotRetryWithCookies()
+    {
+        // Issue #17389 rationale: a guest-session 429 isn't fixed by cookies, only by waiting; retrying
+        // with cookies here would also risk the tv_downgraded-client signature bug for no benefit.
+        ISettingsService settings = SettingsWithCookies(videoCaptureEnabled: true, cookieFile: "C:/cookies.txt");
+        var locator = Substitute.For<IYtDlpLocator>();
+        locator.LocateAsync(Arg.Any<CancellationToken>()).Returns(LocatedYtDlp);
+        var runner = Substitute.For<IYtDlpRunner>();
+        runner.RunAsync(Arg.Any<string>(), Arg.Any<IReadOnlyList<string>>(), Arg.Any<CancellationToken>())
+            .Returns(new YtDlpRunResult(1, string.Empty, "ERROR: HTTP Error 429: Too Many Requests"));
+
+        Func<Task<MediaSource?>> act = () => Build(settings, locator, runner)
+            .TryExtractAsync(Request("https://www.youtube.com/watch?v=abc"));
+
+        (await act.Should().ThrowAsync<MediaExtractionFailedException>())
+            .Which.Message.Should().Be("HTTP Error 429: Too Many Requests");
+        await runner.Received(1).RunAsync(
+            Arg.Any<string>(), Arg.Any<IReadOnlyList<string>>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task TryExtractAsync_CookiesSent_ExplicitPath_AppendsExtractorArgsWorkaround()
+    {
+        // Issue #17389's pinned fix: whenever cookies go out, pin the player client alongside them.
+        ISettingsService settings = SettingsWithCookies(videoCaptureEnabled: true, cookieFile: "C:/cookies.txt");
+        var locator = Substitute.For<IYtDlpLocator>();
+        locator.LocateAsync(Arg.Any<CancellationToken>()).Returns(LocatedYtDlp);
+        var runner = Substitute.For<IYtDlpRunner>();
+        runner.RunAsync(Arg.Any<string>(), Arg.Any<IReadOnlyList<string>>(), Arg.Any<CancellationToken>())
+            .Returns(
+                _ => new YtDlpRunResult(
+                    1, string.Empty, "ERROR: [youtube] abc: Private video. Sign in if you've been granted access to this video"),
+                _ => new YtDlpRunResult(0, """
+                    {"id":"abc","formats":[
+                      {"format_id":"18","url":"https://cdn.example.com/v18","protocol":"https","vcodec":"avc1.42001E","acodec":"mp4a.40.2","height":360}
+                    ]}
+                    """, string.Empty));
+
+        await Build(settings, locator, runner).TryExtractAsync(Request("https://www.youtube.com/watch?v=abc"));
+
+        await runner.Received(1).RunAsync(
+            LocatedYtDlp.ExecutablePath,
+            Arg.Is<IReadOnlyList<string>>(args =>
+                HasCookieArg(args, "C:/cookies.txt") &&
+                args.Contains("--extractor-args") && args.Contains("youtube:player_client=default,web_embedded")),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task TryExtractAsync_CookiesSent_AutoDetectedBrowser_AppendsExtractorArgsWorkaround()
+    {
+        ISettingsService settings = SettingsWith(videoCaptureEnabled: true);
+        var locator = Substitute.For<IYtDlpLocator>();
+        locator.LocateAsync(Arg.Any<CancellationToken>()).Returns(LocatedYtDlp);
+        var runner = Substitute.For<IYtDlpRunner>();
+        runner.RunAsync(Arg.Any<string>(), Arg.Any<IReadOnlyList<string>>(), Arg.Any<CancellationToken>())
+            .Returns(
+                _ => new YtDlpRunResult(
+                    1, string.Empty, "ERROR: [youtube] abc: Private video. Sign in if you've been granted access to this video"),
+                _ => new YtDlpRunResult(0, """
+                    {"id":"abc","formats":[
+                      {"format_id":"18","url":"https://cdn.example.com/v18","protocol":"https","vcodec":"avc1.42001E","acodec":"mp4a.40.2","height":360}
+                    ]}
+                    """, string.Empty));
+        YtDlpMediaExtractor extractor = Build(settings, locator, runner);
+        extractor.BrowserCookieStoreExists = name => name == "edge";
+
+        await extractor.TryExtractAsync(Request("https://www.youtube.com/watch?v=abc"));
+
+        await runner.Received(1).RunAsync(
+            LocatedYtDlp.ExecutablePath,
+            Arg.Is<IReadOnlyList<string>>(args =>
+                args.Contains("--cookies-from-browser") && args.Contains("edge") &&
+                args.Contains("--extractor-args") && args.Contains("youtube:player_client=default,web_embedded")),
+            Arg.Any<CancellationToken>());
+    }
+
+    // --- Firefox-first browser candidate ordering (yt-dlp issue #15401) ----------------------------
+
+    [Fact]
+    public async Task TryExtractAsync_FirefoxAndChromeBothInstalled_PrefersFirefox()
+    {
+        ISettingsService settings = SettingsWith(videoCaptureEnabled: true);
+        var locator = Substitute.For<IYtDlpLocator>();
+        locator.LocateAsync(Arg.Any<CancellationToken>()).Returns(LocatedYtDlp);
+        var runner = Substitute.For<IYtDlpRunner>();
+        runner.RunAsync(Arg.Any<string>(), Arg.Any<IReadOnlyList<string>>(), Arg.Any<CancellationToken>())
+            .Returns(
+                _ => new YtDlpRunResult(
+                    1, string.Empty, "ERROR: [youtube] abc: Private video. Sign in if you've been granted access to this video"),
+                _ => new YtDlpRunResult(0, """
+                    {"id":"abc","formats":[
+                      {"format_id":"18","url":"https://cdn.example.com/v18","protocol":"https","vcodec":"avc1.42001E","acodec":"mp4a.40.2","height":360}
+                    ]}
+                    """, string.Empty));
+        YtDlpMediaExtractor extractor = Build(settings, locator, runner);
+        extractor.BrowserCookieStoreExists = name => name is "chrome" or "firefox";
+
+        await extractor.TryExtractAsync(Request("https://www.youtube.com/watch?v=abc"));
+
+        await runner.Received(1).RunAsync(
+            LocatedYtDlp.ExecutablePath,
+            Arg.Is<IReadOnlyList<string>>(args =>
+                args.Contains("--cookies-from-browser") && args.Contains("firefox") && !args.Contains("chrome")),
             Arg.Any<CancellationToken>());
     }
 }
