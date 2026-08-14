@@ -71,6 +71,32 @@ public sealed class TwitterMediaExtractorTests
         #EXT-X-ENDLIST
         """;
 
+    /// <summary>
+    /// Shaped like a real video.twimg.com master playlist (verified against captured Twitter/X CDN output
+    /// during this task's research): <c>#EXT-X-STREAM-INF</c> variants whose <c>CODECS</c> lists both
+    /// <c>mp4a.40.2</c> (audio) and <c>avc1...</c> (video) with no <c>#EXT-X-MEDIA:TYPE=AUDIO</c> group at
+    /// all — audio is muxed into each variant's own fMP4 segments, not a separate rendition.
+    /// </summary>
+    private static string MasterPlaylistFixtureNoAlternateAudio() =>
+        """
+        #EXTM3U
+        #EXT-X-VERSION:6
+        #EXT-X-INDEPENDENT-SEGMENTS
+        #EXT-X-STREAM-INF:AVERAGE-BANDWIDTH=205381,BANDWIDTH=264621,RESOLUTION=640x360,CODECS="mp4a.40.2,avc1.4d001f"
+        pl/640x360/emjUVd3t94tT8j-1.m3u8?container=fmp4
+        #EXT-X-STREAM-INF:AVERAGE-BANDWIDTH=501854,BANDWIDTH=639498,RESOLUTION=1280x720,CODECS="mp4a.40.2,avc1.640020"
+        pl/1280x720/_u3fHmjJPHlXgv3W.m3u8?container=fmp4
+        """;
+
+    /// <summary>A master playlist with a genuine separate audio rendition (RFC 8216 §4.3.4.1).</summary>
+    private static string MasterPlaylistFixtureWithAlternateAudio() =>
+        """
+        #EXTM3U
+        #EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="aud",NAME="English",LANGUAGE="en",DEFAULT=YES,URI="audio/index.m3u8"
+        #EXT-X-STREAM-INF:BANDWIDTH=2176000,RESOLUTION=1280x720,CODECS="avc1.640020",AUDIO="aud"
+        720p/playlist.m3u8
+        """;
+
     /// <summary>Throws for one specific URL (simulating a network failure) and delegates every other request.</summary>
     private sealed class ThrowingForUrlTransport(ITransport inner, string throwForUrl) : ITransport
     {
@@ -133,6 +159,48 @@ public sealed class TwitterMediaExtractorTests
             "https://video.twimg.com/ext_tw_video/abc/720p/playlist.m3u8",
             "https://video.twimg.com/ext_tw_video/abc/1080p/playlist.m3u8",
         ]);
+    }
+
+    [Fact]
+    public async Task TryExtractAsync_RealTwitterShapedMaster_NoAlternateAudioGroup_AudioVariantsEmpty()
+    {
+        // Regression guard for the "no audio" bug report: a real Twitter master playlist mixes audio into
+        // each variant's own CODECS/segments and declares no #EXT-X-MEDIA:TYPE=AUDIO group at all, so there
+        // is nothing separate to select — AudioVariants staying empty here is correct, not a bug, and the
+        // video variant URL itself is expected to already carry the muxed audio through the plain HLS path.
+        var transport = new MapTransport()
+            .AddText(SyndicationUrl, HlsFixture())
+            .AddText(MasterUrl, MasterPlaylistFixtureNoAlternateAudio());
+
+        MediaSource? source = await Build(transport)
+            .TryExtractAsync(Request($"https://x.com/someuser/status/{TweetId}"));
+
+        source.Should().NotBeNull();
+        source!.Kind.Should().Be(MediaKind.Hls);
+        source.Variants.Should().HaveCount(2);
+        source.AudioVariants.Should().BeEmpty(
+            "audio is muxed into each variant's segments, not offered as a separate rendition");
+    }
+
+    [Fact]
+    public async Task TryExtractAsync_HlsMasterWithAlternateAudio_PopulatesAudioVariants()
+    {
+        // The fix under test: when a Twitter (or any) HLS master *does* declare a separate
+        // #EXT-X-MEDIA:TYPE=AUDIO rendition, it must surface on MediaSource.AudioVariants so the picker can
+        // offer it and the download coordinator can fetch + mux it — this was always [] before the fix.
+        var transport = new MapTransport()
+            .AddText(SyndicationUrl, HlsFixture())
+            .AddText(MasterUrl, MasterPlaylistFixtureWithAlternateAudio());
+
+        MediaSource? source = await Build(transport)
+            .TryExtractAsync(Request($"https://x.com/someuser/status/{TweetId}"));
+
+        source.Should().NotBeNull();
+        source!.Kind.Should().Be(MediaKind.Hls);
+        source.Variants.Should().HaveCount(1);
+        source.AudioVariants.Should().HaveCount(1);
+        source.AudioVariants[0].Id.Should().Be("https://video.twimg.com/ext_tw_video/abc/audio/index.m3u8");
+        source.AudioVariants[0].Language.Should().Be("en");
     }
 
     [Fact]

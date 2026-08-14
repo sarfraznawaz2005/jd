@@ -8,7 +8,10 @@ namespace JustDownload.Core.Media;
 /// <summary>
 /// Default <see cref="IMediaDownloadCoordinator"/> (TASK-154). HLS: downloads the media playlist's segments
 /// (<see cref="IHlsDownloader"/>) and concatenates them (<see cref="IHlsConcatenator"/>) — MPEG-TS,
-/// ffprobe-valid. SeparateStreams: downloads the video and audio streams concurrently
+/// ffprobe-valid. When the source carries an alternate audio rendition (<see cref="MediaDownloadRequest.AudioUrl"/> —
+/// a Twitter/X or other HLS master's own <c>#EXT-X-MEDIA:TYPE=AUDIO</c>), its media playlist is downloaded and
+/// concatenated the same way into <c>audio.stream</c>, then muxed with the video exactly like SeparateStreams
+/// below. SeparateStreams: downloads the video and audio streams concurrently
 /// (<see cref="ISeparateStreamDownloader"/>) and muxes them into one container by stream copy
 /// (<see cref="IMediaMuxer"/>). Dash (TASK-102): downloads each stream's SegmentTemplate/SegmentList segments
 /// (<see cref="IDashSegmentDownloader"/>), concatenates them — reusing <see cref="IHlsConcatenator"/>, which
@@ -71,20 +74,77 @@ internal sealed class MediaDownloadCoordinator : IMediaDownloadCoordinator
     {
         Directory.CreateDirectory(request.WorkingDirectory);
 
-        IProgress<HlsProgress>? hlsProgress = progress is null
-            ? null
-            : new Progress<HlsProgress>(p => progress.Report(new MediaDownloadProgress(p.Fraction, p.DownloadedBytes)));
+        if (request.AudioUrl is null)
+        {
+            IProgress<HlsProgress>? hlsProgress = progress is null
+                ? null
+                : new Progress<HlsProgress>(p => progress.Report(new MediaDownloadProgress(p.Fraction, p.DownloadedBytes)));
 
-        HlsDownloadResult download = await _hlsDownloader
-            .DownloadAsync(request.MediaUrl, request.WorkingDirectory, request.Headers, hlsProgress, cancellationToken)
-            .ConfigureAwait(false);
+            HlsDownloadResult download = await _hlsDownloader
+                .DownloadAsync(request.MediaUrl, request.WorkingDirectory, request.Headers, hlsProgress, cancellationToken)
+                .ConfigureAwait(false);
 
-        ReportCombining(progress, download.TotalBytes);
-        await _hlsConcatenator
-            .ConcatenateAsync(download.SegmentFiles, request.OutputPath, progress: null, cancellationToken)
-            .ConfigureAwait(false);
+            ReportCombining(progress, download.TotalBytes);
+            await _hlsConcatenator
+                .ConcatenateAsync(download.SegmentFiles, request.OutputPath, progress: null, cancellationToken)
+                .ConfigureAwait(false);
 
-        return new MediaDownloadOutcome(download.TotalBytes);
+            return new MediaDownloadOutcome(download.TotalBytes);
+        }
+
+        return await DownloadHlsWithAlternateAudioAsync(request, progress, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// The HLS-with-alternate-audio case: the video and audio are each their own HLS media playlist (a
+    /// master's <c>#EXT-X-STREAM-INF</c> variant plus its <c>#EXT-X-MEDIA:TYPE=AUDIO</c> rendition), so both
+    /// are downloaded and concatenated like the plain HLS path, then muxed together exactly like
+    /// <see cref="DownloadSeparateStreamsAsync"/>.
+    /// </summary>
+    private async Task<MediaDownloadOutcome> DownloadHlsWithAlternateAudioAsync(
+        MediaDownloadRequest request, IProgress<MediaDownloadProgress>? progress, CancellationToken cancellationToken)
+    {
+        long videoBytes = 0;
+        long audioBytes = 0;
+        void Report()
+        {
+            progress?.Report(new MediaDownloadProgress(0, videoBytes + audioBytes));
+        }
+
+        HlsDownloadResult videoDownload = await _hlsDownloader.DownloadAsync(
+            request.MediaUrl,
+            Path.Combine(request.WorkingDirectory, "video-segments"),
+            request.Headers,
+            new Progress<HlsProgress>(p => { videoBytes = p.DownloadedBytes; Report(); }),
+            cancellationToken).ConfigureAwait(false);
+
+        HlsDownloadResult audioDownload = await _hlsDownloader.DownloadAsync(
+            request.AudioUrl!,
+            Path.Combine(request.WorkingDirectory, "audio-segments"),
+            request.Headers,
+            new Progress<HlsProgress>(p => { audioBytes = p.DownloadedBytes; Report(); }),
+            cancellationToken).ConfigureAwait(false);
+
+        string videoStreamPath = Path.Combine(request.WorkingDirectory, "video.stream");
+        string audioStreamPath = Path.Combine(request.WorkingDirectory, "audio.stream");
+        ReportCombining(progress, videoBytes + audioBytes);
+        await _hlsConcatenator.ConcatenateAsync(
+            videoDownload.SegmentFiles, videoStreamPath, progress: null, cancellationToken).ConfigureAwait(false);
+        await _hlsConcatenator.ConcatenateAsync(
+            audioDownload.SegmentFiles, audioStreamPath, progress: null, cancellationToken).ConfigureAwait(false);
+
+        await _mediaMuxer.MuxAsync(
+            new MuxRequest
+            {
+                VideoPath = videoStreamPath,
+                AudioPath = audioStreamPath,
+                PreferredContainer = request.Container,
+                OutputPath = request.OutputPath,
+            },
+            progress: null,
+            cancellationToken).ConfigureAwait(false);
+
+        return new MediaDownloadOutcome(videoDownload.TotalBytes + audioDownload.TotalBytes);
     }
 
     private async Task<MediaDownloadOutcome> DownloadSeparateStreamsAsync(

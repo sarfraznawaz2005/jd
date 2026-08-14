@@ -12,7 +12,10 @@ public sealed record MediaDownloadRequest
     /// <summary>The media playlist/variant URL to download (the video stream for separate-streams).</summary>
     public required Uri MediaUrl { get; init; }
 
-    /// <summary>The audio stream URL for a separate-streams download, or <see langword="null"/> (HLS).</summary>
+    /// <summary>
+    /// The audio stream URL for a separate-streams download, or an HLS master's alternate audio media
+    /// playlist, or <see langword="null"/> when audio is muxed into the video stream (the common HLS case).
+    /// </summary>
     public Uri? AudioUrl { get; init; }
 
     /// <summary>The preferred output container when muxing separate streams. Default <see cref="MediaContainer.Mkv"/>.</summary>

@@ -11,6 +11,7 @@ namespace JustDownload.Core.Media.Hls;
 public static class M3U8Parser
 {
     private const string StreamInfTag = "#EXT-X-STREAM-INF:";
+    private const string MediaTag = "#EXT-X-MEDIA:";
     private const string KeyTag = "#EXT-X-KEY:";
     private const string InfTag = "#EXTINF:";
     private const string MediaSequenceTag = "#EXT-X-MEDIA-SEQUENCE:";
@@ -33,11 +34,25 @@ public static class M3U8Parser
         ArgumentNullException.ThrowIfNull(baseUri);
 
         var variants = new List<HlsVariant>();
+        var audioRenditions = new List<HlsAudioRendition>();
         string[] lines = SplitLines(content);
 
         for (int i = 0; i < lines.Length; i++)
         {
             string line = lines[i];
+
+            // Checked first: "#EXT-X-MEDIA:" and "#EXT-X-STREAM-INF:" are distinct tags, but this also isn't
+            // "#EXT-X-MEDIA-SEQUENCE:" (a master playlist tag of its own) — the colon position tells them apart.
+            if (line.StartsWith(MediaTag, StringComparison.Ordinal))
+            {
+                if (TryParseAudioRendition(line[MediaTag.Length..], baseUri) is { } rendition)
+                {
+                    audioRenditions.Add(rendition);
+                }
+
+                continue;
+            }
+
             if (!line.StartsWith(StreamInfTag, StringComparison.Ordinal))
             {
                 continue;
@@ -72,7 +87,41 @@ public static class M3U8Parser
             variants.Add(new HlsVariant(uri, bandwidth, width, height, codecs));
         }
 
-        return new HlsMasterPlaylist(variants);
+        return new HlsMasterPlaylist(variants, audioRenditions);
+    }
+
+    /// <summary>
+    /// Parses one <c>#EXT-X-MEDIA:</c> attribute list into an <see cref="HlsAudioRendition"/>, or
+    /// <see langword="null"/> when it isn't a downloadable audio rendition: not <c>TYPE=AUDIO</c>, missing
+    /// <c>URI</c> (audio already muxed into the video segments — nothing separate to fetch), or missing the
+    /// required <c>GROUP-ID</c> (RFC 8216 §4.3.4.1).
+    /// </summary>
+    private static HlsAudioRendition? TryParseAudioRendition(string attributeText, Uri baseUri)
+    {
+        Dictionary<string, string> attributes = ParseAttributes(attributeText);
+
+        if (!attributes.TryGetValue("TYPE", out string? type) ||
+            !string.Equals(type, "AUDIO", StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        if (!attributes.TryGetValue("URI", out string? uriValue) || uriValue.Length == 0)
+        {
+            return null;
+        }
+
+        if (!attributes.TryGetValue("GROUP-ID", out string? groupId) || groupId.Length == 0)
+        {
+            return null;
+        }
+
+        attributes.TryGetValue("NAME", out string? name);
+        attributes.TryGetValue("LANGUAGE", out string? language);
+        bool isDefault = attributes.TryGetValue("DEFAULT", out string? defaultValue) &&
+            string.Equals(defaultValue, "YES", StringComparison.OrdinalIgnoreCase);
+
+        return new HlsAudioRendition(ResolveUri(uriValue, baseUri), groupId, name, language, isDefault);
     }
 
     /// <summary>Parses a media playlist's ordered segments, resolved against <paramref name="baseUri"/>.</summary>

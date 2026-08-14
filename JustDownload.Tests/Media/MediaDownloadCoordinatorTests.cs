@@ -47,6 +47,86 @@ public sealed class MediaDownloadCoordinatorTests : IDisposable
         IDashSegmentDownloader dash, IHlsConcatenator concat, IMediaMuxer mux) =>
         new(Substitute.For<IHlsDownloader>(), concat, Substitute.For<ISeparateStreamDownloader>(), dash, mux);
 
+    private static MediaDownloadCoordinator BuildHls(
+        IHlsDownloader hls, IHlsConcatenator concat, IMediaMuxer mux) =>
+        new(hls, concat, Substitute.For<ISeparateStreamDownloader>(), Substitute.For<IDashSegmentDownloader>(), mux);
+
+    // --- HLS with an alternate audio rendition (the Twitter "no audio" bug fix) ------------------------
+
+    [Fact]
+    public async Task Hls_WithAudioUrl_DownloadsBothPlaylists_ConcatenatesAndMuxes()
+    {
+        var videoUri = new Uri("https://x.example/video.m3u8");
+        var audioUri = new Uri("https://x.example/audio.m3u8");
+        var hls = Substitute.For<IHlsDownloader>();
+        hls.DownloadAsync(
+                Arg.Any<Uri>(), Arg.Any<string>(), Arg.Any<IReadOnlyList<KeyValuePair<string, string>>?>(),
+                Arg.Any<IProgress<HlsProgress>?>(), Arg.Any<CancellationToken>())
+            .Returns(ci => ci.ArgAt<Uri>(0) == videoUri
+                ? new HlsDownloadResult(["v-init", "v-seg0"], 7000)
+                : new HlsDownloadResult(["a-seg0"], 3000));
+
+        var concat = Substitute.For<IHlsConcatenator>();
+        concat.ConcatenateAsync(
+                Arg.Any<IReadOnlyList<string>>(), Arg.Any<string>(), Arg.Any<IProgress<long>?>(), Arg.Any<CancellationToken>())
+            .Returns(ci => Task.FromResult(ci.ArgAt<string>(1)));
+
+        var mux = Substitute.For<IMediaMuxer>();
+        mux.MuxAsync(Arg.Any<MuxRequest>(), Arg.Any<IProgress<FfmpegProgress>?>(), Arg.Any<CancellationToken>())
+            .Returns(new MuxResult(Path.Combine(_dir, "out.mkv"), MediaContainer.Mkv));
+
+        MediaDownloadOutcome outcome = await BuildHls(hls, concat, mux).DownloadAsync(new MediaDownloadRequest
+        {
+            Kind = MediaKind.Hls,
+            MediaUrl = videoUri,
+            AudioUrl = audioUri,
+            Container = MediaContainer.Mkv,
+            OutputPath = Path.Combine(_dir, "out.mkv"),
+            WorkingDirectory = Path.Combine(_dir, "work"),
+        });
+
+        outcome.TotalBytes.Should().Be(10000, "video (7000) + audio (3000) bytes");
+        await hls.Received(1).DownloadAsync(
+            videoUri, Path.Combine(_dir, "work", "video-segments"),
+            Arg.Any<IReadOnlyList<KeyValuePair<string, string>>?>(), Arg.Any<IProgress<HlsProgress>?>(), Arg.Any<CancellationToken>());
+        await hls.Received(1).DownloadAsync(
+            audioUri, Path.Combine(_dir, "work", "audio-segments"),
+            Arg.Any<IReadOnlyList<KeyValuePair<string, string>>?>(), Arg.Any<IProgress<HlsProgress>?>(), Arg.Any<CancellationToken>());
+        await mux.Received(1).MuxAsync(
+            Arg.Is<MuxRequest>(m =>
+                m.VideoPath == Path.Combine(_dir, "work", "video.stream") &&
+                m.AudioPath == Path.Combine(_dir, "work", "audio.stream") &&
+                m.OutputPath == Path.Combine(_dir, "out.mkv")),
+            Arg.Any<IProgress<FfmpegProgress>?>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Hls_WithoutAudioUrl_ConcatenatesDirectlyToOutput_AndSkipsMux()
+    {
+        var hls = Substitute.For<IHlsDownloader>();
+        hls.DownloadAsync(
+                Arg.Any<Uri>(), Arg.Any<string>(), Arg.Any<IReadOnlyList<KeyValuePair<string, string>>?>(),
+                Arg.Any<IProgress<HlsProgress>?>(), Arg.Any<CancellationToken>())
+            .Returns(new HlsDownloadResult(["init", "seg0"], 5000));
+
+        var concat = Substitute.For<IHlsConcatenator>();
+        var mux = Substitute.For<IMediaMuxer>();
+
+        MediaDownloadOutcome outcome = await BuildHls(hls, concat, mux).DownloadAsync(new MediaDownloadRequest
+        {
+            Kind = MediaKind.Hls,
+            MediaUrl = new Uri("https://x.example/video.m3u8"),
+            AudioUrl = null,
+            OutputPath = Path.Combine(_dir, "out.mkv"),
+            WorkingDirectory = Path.Combine(_dir, "work"),
+        });
+
+        outcome.TotalBytes.Should().Be(5000);
+        await concat.Received(1).ConcatenateAsync(
+            Arg.Any<IReadOnlyList<string>>(), Path.Combine(_dir, "out.mkv"), Arg.Any<IProgress<long>?>(), Arg.Any<CancellationToken>());
+        await mux.DidNotReceive().MuxAsync(Arg.Any<MuxRequest>(), Arg.Any<IProgress<FfmpegProgress>?>(), Arg.Any<CancellationToken>());
+    }
+
     [Fact]
     public async Task SeparateStreams_DownloadsBothStreams_ThenMuxes_AndSumsBytes()
     {

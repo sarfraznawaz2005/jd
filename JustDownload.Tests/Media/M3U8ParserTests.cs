@@ -46,6 +46,61 @@ public sealed class M3U8ParserTests
         // An absolute variant URI is kept as-is.
         master.Variants[1].Uri.Should().Be(new Uri("https://other.cdn/720/index.m3u8"));
         master.Variants[1].Height.Should().Be(720);
+
+        master.AudioRenditions.Should().BeEmpty("no #EXT-X-MEDIA:TYPE=AUDIO entries were present");
+    }
+
+    [Fact]
+    public void ParseMaster_WithAlternateAudioMedia_ReturnsAudioRenditions()
+    {
+        const string content =
+            "#EXTM3U\n" +
+            "#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID=\"audio\",NAME=\"English\",LANGUAGE=\"en\",DEFAULT=YES,URI=\"audio/index.m3u8\"\n" +
+            "#EXT-X-STREAM-INF:BANDWIDTH=1280000,RESOLUTION=640x360,CODECS=\"avc1.4d401e,mp4a.40.2\",AUDIO=\"audio\"\n" +
+            "360/index.m3u8\n";
+
+        HlsMasterPlaylist master = M3U8Parser.ParseMaster(content, MasterUri);
+
+        master.Variants.Should().HaveCount(1);
+        master.AudioRenditions.Should().HaveCount(1);
+        HlsAudioRendition audio = master.AudioRenditions[0];
+        audio.Uri.Should().Be(new Uri("https://cdn.example.com/video/audio/index.m3u8"));
+        audio.GroupId.Should().Be("audio");
+        audio.Name.Should().Be("English");
+        audio.Language.Should().Be("en");
+        audio.IsDefault.Should().BeTrue();
+    }
+
+    [Fact]
+    public void ParseMaster_WithAudioMediaMissingUri_IsSkipped_AudioIsMuxedIntoVideo()
+    {
+        // No URI on the AUDIO group means the audio is already embedded in each video variant's segments
+        // (the common Twitter/X shape) — there is nothing separate to download, so it must not surface as
+        // a rendition (that would send the coordinator hunting for a stream that doesn't exist).
+        const string content =
+            "#EXTM3U\n" +
+            "#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID=\"audio\",NAME=\"English\",DEFAULT=YES,AUTOSELECT=YES\n" +
+            "#EXT-X-STREAM-INF:BANDWIDTH=1280000,RESOLUTION=640x360,CODECS=\"avc1.4d401e,mp4a.40.2\",AUDIO=\"audio\"\n" +
+            "360/index.m3u8\n";
+
+        HlsMasterPlaylist master = M3U8Parser.ParseMaster(content, MasterUri);
+
+        master.Variants.Should().HaveCount(1);
+        master.AudioRenditions.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void ParseMaster_IgnoresNonAudioMedia()
+    {
+        const string content =
+            "#EXTM3U\n" +
+            "#EXT-X-MEDIA:TYPE=SUBTITLES,GROUP-ID=\"subs\",NAME=\"English\",URI=\"subs/index.m3u8\"\n" +
+            "#EXT-X-STREAM-INF:BANDWIDTH=1280000,RESOLUTION=640x360\n" +
+            "360/index.m3u8\n";
+
+        HlsMasterPlaylist master = M3U8Parser.ParseMaster(content, MasterUri);
+
+        master.AudioRenditions.Should().BeEmpty("only TYPE=AUDIO renditions are collected");
     }
 
     [Fact]

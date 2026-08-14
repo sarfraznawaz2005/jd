@@ -176,8 +176,8 @@ internal sealed partial class TwitterMediaExtractor : IMediaExtractor
                 if (string.Equals(contentType, "application/x-mpegURL", StringComparison.OrdinalIgnoreCase) &&
                     Uri.TryCreate(url, UriKind.Absolute, out Uri? hlsUri))
                 {
-                    IReadOnlyList<VideoVariant> hlsVariants = await TryFetchHlsVariantsAsync(
-                        request, hlsUri, cancellationToken).ConfigureAwait(false);
+                    (IReadOnlyList<VideoVariant> hlsVariants, IReadOnlyList<AudioVariant> hlsAudioVariants) =
+                        await TryFetchHlsVariantsAsync(request, hlsUri, cancellationToken).ConfigureAwait(false);
 
                     return new MediaSource
                     {
@@ -186,7 +186,7 @@ internal sealed partial class TwitterMediaExtractor : IMediaExtractor
                         Url = hlsUri,
                         SuggestedFileName = CrossPlatformFileName.Sanitize(text) ?? $"twitter-{tweetId}",
                         Variants = hlsVariants,
-                        AudioVariants = [],
+                        AudioVariants = hlsAudioVariants,
                     };
                 }
             }
@@ -330,13 +330,15 @@ internal sealed partial class TwitterMediaExtractor : IMediaExtractor
 
     /// <summary>
     /// Fetches <paramref name="hlsUri"/> and, if it is a master playlist, parses its real quality variants
-    /// (mirrors <see cref="HlsMediaExtractor"/>'s own master-playlist parsing). Degrades to an empty
-    /// list — never throws, never fails the caller — for a fetch failure (network exception, non-2xx), a
-    /// body that isn't recognisably HLS, or a media (non-master) playlist; the master/media URL itself
-    /// remains a valid single-stream download either way.
+    /// and any alternate audio renditions (<c>#EXT-X-MEDIA:TYPE=AUDIO</c> — mirrors <see cref="HlsMediaExtractor"/>'s
+    /// own master-playlist parsing plus the RFC 8216 §4.3.4.1 alternate-audio case, since a Twitter/X master
+    /// playlist can carry audio either muxed into each video variant or as its own downloadable rendition).
+    /// Degrades to empty lists — never throws, never fails the caller — for a fetch failure (network
+    /// exception, non-2xx), a body that isn't recognisably HLS, or a media (non-master) playlist; the
+    /// master/media URL itself remains a valid single-stream download either way.
     /// </summary>
-    private async Task<IReadOnlyList<VideoVariant>> TryFetchHlsVariantsAsync(
-        MediaRequest request, Uri hlsUri, CancellationToken cancellationToken)
+    private async Task<(IReadOnlyList<VideoVariant> Variants, IReadOnlyList<AudioVariant> AudioVariants)>
+        TryFetchHlsVariantsAsync(MediaRequest request, Uri hlsUri, CancellationToken cancellationToken)
     {
         string text;
         try
@@ -354,7 +356,7 @@ internal sealed partial class TwitterMediaExtractor : IMediaExtractor
             if (!response.IsSuccessStatusCode)
             {
                 LogHlsMasterFetchFailed(_logger, hlsUri, response.StatusCode);
-                return [];
+                return ([], []);
             }
 
             await using Stream stream = await response.OpenContentStreamAsync(cancellationToken)
@@ -369,18 +371,23 @@ internal sealed partial class TwitterMediaExtractor : IMediaExtractor
         catch (Exception ex) when (ex is HttpRequestException or IOException or InvalidOperationException)
         {
             LogHlsMasterFetchException(_logger, hlsUri, ex);
-            return [];
+            return ([], []);
         }
 
         if (!text.Contains("#EXTM3U", StringComparison.Ordinal) || !M3U8Parser.IsMaster(text))
         {
-            return [];
+            return ([], []);
         }
 
         HlsMasterPlaylist master = M3U8Parser.ParseMaster(text, hlsUri);
-        return master.Variants
+        IReadOnlyList<VideoVariant> variants = master.Variants
             .Select(v => new VideoVariant(v.Uri.ToString(), v.Height ?? 0, v.Bandwidth))
             .ToArray();
+        IReadOnlyList<AudioVariant> audioVariants = master.AudioRenditions
+            .Select(a => new AudioVariant(a.Uri.ToString(), Language: a.Language))
+            .ToArray();
+
+        return (variants, audioVariants);
     }
 
     // The tweet id is the digit run immediately after /status/, ignoring trailing /video/N, /photo/N and
