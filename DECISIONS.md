@@ -84,3 +84,17 @@ Deliberately scoped to Twitter for the extractor change (surgical, matches the r
 The prior task's DECISIONS.md entry ("Twitter/X HLS 'no audio' bug") explicitly flagged HlsMediaExtractor.cs as having the identical latent gap, deliberately left out of scope. HlsMediaExtractor.TryExtractAsync's master-playlist branch built VideoVariant[] from master.Variants but never read the already-parsed HlsMasterPlaylist.AudioRenditions, so any generic (non-Twitter) .m3u8 with a separate #EXT-X-MEDIA:TYPE=AUDIO URI still silently lost audio even after the parser/coordinator infra landed. …
 
 **Impact**: JustDownload.Core/Media/Hls/HlsMediaExtractor.cs (TryExtractAsync master-playlist branch: new audioVariants projection, AudioVariants set on the returned MediaSource). JustDownload.Tests/Media/HlsMedi…
+
+## Sign in to YouTube: WebView2 TFM stays plain net8.0; secret store already existed
+**When**: 2026-08-14 10:48:20
+
+Empirically confirmed (not assumed): plain net8.0 already resolves Microsoft.Web.WebView2's managed Core.dll via its own Choose/When MSBuild logic (keyed on IsTargetFrameworkCompatible(TFM,'net5.0'), not a -windows qualifier) — no net8.0-windows override needed. That same logic always drags in WinForms+Wpf too, causing a WindowsBase MSB3277 warning, fixed via MSBuildWarningsAsMessages. PackageReference + all WebView2-touching .cs files gated on $(OS)=='Windows_NT' so macOS/Linux CI never sees th…
+
+**Impact**: JustDownload.App.csproj (conditional PackageReference, DefineConstants WINDOWS_WEBVIEW2, Compile Remove on non-Windows). New: Services/YouTube/*, Views/YouTubeSignIn*.cs (Windows-only), Views/YouTubeS…
+
+## YouTube sign-in WebView2: resize via Avalonia layout, not GetClientRect
+**When**: 2026-08-14 11:14:38
+
+ResizeController raced Avalonia's own resize/maximize layout pass by querying a raw Win32 GetClientRect against the native child hwnd captured once at creation — WebView2 content stayed pinned at ~480x640 with black fill around it. Switched to sizing from the control's own Avalonia Bounds/SizeChangedEventArgs.NewSize (DIPs) scaled by TopLevel.RenderScaling to physical pixels, the standard NativeControlHost + Win32 interop pattern. Removed the now-unused GetClientRect LibraryImport/RECT struct an…
+
+**Impact**: JustDownload.App/Views/YouTubeSignInWebViewHost.cs (ResizeController signature + OnSizeChanged/InitializeWebViewAsync call sites)
