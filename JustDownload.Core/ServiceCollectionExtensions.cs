@@ -288,6 +288,15 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton(new TransportOptions());
         services.TryAddSingleton<ISharedHttpHandlerProvider, SharedHttpHandlerProvider>();
 
+        // Browser-sourced default User-Agent: refreshes TransportOptions.UserAgent from an installed Chrome/
+        // Edge/Firefox (cached ~30 days on disk), falling back to the static default when none is found.
+        // IAppInfoProvider is needed for the cache's file path.
+        services.TryAddSingleton<IAppInfoProvider, AppInfoProvider>();
+        services.TryAddSingleton<IBrowserUserAgentDetector, BrowserUserAgentDetector>();
+        services.TryAddSingleton<IBrowserUserAgentCache>(
+            sp => new BrowserUserAgentCache(sp.GetRequiredService<IAppInfoProvider>()));
+        services.TryAddSingleton<IBrowserUserAgentRefresher, BrowserUserAgentRefresher>();
+
         // Proxy support (TASK-034, US-6): the runtime-toggleable global/per-download proxy resolver and the
         // profile-keyed HTTP client pool (direct over the shared handler; one pooled handler per proxy/cred).
         services.TryAddSingleton<IProxyService, ProxyService>();

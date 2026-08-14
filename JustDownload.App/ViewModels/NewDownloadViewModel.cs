@@ -447,7 +447,7 @@ public sealed partial class NewDownloadViewModel : ViewModelBase, IDisposable
             ApplyDetection(result.SuggestedFileName, result.TotalLength, result.Resumable);
             await CheckForDuplicateAsync(cts.Token).ConfigureAwait(true);
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException ex)
         {
             // _detectCts is only reassigned by a newer DetectAsync call or by Dispose — if it's still this
             // call's own cts, nothing superseded it, so this is DetectTimeout firing on its own (the probe
@@ -456,6 +456,7 @@ public sealed partial class NewDownloadViewModel : ViewModelBase, IDisposable
             // the newer call owns reporting the outcome.
             if (ReferenceEquals(_detectCts, cts))
             {
+                LogDetectFailed(_logger, uri, ex);
                 DetectionMessage = "Couldn't read this link automatically — check the URL or enter the details manually.";
                 DetectionMessageIsError = true;
             }
@@ -1018,7 +1019,7 @@ public sealed partial class NewDownloadViewModel : ViewModelBase, IDisposable
         return false;
     }
 
-    [LoggerMessage(EventId = 1, Level = LogLevel.Debug, Message = "Auto-detection failed for {Url}.")]
+    [LoggerMessage(EventId = 1, Level = LogLevel.Error, Message = "Auto-detection failed for {Url}.")]
     private static partial void LogDetectFailed(ILogger logger, Uri url, Exception exception);
 
     [LoggerMessage(

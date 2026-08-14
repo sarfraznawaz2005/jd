@@ -20,6 +20,7 @@ using JustDownload.Core.Media.YtDlp;
 using JustDownload.Core.NativeMessaging;
 using JustDownload.Core.Settings;
 using JustDownload.Core.Throttling;
+using JustDownload.Core.Transport;
 using JustDownload.Core.Transport.Proxy;
 using JustDownload.Core.Updates;
 using Microsoft.Extensions.DependencyInjection;
@@ -274,6 +275,12 @@ public partial class App : Application
             // Register the native-messaging host so browsers can find/launch it (TASK-089). Off-thread file/
             // registry writes; a no-op when the host executable isn't deployed alongside the app (dev).
             _ = Task.Run(() => Services.GetRequiredService<INativeHostInstaller>().Install());
+
+            // Refresh the default download User-Agent from an installed browser (Chrome/Edge/Firefox), so it
+            // tracks a real, current version instead of the static fallback baked into TransportOptions —
+            // some hosts bot-challenge a stale/non-browser UA. Off-thread; cached ~30 days, so this is a
+            // cheap file read on every launch except the first one and once a month.
+            _ = Task.Run(() => Services.GetRequiredService<IBrowserUserAgentRefresher>().RefreshAsync());
 
             // Bring the schema up to date and load settings, then show the window (unless the user opted to
             // start hidden in the tray) and load the persisted downloads — off the startup path so we never

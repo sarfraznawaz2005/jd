@@ -105,3 +105,10 @@ ResizeController raced Avalonia's own resize/maximize layout pass by querying a 
 Task assumed YouTube-homepage icon suppression already existed as a pattern to mirror — it did not; it "worked" only by accident (no resolvable video in the feed). Added an explicit, pure host+path check in jdcore.js (HOME_PAGE_PATHS map, hostnameOf-based, www/http(s)/trailing-slash robust) rather than relying on incidental behavior, and extended it to youtube.com/x.com/twitter.com/facebook.com/instagram.com root (and /home for X/Twitter) pages. Re-checked per attach attempt in content.js since …
 
 **Impact**: extension/src/jdcore.js (new isSuppressedHomePage, exported on JD), extension/src/content.js (attachIconTo early-return), extension/test/jdcore.test.js, extension/test/content.test.js
+
+## Default download User-Agent: browser-sourced, no-launch metadata reads, 30-day cache
+**When**: 2026-08-14 14:26:56
+
+TransportOptions.UserAgent defaulted to "JustDownload" — SourceForge (Cloudflare) and GitHub's edge intermittently bot-challenge non-browser UAs, breaking auto-detect. Fixed with a static realistic Chrome UA literal, then extended per explicit user ask to prefer a UA sourced from an actually-installed browser (Chrome→Edge→Firefox), cached 30 days, falling back to the static literal. Critical pivot: an early draft shelled out to `chrome.exe --version` (mirroring FfmpegLocator's spawn-and-parse-st…
+
+**Impact**: JustDownload.Core/Transport/TransportOptions.cs (UserAgent default literal); new: BrowserUserAgentFormatter.cs, BrowserUserAgentDetector.cs, BrowserUserAgentCache.cs, BrowserUserAgentJsonContext.cs, B…
