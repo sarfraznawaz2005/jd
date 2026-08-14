@@ -168,6 +168,37 @@
     return EXTRACTABLE_HOSTS.some((h) => bare === h || bare.endsWith("." + h));
   }
 
+  // Home/feed pages on these hosts are a busy stream of many videos, not a single piece of media — there
+  // is nothing meaningful for the icon to hand off, so it's suppressed there and only there (TASK-243).
+  // Every other page on these hosts (a watch/status/post/reel/profile page) is untouched. x.com/twitter.com
+  // additionally treat "/home" as a home path since that's the URL the logged-in feed actually uses.
+  const HOME_PAGE_PATHS = {
+    "youtube.com": ["/"],
+    "x.com": ["/", "/home"],
+    "twitter.com": ["/", "/home"],
+    "facebook.com": ["/"],
+    "instagram.com": ["/"],
+  };
+
+  /** Whether `url` is exactly one of HOME_PAGE_PATHS' home/root pages, so the download icon should never
+   * appear there — with or without "www.", over http or https. */
+  function isSuppressedHomePage(url) {
+    const host = hostnameOf(url);
+    if (!host) {
+      return false;
+    }
+    const bare = host.replace(/^www\./, "");
+    const hostKey = Object.keys(HOME_PAGE_PATHS).find((h) => bare === h || bare.endsWith("." + h));
+    if (!hostKey) {
+      return false;
+    }
+    let pathname = new URL(url).pathname;
+    if (pathname.length > 1) {
+      pathname = pathname.replace(/\/+$/, "");
+    }
+    return HOME_PAGE_PATHS[hostKey].includes(pathname);
+  }
+
   /** Strips per-chunk parameters from a sniffed media URL so it addresses the whole stream. */
   function normalizeMediaUrl(url) {
     let parsed;
@@ -403,6 +434,7 @@
     isMediaUrl,
     normalizeMediaUrl,
     isExtractablePage,
+    isSuppressedHomePage,
     parseMasterVariants,
     playlistTargets,
     pickContextUrl,

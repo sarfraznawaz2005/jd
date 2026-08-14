@@ -274,6 +274,27 @@ test("an extractable host with multiple video elements still routes every icon c
   assert.equal(sent.url, "https://www.facebook.com/watch/?v=123");
 });
 
+// --- Home-page icon suppression (TASK-243) ------------------------------------------------------------
+
+test("no icon on the YouTube/X/Facebook/Instagram home pages even with a video element present (TASK-243)", async () => {
+  for (const href of [
+    "https://www.youtube.com/",
+    "https://x.com/home",
+    "https://www.facebook.com/",
+    "https://www.instagram.com/",
+  ]) {
+    const video = makeMediaElement("video", "blob:https://cdn.example.com/hover-preview");
+    const { appended } = await runContentScript([video], { href });
+    assert.equal(appended.length, 0, `${href} must not get an icon`);
+  }
+});
+
+test("the icon still appears on non-home pages of the same suppressed hosts (TASK-243)", async () => {
+  const video = makeMediaElement("video", "blob:https://www.instagram.com/hover-preview");
+  const { appended } = await runContentScript([video], { href: "https://www.instagram.com/reel/abc123/" });
+  assert.equal(appended.length, 1, "a reel page still gets its icon");
+});
+
 test("an ordinary site with an unresolvable video gets no page hand-off (TASK-232)", async () => {
   const video = makeMediaElement("video", "blob:https://example.com/abc");
   const { appended } = await runContentScript([video], { href: "https://example.com/page" });

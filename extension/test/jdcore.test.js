@@ -208,6 +208,51 @@ test("isExtractablePage matches the app's site extractors (TASK-232)", () => {
   assert.equal(JD.isExtractablePage("not a url"), false);
 });
 
+test("isSuppressedHomePage suppresses only the home/root page of YouTube, X/Twitter, Facebook, Instagram (TASK-243)", () => {
+  // Bare domain, www., http/https, trailing slash — all home-page forms are suppressed.
+  for (const url of [
+    "https://youtube.com",
+    "https://youtube.com/",
+    "https://www.youtube.com",
+    "https://www.youtube.com/",
+    "http://youtube.com/",
+    "https://x.com",
+    "https://x.com/",
+    "https://www.x.com/",
+    "https://x.com/home",
+    "http://twitter.com",
+    "https://www.twitter.com/",
+    "https://twitter.com/home",
+    "https://www.twitter.com/home/",
+    "https://facebook.com",
+    "https://www.facebook.com/",
+    "http://www.facebook.com",
+    "https://instagram.com",
+    "https://www.instagram.com/",
+    "http://instagram.com/",
+  ]) {
+    assert.equal(JD.isSuppressedHomePage(url), true, `${url} should be suppressed`);
+  }
+
+  // Any other page on these same hosts is untouched.
+  for (const url of [
+    "https://www.youtube.com/watch?v=abc",
+    "https://x.com/someuser/status/12345",
+    "https://twitter.com/someuser",
+    "https://www.facebook.com/watch/?v=1",
+    "https://www.facebook.com/someuser",
+    "https://www.instagram.com/reel/abc123/",
+    "https://www.instagram.com/someuser/",
+  ]) {
+    assert.equal(JD.isSuppressedHomePage(url), false, `${url} should still show the icon`);
+  }
+
+  // Unrelated sites and malformed input are never suppressed.
+  assert.equal(JD.isSuppressedHomePage("https://example.com/"), false);
+  assert.equal(JD.isSuppressedHomePage("https://facebook.com.evil.com/"), false, "not fooled by a lookalike host");
+  assert.equal(JD.isSuppressedHomePage("not a url"), false);
+});
+
 test("buildDownloadMessage carries the extract flag only when set (TASK-232)", () => {
   assert.equal(JD.buildDownloadMessage({ url: "https://x/a.mp4" }).extract, false);
   assert.equal(JD.buildDownloadMessage({ url: "https://x/p", extract: true }).extract, true);

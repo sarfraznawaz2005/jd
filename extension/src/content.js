@@ -160,6 +160,13 @@
     if (tracked.has(el) || inFlight.has(el)) {
       return;
     }
+    // Home/feed pages (YouTube, X/Twitter, Facebook, Instagram) never get an icon (TASK-243): re-checked
+    // on every attach attempt, not cached at init, since these are SPAs — navigating between the feed and
+    // a watch/status/post page never reloads the content script.
+    if (JD.isSuppressedHomePage(location.href)) {
+      pending.delete(el);
+      return;
+    }
     inFlight.add(el);
     try {
       // On a site the app has an extractor for, the page URL always wins over the element's own src
