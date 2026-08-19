@@ -492,7 +492,11 @@ internal sealed partial class YtDlpMediaExtractor : IMediaExtractor
     }
 
     private static AudioVariant ToAudioVariant(YtDlpFormat format, Uri url) =>
-        new(url.ToString(), ToBitsPerSecond(format.TotalBitrateKbps ?? format.AudioBitrateKbps));
+        new(
+            url.ToString(),
+            ToBitsPerSecond(format.TotalBitrateKbps ?? format.AudioBitrateKbps),
+            format.Language,
+            format.LanguagePreference);
 
     private static long? ToBitsPerSecond(double? kilobitsPerSecond) =>
         kilobitsPerSecond is > 0 ? (long)(kilobitsPerSecond.Value * 1000) : null;
@@ -589,4 +593,13 @@ internal sealed record YtDlpFormat
     /// <summary>Frame rate, when yt-dlp reports one for this format (video formats only).</summary>
     [JsonPropertyName("fps")]
     public double? Fps { get; init; }
+
+    /// <summary>The BCP-47 / ISO language tag of this format's audio track, when yt-dlp reports one.</summary>
+    [JsonPropertyName("language")]
+    public string? Language { get; init; }
+
+    /// <summary>yt-dlp's relative ranking of this audio track against the video's other audio formats — the
+    /// original/default-language track carries the highest value; dubs/auto-translations rank lower.</summary>
+    [JsonPropertyName("language_preference")]
+    public int? LanguagePreference { get; init; }
 }

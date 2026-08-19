@@ -8,4 +8,9 @@ namespace JustDownload.Core.Media;
 /// <param name="Id">An opaque identifier (e.g. the audio stream/representation URL).</param>
 /// <param name="Bandwidth">The advertised bits-per-second, if known.</param>
 /// <param name="Language">The BCP-47 / ISO language tag, if declared.</param>
-public sealed record AudioVariant(string Id, long? Bandwidth = null, string? Language = null);
+/// <param name="LanguagePreference">yt-dlp's raw <c>language_preference</c> signal, if declared: a relative
+/// ranking where the original/default-language audio track carries the highest value among a video's audio
+/// formats, with dubs/auto-translations ranked lower. Only yt-dlp populates this; DASH/HLS/Twitter extractors
+/// leave it <see langword="null"/>.</param>
+public sealed record AudioVariant(
+    string Id, long? Bandwidth = null, string? Language = null, int? LanguagePreference = null);

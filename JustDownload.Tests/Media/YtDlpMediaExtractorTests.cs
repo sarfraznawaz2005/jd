@@ -183,6 +183,42 @@ public sealed class YtDlpMediaExtractorTests
     }
 
     [Fact]
+    public async Task TryExtractAsync_MultipleAudioLanguages_MapsLanguageAndLanguagePreferenceToEachVariant()
+    {
+        // Reproduces the reported bug: yt-dlp lists a foreign dub with an EQUAL OR HIGHER bitrate than the
+        // original-language track. language_preference is the only signal that identifies the original (it
+        // always carries the highest value among a video's audio formats), so both fields must survive the
+        // mapping into AudioVariant for AudioQualitySelector to pick correctly downstream.
+        ISettingsService settings = SettingsWith(videoCaptureEnabled: true);
+        var locator = Substitute.For<IYtDlpLocator>();
+        locator.LocateAsync(Arg.Any<CancellationToken>()).Returns(LocatedYtDlp);
+        var runner = Substitute.For<IYtDlpRunner>();
+        const string json = """
+            {"id":"abc","formats":[
+              {"format_id":"135","url":"https://cdn.example.com/v480","protocol":"https","vcodec":"avc1.4d401f","acodec":"none","height":480,"vbr":355.6},
+              {"format_id":"140","url":"https://cdn.example.com/audio-en","protocol":"https","vcodec":"none","acodec":"mp4a.40.2","abr":129.5,"language":"en","language_preference":10},
+              {"format_id":"140-hi","url":"https://cdn.example.com/audio-hi","protocol":"https","vcodec":"none","acodec":"mp4a.40.2","abr":129.5,"language":"hi","language_preference":-1}
+            ]}
+            """;
+        runner.RunAsync(Arg.Any<string>(), Arg.Any<IReadOnlyList<string>>(), Arg.Any<CancellationToken>())
+            .Returns(new YtDlpRunResult(0, json, string.Empty));
+
+        MediaSource? source = await Build(settings, locator, runner)
+            .TryExtractAsync(Request("https://www.youtube.com/watch?v=abc"));
+
+        source.Should().NotBeNull();
+        source!.AudioVariants.Should().HaveCount(2);
+        AudioVariant original = source.AudioVariants.Single(v => v.Id == "https://cdn.example.com/audio-en");
+        original.Language.Should().Be("en");
+        original.LanguagePreference.Should().Be(10);
+        AudioVariant dub = source.AudioVariants.Single(v => v.Id == "https://cdn.example.com/audio-hi");
+        dub.Language.Should().Be("hi");
+        dub.LanguagePreference.Should().Be(-1);
+        AudioQualitySelector.Select(source.AudioVariants).Should().Be(
+            original, "the original-language track must be chosen even though the dub has an equal bitrate");
+    }
+
+    [Fact]
     public async Task TryExtractAsync_SameResolutionFormatsWithDifferentCodecsAndFps_MapsFpsAndCodecOntoEveryVariant()
     {
         // TASK-166: yt-dlp's raw formats commonly contain several distinct 720p renditions (H.264 vs VP9 vs
