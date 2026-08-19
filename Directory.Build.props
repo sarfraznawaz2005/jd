@@ -40,7 +40,7 @@
     Bump this by hand until CI-driven versioning exists (there is none yet — see build-installer.ps1).
   -->
   <PropertyGroup>
-    <Version>1.0.9</Version>
+    <Version>1.0.10</Version>
   </PropertyGroup>
 
 </Project>
