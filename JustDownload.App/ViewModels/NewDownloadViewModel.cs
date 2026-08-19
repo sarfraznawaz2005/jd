@@ -208,6 +208,36 @@ public sealed partial class NewDownloadViewModel : ViewModelBase, IDisposable
     [ObservableProperty]
     private string _alternateUrlsText = string.Empty;
 
+    /// <summary>
+    /// Whether to download straight from the URL without reading it first (TASK-262). Detection costs a
+    /// request, and a one-shot URL — a single-use token, a signed link, a router CGI — only answers once,
+    /// so pre-checking spends that answer and the download itself gets a rejection page saved as the file.
+    /// The cost of skipping is no auto-filled file name, size or resumability.
+    /// </summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanDetect))]
+    private bool _skipLinkCheck;
+
+    /// <summary>
+    /// Whether to attach a sign-in context to this download (TASK-263). A link the browser extension handed
+    /// over already carries the page's cookies; this reveals the manual boxes for a URL typed or pasted by
+    /// hand, which has no browser session behind it and would otherwise fetch the login page.
+    /// </summary>
+    [ObservableProperty]
+    private bool _useSignIn;
+
+    /// <summary>
+    /// A <c>Cookie</c> header value pasted by the user (TASK-263), overriding any captured from the browser.
+    /// Never persisted from here — <see cref="SubmitAsync"/> hands it to the engine, which keeps it in the OS
+    /// keychain (§5).
+    /// </summary>
+    [ObservableProperty]
+    private string _signInCookies = string.Empty;
+
+    /// <summary>The <c>Referer</c> to send (TASK-263); some sites reject a download without one.</summary>
+    [ObservableProperty]
+    private string _signInReferrer = string.Empty;
+
     public NewDownloadViewModel(
         IResourceProbe probe,
         IMediaExtractorRegistry mediaRegistry,
@@ -266,6 +296,7 @@ public sealed partial class NewDownloadViewModel : ViewModelBase, IDisposable
         _overrideProxyUsername = remembered.NewDownloadProxyUsername ?? string.Empty;
         _overrideProxyDomain = remembered.NewDownloadProxyDomain ?? string.Empty;
         _useAlternateUrls = remembered.NewDownloadUseAlternateUrls;
+        _skipLinkCheck = remembered.NewDownloadSkipLinkCheck;
 
         // The password itself stays in the OS keychain (§5) and is resolved only at submit time — it is never
         // loaded into the bound field, so the dialog can't leak or re-display it.
@@ -383,7 +414,9 @@ public sealed partial class NewDownloadViewModel : ViewModelBase, IDisposable
     /// </summary>
     public async Task DetectAsync()
     {
-        if (!TryGetValidUri(Url, out Uri? uri))
+        // Checked here as well as in CanDetect: SubmitAsync re-detects a manifest URL directly, so gating
+        // only the view's trigger would still spend a one-shot link's single answer (TASK-262).
+        if (SkipLinkCheck || !TryGetValidUri(Url, out Uri? uri))
         {
             return;
         }
@@ -437,7 +470,9 @@ public sealed partial class NewDownloadViewModel : ViewModelBase, IDisposable
                 Hint = ExtractionHintClassifier.Classify(extraction.Attempts);
             }
 
-            ResourceProbeResult result = await _probe.ProbeAsync(uri, headers: null, cts.Token).ConfigureAwait(true);
+            ResourceProbeResult result = await _probe
+                .ProbeAsync(uri, BuildAuthHeaders(), cts.Token)
+                .ConfigureAwait(true);
             if (cts.IsCancellationRequested || result is null)
             {
                 return;
@@ -605,6 +640,48 @@ public sealed partial class NewDownloadViewModel : ViewModelBase, IDisposable
     {
         _referrer = referrer;
         _cookies = cookies;
+        OnPropertyChanged(nameof(HasCapturedSession));
+    }
+
+    /// <summary>
+    /// Whether the browser extension handed over this link's cookies (TASK-263). Surfaced so the dialog can
+    /// say the session is already covered instead of leaving the user to paste one — the value itself is
+    /// never bound to the UI, since cookies are secrets and must not be rendered or screenshot (§3).
+    /// </summary>
+    public bool HasCapturedSession => !string.IsNullOrEmpty(_cookies);
+
+    /// <summary>
+    /// The <c>Cookie</c> header to send: what the user pasted, else what the extension captured. A pasted
+    /// value wins so a stale captured session can be corrected without re-triggering the download.
+    /// </summary>
+    private string? EffectiveCookies =>
+        UseSignIn && !string.IsNullOrWhiteSpace(SignInCookies) ? SignInCookies.Trim() : _cookies;
+
+    /// <summary>The <c>Referer</c> to send: what the user typed, else the extension's capture.</summary>
+    private string? EffectiveReferrer =>
+        UseSignIn && !string.IsNullOrWhiteSpace(SignInReferrer) ? SignInReferrer.Trim() : _referrer;
+
+    /// <summary>
+    /// The auth headers for a request about this URL (TASK-263) — the same <c>Referer</c>/<c>Cookie</c> pair
+    /// the engine sends when the download actually runs. Detection must send them too: a probe without them
+    /// hits the login wall, so the dialog reads back the wrong size and file name, or hangs waiting on a CGI
+    /// that never answers an unauthenticated caller.
+    /// </summary>
+    private List<KeyValuePair<string, string>> BuildAuthHeaders()
+    {
+        var headers = new List<KeyValuePair<string, string>>(2);
+
+        if (EffectiveReferrer is { Length: > 0 } referrer)
+        {
+            headers.Add(new KeyValuePair<string, string>("Referer", referrer));
+        }
+
+        if (EffectiveCookies is { Length: > 0 } cookies)
+        {
+            headers.Add(new KeyValuePair<string, string>("Cookie", cookies));
+        }
+
+        return headers;
     }
 
     /// <summary>
@@ -679,8 +756,8 @@ public sealed partial class NewDownloadViewModel : ViewModelBase, IDisposable
             CategoryType = category.ToString(),
             MaxConnections = UseSegmentation ? _settings.Current.ConnectionsPerDownload : 1,
             SpeedLimit = null,
-            Referrer = _referrer,
-            Cookies = _cookies,
+            Referrer = EffectiveReferrer,
+            Cookies = EffectiveCookies,
             Proxy = await BuildProxyOverrideAsync().ConfigureAwait(true),
             AlternateUrls = ParseAlternateUrls(),
             MediaKind = _detectedMedia?.Kind,
@@ -737,6 +814,7 @@ public sealed partial class NewDownloadViewModel : ViewModelBase, IDisposable
                 NewDownloadProxyDomain = NullIfBlank(OverrideProxyDomain),
                 NewDownloadProxyPasswordSecretRef = secretRef,
                 NewDownloadUseAlternateUrls = UseAlternateUrls,
+                NewDownloadSkipLinkCheck = SkipLinkCheck,
             }).ConfigureAwait(true);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
@@ -836,7 +914,12 @@ public sealed partial class NewDownloadViewModel : ViewModelBase, IDisposable
         SelectedCategory.Category ?? _categorizer.Categorize(FileName, contentType: null);
 
     /// <summary>Whether the current URL is a well-formed http(s) URL worth auto-detecting (the view triggers it).</summary>
-    public bool CanDetect => TryGetValidUri(Url, out _);
+    /// <summary>
+    /// Whether the dialog may read the link. Also the view's auto-detect trigger, so turning
+    /// <see cref="SkipLinkCheck"/> on genuinely stops every request the dialog would otherwise make
+    /// (TASK-262) rather than merely ignoring the answer.
+    /// </summary>
+    public bool CanDetect => !SkipLinkCheck && TryGetValidUri(Url, out _);
 
     /// <summary>
     /// Checks whether the chosen destination already holds this file (on disk or in the library) and sets

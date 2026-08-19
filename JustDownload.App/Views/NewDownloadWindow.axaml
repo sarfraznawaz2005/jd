@@ -152,6 +152,33 @@
         <TextBox Text="{Binding AlternateUrlsText, Mode=TwoWay}" AcceptsReturn="True" Height="70"
                  TextWrapping="Wrap" Watermark="https://mirror1.example.com/file.zip" />
       </StackPanel>
+
+      <!-- One-shot links (TASK-262): reading the link costs the server's single answer -->
+      <CheckBox IsChecked="{Binding SkipLinkCheck, Mode=TwoWay}"
+                Content="Don't pre-check this link (one-time / single-use links)"
+                Foreground="{DynamicResource TextDimBrush}" FontSize="12" />
+      <TextBlock Text="Skips reading the link first, so the download itself is the only request. Use this when a link works once and then fails — the file name and size won't be filled in."
+                 IsVisible="{Binding SkipLinkCheck}" Margin="22,0,0,0" FontSize="11"
+                 TextWrapping="Wrap" Foreground="{DynamicResource TextFaintBrush}" />
+
+      <!-- Sign-in context for a link behind a login (TASK-263) -->
+      <CheckBox IsChecked="{Binding UseSignIn, Mode=TwoWay}"
+                Content="This link is behind a login"
+                Foreground="{DynamicResource TextDimBrush}" FontSize="12" />
+      <StackPanel Spacing="5" IsVisible="{Binding UseSignIn}" Margin="22,4,0,0">
+        <!-- A hand-off from the browser extension already carries the page's cookies; say so rather than
+             rendering them, since cookies are secrets and must never be shown or screenshot (§3). -->
+        <TextBlock Text="Cookies captured from your browser will be sent. Paste below only to override them."
+                   IsVisible="{Binding HasCapturedSession}" FontSize="11"
+                   TextWrapping="Wrap" Foreground="{DynamicResource TextFaintBrush}" />
+        <TextBlock Text="Paste the Cookie header from your browser's DevTools (Network → the request → Request Headers)."
+                   IsVisible="{Binding !HasCapturedSession}" FontSize="11"
+                   TextWrapping="Wrap" Foreground="{DynamicResource TextFaintBrush}" />
+        <TextBox x:Name="SignInCookiesBox" Text="{Binding SignInCookies, Mode=TwoWay}" AcceptsReturn="False"
+                 Height="52" TextWrapping="Wrap" Watermark="session=abc123; csrftoken=xyz" />
+        <TextBox x:Name="SignInReferrerBox" Text="{Binding SignInReferrer, Mode=TwoWay}"
+                 Watermark="Referrer page URL (optional)" />
+      </StackPanel>
     </StackPanel>
 
     <!-- Footer: status text stacked above the buttons (wraps + centers instead of squeezing the

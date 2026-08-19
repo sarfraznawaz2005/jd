@@ -200,6 +200,9 @@ public partial class App : Application
         // Capture and surface unhandled exceptions process-wide — no silent failures (§1).
         Services.GetRequiredService<IGlobalErrorHandler>().Install();
 
+        // Tag every window title on a dev build so a dev instance is never mistaken for the installed one.
+        DevBuild.LabelAllWindows();
+
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
             // The tray means the app outlives its window: it may start hidden and keep running after the

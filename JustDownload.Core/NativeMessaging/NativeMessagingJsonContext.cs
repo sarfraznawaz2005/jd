@@ -38,4 +38,9 @@ internal sealed record ExtensionSettingsDto
     /// video detection everywhere, not just the app's own yt-dlp fallback.</summary>
     [JsonPropertyName("videoCaptureEnabled")]
     public required bool VideoCaptureEnabled { get; init; }
+
+    /// <summary>Whether Alt+click hands a download back to the browser (TASK-265). The extension gates its
+    /// bypass on this, so the app's Settings toggle actually controls the behaviour.</summary>
+    [JsonPropertyName("altClickBypassEnabled")]
+    public required bool AltClickBypassEnabled { get; init; }
 }

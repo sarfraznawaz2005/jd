@@ -40,5 +40,14 @@
 
     <TextBlock Text="{Binding StatusMessage}" IsVisible="{Binding StatusMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
                TextWrapping="Wrap" Classes="SettingsHint" />
+
+    <!-- Alt+click bypass (TASK-265) -->
+    <Grid ColumnDefinitions="*,Auto" Margin="0,12,0,0">
+      <TextBlock Grid.Column="0" Text="Alt+click sends a download to the browser"
+                 VerticalAlignment="Center" Foreground="{DynamicResource TextBrush}" />
+      <ToggleSwitch Grid.Column="1" IsChecked="{Binding AltClickBypassEnabled, Mode=TwoWay}" />
+    </Grid>
+    <TextBlock TextWrapping="Wrap" Classes="SettingsHint"
+               Text="Hold Alt while clicking a download and JustDownload leaves that one alone — the browser saves it as usual. Use it for links that only work once, such as a router or server &quot;backup settings&quot; button, which the app cannot fetch a second time." />
   </StackPanel>
 </UserControl>

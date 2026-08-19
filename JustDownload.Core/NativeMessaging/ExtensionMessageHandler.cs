@@ -168,6 +168,7 @@ internal sealed partial class ExtensionMessageHandler : INativeMessageHandler
             DefaultContainer = s.DefaultContainer.ToString().ToLowerInvariant(),
             MaxConcurrentDownloads = s.MaxConcurrentDownloads,
             VideoCaptureEnabled = s.VideoCaptureEnabled,
+            AltClickBypassEnabled = s.AltClickBypassEnabled,
         };
         return JsonSerializer.Serialize(payload, NativeMessagingJsonContext.Default.ExtensionSettingsDto);
     }

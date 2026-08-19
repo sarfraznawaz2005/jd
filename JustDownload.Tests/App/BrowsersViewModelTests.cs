@@ -1,6 +1,7 @@
 using FluentAssertions;
 using JustDownload.App.ViewModels;
 using JustDownload.Core.NativeMessaging;
+using JustDownload.Core.Settings;
 using NSubstitute;
 using Xunit;
 
@@ -21,6 +22,14 @@ public sealed class BrowsersViewModelTests
         return tracker;
     }
 
+    /// <summary>A settings service holding <paramref name="settings"/> (defaults when omitted).</summary>
+    private static ISettingsService Settings(AppSettings? settings = null)
+    {
+        var service = Substitute.For<ISettingsService>();
+        service.Current.Returns(settings ?? new AppSettings());
+        return service;
+    }
+
     [Fact]
     public void Ctor_PopulatesPerBrowserFamilyConnectionStatus_FromRealObservedContact()
     {
@@ -28,7 +37,7 @@ public sealed class BrowsersViewModelTests
         installer.IsHostPresent.Returns(true);
         IExtensionContactTracker tracker = Tracker(chromium: DateTimeOffset.UtcNow, firefox: null);
 
-        var vm = new BrowsersViewModel(installer, tracker, Substitute.For<JustDownload.Core.IPortableEnvironment>());
+        var vm = new BrowsersViewModel(installer, tracker, Substitute.For<JustDownload.Core.IPortableEnvironment>(), Settings());
 
         vm.HostAvailable.Should().BeTrue();
         vm.Browsers.Should().HaveCount(2);
@@ -43,7 +52,7 @@ public sealed class BrowsersViewModelTests
         // regardless of whether any extension is installed) must never be mistaken for a real connection.
         var installer = Substitute.For<INativeHostInstaller>();
         installer.IsHostPresent.Returns(true);
-        var vm = new BrowsersViewModel(installer, Tracker(), Substitute.For<JustDownload.Core.IPortableEnvironment>());
+        var vm = new BrowsersViewModel(installer, Tracker(), Substitute.For<JustDownload.Core.IPortableEnvironment>(), Settings());
 
         vm.Browsers.Should().OnlyContain(b => b.StatusText == "Not connected");
     }
@@ -54,7 +63,7 @@ public sealed class BrowsersViewModelTests
         var installer = Substitute.For<INativeHostInstaller>();
         var portable = Substitute.For<JustDownload.Core.IPortableEnvironment>();
         portable.IsPortable.Returns(true);
-        var vm = new BrowsersViewModel(installer, Tracker(), portable);
+        var vm = new BrowsersViewModel(installer, Tracker(), portable, Settings());
 
         vm.IsPortable.Should().BeTrue();
         vm.CanManageRegistration.Should().BeFalse();
@@ -74,7 +83,7 @@ public sealed class BrowsersViewModelTests
         var installer = Substitute.For<INativeHostInstaller>();
         installer.IsHostPresent.Returns(true);
         installer.Install().Returns(true);
-        var vm = new BrowsersViewModel(installer, Tracker(), Substitute.For<JustDownload.Core.IPortableEnvironment>());
+        var vm = new BrowsersViewModel(installer, Tracker(), Substitute.For<JustDownload.Core.IPortableEnvironment>(), Settings());
 
         vm.RegisterCommand.Execute(null);
 
@@ -87,7 +96,7 @@ public sealed class BrowsersViewModelTests
     {
         var installer = Substitute.For<INativeHostInstaller>();
         installer.Install().Returns(false);
-        var vm = new BrowsersViewModel(installer, Tracker(), Substitute.For<JustDownload.Core.IPortableEnvironment>());
+        var vm = new BrowsersViewModel(installer, Tracker(), Substitute.For<JustDownload.Core.IPortableEnvironment>(), Settings());
 
         vm.RegisterCommand.Execute(null);
 
@@ -98,11 +107,53 @@ public sealed class BrowsersViewModelTests
     public void Unregister_CallsInstaller_AndReportsDisconnected()
     {
         var installer = Substitute.For<INativeHostInstaller>();
-        var vm = new BrowsersViewModel(installer, Tracker(), Substitute.For<JustDownload.Core.IPortableEnvironment>());
+        var vm = new BrowsersViewModel(installer, Tracker(), Substitute.For<JustDownload.Core.IPortableEnvironment>(), Settings());
 
         vm.UnregisterCommand.Execute(null);
 
         installer.Received(1).Uninstall();
         vm.StatusMessage.Should().Contain("Disconnected");
+    }
+
+    [Fact]
+    public void AltClickBypass_DefaultsToOn()
+    {
+        // The escape hatch costs nothing until the user actually holds Alt, so it ships enabled.
+        new AppSettings().AltClickBypassEnabled.Should().BeTrue();
+
+        var vm = new BrowsersViewModel(
+            Substitute.For<INativeHostInstaller>(), Tracker(),
+            Substitute.For<JustDownload.Core.IPortableEnvironment>(), Settings());
+
+        vm.AltClickBypassEnabled.Should().BeTrue();
+    }
+
+    [Fact]
+    public void AltClickBypass_RestoresTheSavedValue_WithoutSavingItBack()
+    {
+        // Seeding the bound property must not count as a user edit, or opening Settings rewrites storage.
+        ISettingsService settings = Settings(new AppSettings { AltClickBypassEnabled = false });
+
+        var vm = new BrowsersViewModel(
+            Substitute.For<INativeHostInstaller>(), Tracker(),
+            Substitute.For<JustDownload.Core.IPortableEnvironment>(), settings);
+
+        vm.AltClickBypassEnabled.Should().BeFalse();
+        settings.DidNotReceive().UpdateAsync(
+            Arg.Any<Func<AppSettings, AppSettings>>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public void AltClickBypass_TogglingItSaves()
+    {
+        ISettingsService settings = Settings();
+        var vm = new BrowsersViewModel(
+            Substitute.For<INativeHostInstaller>(), Tracker(),
+            Substitute.For<JustDownload.Core.IPortableEnvironment>(), settings);
+
+        vm.AltClickBypassEnabled = false;
+
+        settings.Received(1).UpdateAsync(
+            Arg.Any<Func<AppSettings, AppSettings>>(), Arg.Any<CancellationToken>());
     }
 }

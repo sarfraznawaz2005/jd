@@ -60,6 +60,8 @@ internal static partial class SettingsSerializer
     internal const string NewDownloadProxyDomainKey = "newdownload.proxy_domain";
     internal const string NewDownloadProxyPasswordSecretRefKey = "newdownload.proxy_password_secret_ref";
     internal const string NewDownloadUseAlternateUrlsKey = "newdownload.use_alternate_urls";
+    internal const string NewDownloadSkipLinkCheckKey = "newdownload.skip_link_check";
+    internal const string AltClickBypassEnabledKey = "browser.alt_click_bypass";
 
     /// <summary>
     /// Serializes every setting to its storage representation. The result always contains all keys so
@@ -133,6 +135,10 @@ internal static partial class SettingsSerializer
             [NewDownloadProxyPasswordSecretRefKey] = settings.NewDownloadProxyPasswordSecretRef ?? string.Empty,
             [NewDownloadUseAlternateUrlsKey] =
                 settings.NewDownloadUseAlternateUrls.ToString(CultureInfo.InvariantCulture),
+            [NewDownloadSkipLinkCheckKey] =
+                settings.NewDownloadSkipLinkCheck.ToString(CultureInfo.InvariantCulture),
+            [AltClickBypassEnabledKey] =
+                settings.AltClickBypassEnabled.ToString(CultureInfo.InvariantCulture),
         };
     }
 
@@ -227,6 +233,10 @@ internal static partial class SettingsSerializer
                 stored, NewDownloadProxyPasswordSecretRefKey, defaults.NewDownloadProxyPasswordSecretRef),
             NewDownloadUseAlternateUrls =
                 ParseBool(stored, NewDownloadUseAlternateUrlsKey, defaults.NewDownloadUseAlternateUrls, logger),
+            NewDownloadSkipLinkCheck =
+                ParseBool(stored, NewDownloadSkipLinkCheckKey, defaults.NewDownloadSkipLinkCheck, logger),
+            AltClickBypassEnabled =
+                ParseBool(stored, AltClickBypassEnabledKey, defaults.AltClickBypassEnabled, logger),
         };
     }
 

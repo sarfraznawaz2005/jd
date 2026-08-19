@@ -146,7 +146,8 @@ public sealed partial class SettingsViewModel : ViewModelBase
             "Authentication", "IconSetAuth", new AuthenticationSettingsViewModel(_savedCredentials)));
         Sections.Add(new SettingsSectionViewModel("Categories", "IconSetCategories", new CategoriesSettingsViewModel(_settings, _folderRules)));
         Sections.Add(new SettingsSectionViewModel(
-            "Browsers", "IconSetBrowsers", new BrowsersViewModel(_nativeHostInstaller, _extensionContactTracker, _portable)));
+            "Browsers", "IconSetBrowsers",
+            new BrowsersViewModel(_nativeHostInstaller, _extensionContactTracker, _portable, _settings)));
         Sections.Add(new SettingsSectionViewModel(
             "Advanced", "IconSetAdvanced",
             new AdvancedSettingsViewModel(_settings, _errorLogPath, _fileRevealer)));

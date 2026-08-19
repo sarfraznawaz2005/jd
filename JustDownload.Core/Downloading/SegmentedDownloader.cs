@@ -104,9 +104,15 @@ internal sealed partial class SegmentedDownloader : ISegmentedDownloader
         using IDisposable proxyScope = _proxy.BeginDownloadScope(request.Proxy);
         using IDisposable credentialScope = _credentials.BeginScope(request.Credentials);
 
-        ResourceProbeResult probe = await _probe
-            .ProbeAsync(request.Url, request.Headers, cancellationToken)
+        // OpenAsync rather than ProbeAsync: when the server ignores our range probe it is already sending
+        // the whole resource, and the single-connection path below streams that very response instead of
+        // asking a second time. Beyond saving a round trip this is what makes one-shot URLs work at all —
+        // single-use tokens and signed links reject the second request, which would otherwise be written
+        // to disk as the "file" (TASK-262).
+        await using ProbedResource probed = await _probe
+            .OpenAsync(request.Url, request.Headers, cancellationToken)
             .ConfigureAwait(false);
+        ResourceProbeResult probe = probed.Result;
 
         int requested = request.Connections ?? _options.DefaultConnections;
         int connectionCount = probe.PlanConnectionCount(requested);
@@ -115,9 +121,13 @@ internal sealed partial class SegmentedDownloader : ISegmentedDownloader
         if (connectionCount <= 1 || probe.TotalLength is not > 0)
         {
             return await DownloadSingleAsync(
-                request, probe, limiter, progress, connectionProgress, connections, cancellationToken)
+                request, probed, limiter, progress, connectionProgress, connections, cancellationToken)
                 .ConfigureAwait(false);
         }
+
+        // Segmented: every segment issues its own ranged request, so the probe body is dead weight — free
+        // its connection now rather than pinning it for the whole download.
+        await probed.DisposeAsync().ConfigureAwait(false);
 
         return await DownloadSegmentedAsync(
             request, probe, probe.TotalLength.Value, connectionCount, limiter, progress, received,
@@ -127,23 +137,58 @@ internal sealed partial class SegmentedDownloader : ISegmentedDownloader
 
     private async Task<DownloadResult> DownloadSingleAsync(
         DownloadRequest request,
-        ResourceProbeResult probe,
+        ProbedResource probed,
         IRateLimiter limiter,
         IProgress<long>? progress,
         IProgress<ConnectionProgress>? connectionProgress,
         ConnectionController? connections,
         CancellationToken cancellationToken)
     {
+        ResourceProbeResult probe = probed.Result;
+
         // A single-connection transfer cannot be parallelised; live connection control is a no-op here
         // beyond reflecting the one active connection (AC2).
         connections?.ReportActiveConnections(1);
         long totalLength = probe.TotalLength is > 0 ? probe.TotalLength.Value : 0;
         await using var file = PreallocatedFile.Create(request.DestinationPath, totalLength);
 
-        await using ITransportResponse response = await _transport
-            .SendAsync(new TransportRequest { Uri = probe.FinalUri, Headers = request.Headers }, cancellationToken)
-            .ConfigureAwait(false);
+        // The probe's own response is the resource whenever the server answered a ranged GET with the
+        // whole body, so reuse it (TASK-262); only fetch again when the probe kept nothing reusable. A
+        // reused response belongs to `probed` and is released with it — only a fetched one is ours to
+        // dispose, hence the explicit `fetched` handle rather than an `await using` over both.
+        ITransportResponse? fetched = null;
+        try
+        {
+            ITransportResponse response = probed.Body ?? (fetched = await _transport
+                .SendAsync(
+                    new TransportRequest { Uri = probe.FinalUri, Headers = request.Headers },
+                    cancellationToken)
+                .ConfigureAwait(false));
 
+            return await CopySingleAsync(
+                probe, response, file, totalLength, limiter, progress, connectionProgress, connections,
+                cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            if (fetched is not null)
+            {
+                await fetched.DisposeAsync().ConfigureAwait(false);
+            }
+        }
+    }
+
+    private async Task<DownloadResult> CopySingleAsync(
+        ResourceProbeResult probe,
+        ITransportResponse response,
+        PreallocatedFile file,
+        long totalLength,
+        IRateLimiter limiter,
+        IProgress<long>? progress,
+        IProgress<ConnectionProgress>? connectionProgress,
+        ConnectionController? connections,
+        CancellationToken cancellationToken)
+    {
         if (!response.IsSuccessStatusCode)
         {
             ThrowIfAuthRequired(response.StatusCode);

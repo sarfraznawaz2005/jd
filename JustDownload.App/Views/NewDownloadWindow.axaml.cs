@@ -35,6 +35,12 @@ public partial class NewDownloadWindow : Window
         UrlBox.LostFocus += OnUrlCommitted;
         UrlBox.KeyDown += OnUrlKeyDown;
 
+        // Same trigger for the sign-in boxes (TASK-263): detection sends these headers, so a pasted cookie
+        // only shows its effect (real size, real file name) once the link is re-read with it. On blur rather
+        // than per keystroke so pasting a long cookie doesn't fire a probe per character.
+        SignInCookiesBox.LostFocus += OnUrlCommitted;
+        SignInReferrerBox.LostFocus += OnUrlCommitted;
+
         _autoDetectTimer = new DispatcherTimer { Interval = AutoDetectDebounce };
         _autoDetectTimer.Tick += (_, _) =>
         {

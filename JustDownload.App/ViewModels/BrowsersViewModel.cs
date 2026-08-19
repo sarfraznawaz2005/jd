@@ -3,6 +3,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using JustDownload.Core;
 using JustDownload.Core.NativeMessaging;
+using JustDownload.Core.Settings;
 
 namespace JustDownload.App.ViewModels;
 
@@ -24,6 +25,10 @@ public sealed partial class BrowsersViewModel : ViewModelBase
 {
     private readonly INativeHostInstaller _installer;
     private readonly IExtensionContactTracker _contactTracker;
+    private readonly ISettingsService _settings;
+
+    /// <summary>Set while the constructor seeds bound state, so restoring a value doesn't re-save it.</summary>
+    private readonly bool _loading;
 
     [ObservableProperty]
     private bool _hostAvailable;
@@ -31,14 +36,30 @@ public sealed partial class BrowsersViewModel : ViewModelBase
     [ObservableProperty]
     private string? _statusMessage;
 
+    /// <summary>
+    /// Whether Alt+click hands one download back to the browser (TASK-265). Lives here rather than in the
+    /// New Download dialog because it is browser-integration behaviour: it decides whether the extension
+    /// takes a download over at all, and the dialog never opens when it applies.
+    /// </summary>
+    [ObservableProperty]
+    private bool _altClickBypassEnabled;
+
     public BrowsersViewModel(
-        INativeHostInstaller installer, IExtensionContactTracker contactTracker, IPortableEnvironment portable)
+        INativeHostInstaller installer,
+        IExtensionContactTracker contactTracker,
+        IPortableEnvironment portable,
+        ISettingsService settings)
     {
         ArgumentNullException.ThrowIfNull(installer);
         ArgumentNullException.ThrowIfNull(contactTracker);
         ArgumentNullException.ThrowIfNull(portable);
+        ArgumentNullException.ThrowIfNull(settings);
         _installer = installer;
         _contactTracker = contactTracker;
+        _settings = settings;
+        _loading = true;
+        _altClickBypassEnabled = settings.Current.AltClickBypassEnabled;
+        _loading = false;
         IsPortable = portable.IsPortable;
         if (IsPortable)
         {
@@ -56,6 +77,14 @@ public sealed partial class BrowsersViewModel : ViewModelBase
 
     /// <summary>Per-browser-family connection status, driven by real observed contact (TASK-175).</summary>
     public ObservableCollection<BrowserStatusRow> Browsers { get; } = new();
+
+    partial void OnAltClickBypassEnabledChanged(bool value)
+    {
+        if (!_loading)
+        {
+            _ = _settings.UpdateAsync(s => s with { AltClickBypassEnabled = value });
+        }
+    }
 
     [RelayCommand]
     private void Refresh()

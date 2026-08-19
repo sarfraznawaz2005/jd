@@ -23,6 +23,7 @@ internal sealed class LoopbackHttpServer : IAsyncDisposable
     private readonly List<string> _receivedHeaderLines = [];
     private int _currentConnections;
     private int _maxConnections;
+    private int _bodyRequests;
 
     public LoopbackHttpServer()
     {
@@ -38,6 +39,21 @@ internal sealed class LoopbackHttpServer : IAsyncDisposable
 
     /// <summary>Whether the server honours <c>Range</c> and advertises <c>Accept-Ranges: bytes</c>.</summary>
     public bool SupportRanges { get; set; } = true;
+
+    /// <summary>
+    /// Mimics a one-shot URL — a single-use token, a signed link, a router CGI that only answers once
+    /// (TASK-262). The first request gets the real <see cref="Body"/>; every later one gets
+    /// <see cref="SingleUseRejection"/> under a <c>200 OK</c>, which is how these servers actually fail:
+    /// the status says success, so only the bytes reveal that the "file" is an error page.
+    /// </summary>
+    public bool SingleUse { get; set; }
+
+    /// <summary>The payload served to every request after the first when <see cref="SingleUse"/> is set.</summary>
+    public byte[] SingleUseRejection { get; set; } =
+        Encoding.UTF8.GetBytes("""{"status":"invalid-token","errorMessage":"Invalid token or session expired."}""");
+
+    /// <summary>How many body-serving requests the server has handled (a HEAD does not count).</summary>
+    public int BodyRequests => Volatile.Read(ref _bodyRequests);
 
     /// <summary>
     /// When set, the server still answers the 1-byte range probe with <c>206</c> (so a resume is attempted)
@@ -305,7 +321,24 @@ internal sealed class LoopbackHttpServer : IAsyncDisposable
             return;
         }
 
+        bool isHead = string.Equals(method, "HEAD", StringComparison.OrdinalIgnoreCase);
         byte[] body = Body;
+
+        int requestNumber = isHead ? 0 : Interlocked.Increment(ref _bodyRequests);
+
+        if (SingleUse && requestNumber > 1)
+        {
+            // Token already spent: answer like the real thing — 200, no Accept-Ranges, a tiny JSON body.
+            byte[] rejection = SingleUseRejection;
+            byte[] rejectionHead = Encoding.ASCII.GetBytes(string.Create(
+                CultureInfo.InvariantCulture,
+                $"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {rejection.Length}\r\nConnection: close\r\n\r\n"));
+            await stream.WriteAsync(rejectionHead, ct).ConfigureAwait(false);
+            await stream.WriteAsync(rejection, ct).ConfigureAwait(false);
+            await stream.FlushAsync(ct).ConfigureAwait(false);
+            return;
+        }
+
         byte[] slice;
         int status;
         string reason;

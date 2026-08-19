@@ -43,5 +43,9 @@ if (-not $NoClean) {
 }
 
 Write-Host "Building & launching $appProject ..." -ForegroundColor DarkGray
+
+# Marks this as a dev run so every window title gets " - DEV" (DevBuild.cs). Set here rather than inferred
+# from the configuration so a -Release dev run is labelled too; a published stable build never sees it.
+$env:JUSTDOWNLOAD_DEV = '1'
 & dotnet run --project $appProject -c $config
 exit $LASTEXITCODE

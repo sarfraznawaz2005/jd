@@ -347,5 +347,23 @@
     window.addEventListener("resize", repositionAll, { passive: true });
   }
 
+  // Alt+click bypass (TASK-265): holding Alt while clicking hands that one download back to the browser.
+  // Deliberately registered outside init() and in the capture phase on mousedown, so it still fires on a
+  // page that stops propagation, on a blacklisted frame, and when the video overlay is switched off.
+  //
+  // What gets recorded is "a click happened just now", not the clicked URL: the download a click produces
+  // frequently has no relation to the element's href. Technitium's "Backup Settings" is a <button> that
+  // fetches a one-time token over AJAX and only then calls window.open with a URL that existed nowhere in
+  // the DOM at click time — matching on the element would miss exactly the case this feature exists for.
+  window.addEventListener(
+    "mousedown",
+    (event) => {
+      if (event.altKey) {
+        api.runtime.sendMessage({ type: "ALT_BYPASS" }).catch(() => {});
+      }
+    },
+    { capture: true, passive: true },
+  );
+
   void init();
 })();

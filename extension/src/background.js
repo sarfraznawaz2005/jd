@@ -117,6 +117,30 @@ async function isInterceptEnabled() {
   }
 }
 
+// Alt+click bypass (TASK-265). A content script reports an Alt+click; the next download to start within
+// the window below is left to the browser instead of being taken over. This is the escape hatch for links
+// the app cannot fetch — above all one-shot URLs (single-use tokens, signed links, router CGIs), where the
+// browser has already spent the link's single answer by the time downloads.onCreated fires, so handing the
+// URL to the app can only ever produce the server's rejection page.
+//
+// Held in memory rather than storage: the gap between the click and the download is sub-second, and the
+// ALT_BYPASS message itself has just woken (or kept alive) this service worker.
+const ALT_BYPASS_WINDOW_MS = 5000;
+let altBypassUntil = 0;
+let altClickBypassEnabled = true;
+
+/**
+ * Whether the user Alt+clicked moments ago, consuming the flag. One-shot rather than lasting the whole
+ * window, so a second unrelated download that happens to land in the same few seconds is still taken over.
+ */
+function consumeAltBypass() {
+  if (!altClickBypassEnabled || altBypassUntil === 0 || Date.now() > altBypassUntil) {
+    return false;
+  }
+  altBypassUntil = 0;
+  return true;
+}
+
 // The app's own AppSettings.VideoCaptureEnabled (TASK-185), mirrored here so the extension's media
 // sniffer and icon overlay actually stop when the user turns it off in Settings — before this, the flag
 // was never even exposed to the extension (GET_SETTINGS didn't include it), so the two were completely
@@ -126,18 +150,27 @@ async function isInterceptEnabled() {
 // the setting in the app naturally reopens the popup around the same time to check.
 let videoCaptureEnabled = true;
 
-async function refreshVideoCaptureCache() {
+async function refreshAppSettingsCache() {
   try {
     const settings = await new Promise((resolve) => {
       api.runtime.sendNativeMessage(NATIVE_HOST, { type: "get_settings" }, (response) => {
         resolve(api.runtime.lastError ? null : response);
       });
     });
-    if (typeof settings?.videoCaptureEnabled === "boolean") {
-      videoCaptureEnabled = settings.videoCaptureEnabled;
-    }
+    applyAppSettings(settings);
   } catch {
-    /* app/host unreachable — keep the last-known value */
+    /* app/host unreachable — keep the last-known values */
+  }
+}
+
+/** Mirrors the app-settings fields the extension gates its own behaviour on. Ignores anything absent, so
+ * an older app build simply leaves the last-known value in place rather than resetting it. */
+function applyAppSettings(settings) {
+  if (typeof settings?.videoCaptureEnabled === "boolean") {
+    videoCaptureEnabled = settings.videoCaptureEnabled;
+  }
+  if (typeof settings?.altClickBypassEnabled === "boolean") {
+    altClickBypassEnabled = settings.altClickBypassEnabled;
   }
 }
 
@@ -159,6 +192,12 @@ async function handleBrowserDownload(item) {
   if (!item?.url || item.url.startsWith("blob:") || item.url.startsWith("data:")) {
     return;
   }
+  // Checked before the intercept toggle and before anything is cancelled: the whole point is that this
+  // download never leaves the browser's hands.
+  if (consumeAltBypass()) {
+    return;
+  }
+
   if (!(await isInterceptEnabled())) {
     return;
   }
@@ -218,14 +257,14 @@ api.runtime.onInstalled.addListener(() => {
     });
   });
   pingHost(); // announce this install to the desktop app right away (TASK-175), not just on popup-open
-  void refreshVideoCaptureCache();
+  void refreshAppSettingsCache();
 });
 
 // Re-announce on every browser startup too, so the app's "last contacted" state stays fresh across
 // sessions rather than only reflecting a one-time install ping (TASK-175).
 api.runtime.onStartup.addListener(() => {
   pingHost();
-  void refreshVideoCaptureCache();
+  void refreshAppSettingsCache();
 });
 
 /** Fire-and-forget native-messaging ping, purely to register real contact with the desktop app. */
@@ -359,6 +398,12 @@ api.runtime.onMessage.addListener((message, sender, sendResponse) => {
       break;
     }
 
+    case "ALT_BYPASS":
+      // A content script saw an Alt+click (TASK-265); arm the bypass for the download it is about to start.
+      altBypassUntil = Date.now() + ALT_BYPASS_WINDOW_MS;
+      sendResponse({ ok: true });
+      break;
+
     case "SYNC_BLACKLIST":
       // The popup changed the per-site blacklist; push it to the desktop app (TASK-069 AC1).
       void forwardToApp(JD.buildBlacklistSyncMessage(message.blacklist)).then((ok) =>
@@ -373,8 +418,8 @@ api.runtime.onMessage.addListener((message, sender, sendResponse) => {
       // than making a second one.
       try {
         api.runtime.sendNativeMessage(NATIVE_HOST, { type: "get_settings" }, (response) => {
-          if (!api.runtime.lastError && typeof response?.videoCaptureEnabled === "boolean") {
-            videoCaptureEnabled = response.videoCaptureEnabled;
+          if (!api.runtime.lastError) {
+            applyAppSettings(response);
           }
           sendResponse({ ok: !api.runtime.lastError, settings: response ?? null });
         });

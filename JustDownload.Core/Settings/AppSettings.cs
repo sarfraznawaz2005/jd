@@ -275,4 +275,22 @@ public sealed record AppSettings
     /// <summary>The New Download dialog's "add alternate mirror URLs" toggle (TASK-227). The mirror list
     /// itself is per-download content and is deliberately not remembered. Default <see langword="false"/>.</summary>
     public bool NewDownloadUseAlternateUrls { get; init; }
+
+    /// <summary>
+    /// Whether holding <c>Alt</c> while clicking a download link hands that one download back to the
+    /// browser instead of taking it over (TASK-265). The escape hatch for links the app cannot fetch —
+    /// most importantly one-shot URLs, where the browser has already spent the link's single answer by the
+    /// time the extension sees the download, so only the browser can finish it. Default
+    /// <see langword="true"/>: it costs nothing until the user actually holds Alt.
+    /// </summary>
+    public bool AltClickBypassEnabled { get; init; } = true;
+
+    /// <summary>
+    /// The New Download dialog's "don't pre-check this link" toggle (TASK-262). Reading a link costs a
+    /// request, and a one-shot URL — a single-use token, a signed link, a router CGI — only answers once,
+    /// so the pre-check spends the single answer and leaves the download itself with a rejection page.
+    /// Turning this on skips detection entirely and downloads straight from the URL. Default
+    /// <see langword="false"/>: the pre-check is what fills in the file name, size and resumability.
+    /// </summary>
+    public bool NewDownloadSkipLinkCheck { get; init; }
 }
