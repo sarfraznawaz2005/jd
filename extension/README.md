@@ -4,10 +4,12 @@ Manifest V3 browser extension that hands downloads and detected media off to the
 JustDownload desktop app via the Native Messaging Host (`JustDownload.NativeHost`),
 per locked decision **D8**.
 
-This is the **scaffold** (TASK-066): structure, a working per-browser build, a
-stub background service worker, a stub content script, and the popup UI styled to
-match `mockups/extension.html`. The real network sniffer, context-menu action,
-and per-site blacklist arrive in later tasks (TASK-067/068/071).
+It builds one shared source tree into a per-browser package. Working features
+include: per-video download icons on the page (IDM-style), a background
+network sniffer that catches media a page hides behind `blob:`/MSE, sign-in
+cookie/header handoff for authenticated downloads, a per-site blacklist,
+browser-download takeover, and a popup/options UI styled to match
+`mockups/extension.html`.
 
 ## Layout
 
@@ -18,8 +20,8 @@ extension/
 │   ├── manifest.chrome.json ← Chromium override (background.service_worker)
 │   ├── manifest.edge.json   ← Edge override (same as Chrome)
 │   ├── manifest.firefox.json← Firefox override (+ browser_specific_settings.gecko)
-│   ├── background.js        ← MV3 service worker (stub message handler)
-│   ├── content.js           ← content script (stub)
+│   ├── background.js        ← MV3 service worker (native messaging, network sniffer)
+│   ├── content.js           ← content script (per-video download icons)
 │   ├── popup.html/.css/.js  ← extension popup (modern-minimal, light + dark)
 │   ├── icon.svg             ← brand-mark master (source of truth for the icons)
 │   └── icons/               ← real PNG icons rendered from icon.svg (committed)
@@ -74,6 +76,10 @@ regenerates them if a checkout is missing them.
 `dist/chrome.zip`, `dist/edge.zip`, and `dist/firefox.zip` (a minimal,
 dependency-free, deterministic ZIP writer). Upload the matching archive to each
 browser's developer dashboard.
+
+Store listings that ask for a privacy policy URL (Edge Add-ons requires one
+because this extension reads cookies and all sites) should link to
+[`PRIVACY.md`](../PRIVACY.md) in this repo.
 
 ## Load the unpacked extension
 

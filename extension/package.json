@@ -1,6 +1,6 @@
 {
   "name": "justdownload-extension",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
   "description": "JustDownload MV3 browser extension — shared source, per-browser packaging (Chrome/Edge/Firefox).",
   "license": "MIT",
