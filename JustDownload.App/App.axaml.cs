@@ -272,6 +272,7 @@ public partial class App : Application
 
             // Flash the taskbar on completion so a finished download is noticed from another app (TASK-226).
             Services.GetRequiredService<TaskbarFlashNotifier>().Start();
+            WireRaiseProgressWindowOnCompletion(desktop);
             InstallTrayIcon(desktop, window, mainViewModel);
             WireForwardedArguments(mainViewModel);
 
@@ -360,6 +361,38 @@ public partial class App : Application
             window.WindowState = WindowState.Normal;
         }
 
+        ForceToForeground(window);
+    }
+
+    /// <summary>
+    /// Raises a download's own progress window when it completes (user-requested), so a finished download is
+    /// seen without hunting the taskbar. No progress window open (disabled, auto-closed, or closed by the
+    /// user) means nothing is raised — the completion toast and flash still cover that case.
+    /// </summary>
+    private void WireRaiseProgressWindowOnCompletion(IClassicDesktopStyleApplicationLifetime desktop)
+    {
+        var progressWindows = Services.GetRequiredService<DownloadProgressWindowService>();
+        Services.GetRequiredService<IDownloadManager>().StatusChanged += (_, e) =>
+        {
+            if (e.Current != DownloadStatus.Completed)
+            {
+                return;
+            }
+
+            // The manager raises this off the UI thread; windows must be touched on it.
+            Dispatcher.UIThread.Post(() =>
+            {
+                if (progressWindows.Find(e.DownloadId) is { } progress
+                    && desktop.Windows.FirstOrDefault(w => ReferenceEquals(w.DataContext, progress)) is { } window)
+                {
+                    ForceToForeground(window);
+                }
+            });
+        };
+    }
+
+    private static void ForceToForeground(Window window)
+    {
         // Windows (and some Linux WMs) refuse a background process's plain Activate() call outright
         // (foreground-lock prevention) — the window merely flashes in the taskbar instead of coming
         // forward (user-reported: waking from the tray didn't reliably bring the window to focus).
@@ -442,6 +475,7 @@ public partial class App : Application
     {
         var closed = new TaskCompletionSource();
         dialog.Closed += (_, _) => closed.TrySetResult();
+        dialog.Opened += (_, _) => ForceToForeground(dialog);
         dialog.Show();
         await closed.Task;
     }
@@ -456,6 +490,10 @@ public partial class App : Application
     /// </summary>
     private static async Task ShowWithoutForcingOwnerVisibleAsync(Window? owner, Window dialog)
     {
+        // A browser hand-off arrives while another app has focus; without this the dialog only flashes
+        // in the taskbar (user-reported) — same foreground-lock problem BringToFront works around.
+        dialog.Opened += (_, _) => ForceToForeground(dialog);
+
         if (owner is { IsVisible: true })
         {
             await dialog.ShowDialog(owner);
